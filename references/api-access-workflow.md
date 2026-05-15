@@ -542,7 +542,7 @@ def collect_rest_data(base_url, endpoint, headers, params):
 
 ### GraphQL APIs
 
-See detailed GraphQL guidance in `references/adapters/graphql.md`.
+See detailed GraphQL guidance in `adapters/graphql.md`.
 
 Quick reference:
 
@@ -761,7 +761,7 @@ def safety_check(passed):
 
 ### Key Files Referenced
 
-- `references/adapters/graphql.md` - Detailed GraphQL patterns
-- `references/data-transformation.md` - Data processing techniques
-- `references/logging-standards.md` - Logging requirements
-```
+- `adapters/graphql.md` - Detailed GraphQL patterns
+- `references/data-processing-pipeline.md` - Data cleaning, validation, and transformation
+- `templates/api-request-log.csv` - Header for the per-request log this workflow refers to
+- `references/large-scale-collection.md` - Checkpointing and adaptive rate limiting for >100 records
