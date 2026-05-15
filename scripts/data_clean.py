@@ -1,4 +1,3 @@
-```python
 #!/usr/bin/env python3
 """
 Data cleaning helper for D Research skill.
@@ -474,4 +473,3 @@ def main() -> int:
 
 if __name__ == '__main__':
     sys.exit(main())
-```

@@ -1,4 +1,3 @@
-```python
 #!/usr/bin/env python3
 """Citation export utility with BibTeX/RIS export and DOI enrichment."""
 
@@ -466,4 +465,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-```
