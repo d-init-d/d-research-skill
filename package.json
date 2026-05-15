@@ -1,0 +1,19 @@
+{
+  "name": "d-research-skill-tools",
+  "version": "0.1.0",
+  "description": "Optional Playwright helper scripts for the D Research skill.",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "probe": "node scripts/playwright_probe.mjs",
+    "extract": "node scripts/playwright_extract.mjs",
+    "crawl": "node scripts/playwright_crawl.mjs",
+    "ledger:init": "node scripts/run_python.mjs scripts/evidence_ledger.py init",
+    "ledger:validate": "node scripts/run_python.mjs scripts/evidence_ledger.py validate",
+    "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test"
+  },
+  "dependencies": {
+    "playwright": "^1.56.0"
+  }
+}

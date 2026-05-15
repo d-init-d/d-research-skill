@@ -1,0 +1,7 @@
+node_modules/
+research-output/
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db

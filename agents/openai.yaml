@@ -1,0 +1,5 @@
+interface:
+  display_name: "D Research"
+  short_description: "Browser-first deep research and public data extraction workflow"
+  icon: "🔎"
+  color: "#1f6feb"

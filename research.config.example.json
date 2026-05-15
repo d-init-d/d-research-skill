@@ -1,0 +1,37 @@
+{
+  "browser": {
+    "default": "playwright",
+    "headless": true,
+    "timeoutMs": 30000,
+    "screenshotOnBlocker": true,
+    "screenshotOnEvidence": false
+  },
+  "crawl": {
+    "maxDepth": 2,
+    "maxPagesPerDomain": 30,
+    "maxTotalPages": 100,
+    "delayMs": 1000,
+    "respectRobots": true,
+    "followExternalLinks": false
+  },
+  "research": {
+    "requireEvidenceLedger": true,
+    "requireContradictionPass": true,
+    "preferPrimarySources": true,
+    "minSourcesForStrongClaim": 2,
+    "searchLogRequired": true
+  },
+  "access": {
+    "allowLoginWithUserPermission": false,
+    "allowPaywalledSources": false,
+    "allowCaptchaSolving": false,
+    "allowStealthEvasion": false,
+    "defaultMode": "read-only"
+  },
+  "output": {
+    "defaultReport": "research-report",
+    "includeBlockedSources": true,
+    "includeConfidence": true,
+    "includeNextSearches": true
+  }
+}
