@@ -110,3 +110,34 @@ Score each source from 0 to 5:
 - stability: is the URL canonical and durable?
 
 Use high-scoring sources first.
+### API layer
+
+Search for structured data via APIs:
+- REST API endpoints: check /api, /api/v1, /api/docs, /swagger.json, /openapi.json
+- GraphQL endpoints: check /graphql, /api/graphql, /gql
+- SPARQL endpoints: check /.well-known/void, /sparql
+- Developer portals and API documentation pages
+- Network requests visible in browser (XHR/Fetch) revealing API patterns
+- API aggregators: RapidAPI, ProgrammableWeb, public-apis GitHub repo
+
+Evaluate: authentication requirements, rate limits, data completeness, documentation quality.
+
+### Database and data portal layer
+
+Look for queryable data interfaces:
+- Socrata/SODA API portals (many US/EU government datasets)
+- CKAN-based portals (data.gov, data.gov.uk, many national portals)
+- Google Dataset Search: https://datasetsearch.research.google.com
+- Kaggle datasets (public, downloadable)
+- data.world, Hugging Face Datasets
+- Domain-specific registries and repositories
+
+### Specialized domain layer
+
+Route to domain-specific sources based on research topic:
+- Financial: FRED, World Bank, SEC EDGAR, Alpha Vantage (see references/specialized-domains.md)
+- Academic: OpenAlex, CrossRef, PubMed, Semantic Scholar (see references/academic-databases.md)
+- Patent: USPTO PatentsView, EPO, WIPO
+- Legal: EUR-Lex, Congress.gov, national legal databases
+- Geospatial: OpenStreetMap Overpass, Natural Earth, GADM
+- Social: Reddit JSON API, Hacker News Algolia, GDELT

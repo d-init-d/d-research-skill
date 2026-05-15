@@ -92,3 +92,20 @@ When a high-quality source is found:
 | Sub-question | Query | Tool | Date | Top sources found | Notes |
 |---|---|---|---|---|---|
 ```
+### Web search query patterns
+
+- Advanced operators: `site:{domain} {topic}`, `filetype:{extension} {topic}`, `intitle:{phrase}`, `inurl:{keyword}`
+- Boolean combinations: `{term1} AND {term2}`, `{term1} OR {term2}`, `{term} -exclude`
+- Exact phrases: `"{exact phrase}"`, `"{phrase}" {related_term}`
+- Date filtering: `after:{date}`, `before:{date}`, `daterange:{start}..{end}`
+- Related content: `related:{domain}`, `link:{url}`
+- Cache/versioning: `cache:{url}`, `versions:{term}`
+
+### Documentation and knowledge base queries
+
+- Manual lookup: `"{tool_name}" documentation`, `"{tool_name}" user guide`, `"{tool_name}" tutorial`
+- Stack Exchange: `site:stackoverflow.com {error_message}`, `site:serverfault.com {issue}`
+- GitHub: `site:github.com {topic} issues`, `site:github.com {repo} README`
+- Wikipedia/Encyclopedia: `{concept} wikipedia`, `intitle:wikipedia {topic}`
+- RFC/specs: `RFC {number}`, `site:datatracker.ietf.org {protocol}`, `site:tools.ietf.org {rfc}`
+- Cheat sheets: `"{topic}" cheatsheet`, `"{tool}" quick reference`, `"{topic}" one-page guide`

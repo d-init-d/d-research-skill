@@ -33,5 +33,42 @@
     "includeBlockedSources": true,
     "includeConfidence": true,
     "includeNextSearches": true
+  },
+  "api": {
+    "defaultDelayMs": 500,
+    "maxRetries": 3,
+    "backoffMultiplier": 2,
+    "respectRateLimitHeaders": true,
+    "maxPagesPerEndpoint": 50,
+    "timeoutMs": 30000
+  },
+  "database": {
+    "queryTimeoutMs": 30000,
+    "maxResultRows": 10000,
+    "readOnly": true
+  },
+  "citation": {
+    "defaultFormat": "bibtex",
+    "enrichFromCrossRef": true,
+    "autoGenerateKeys": true,
+    "deduplicateByDOI": true
+  },
+  "monitoring": {
+    "enabled": false,
+    "defaultIntervalMinutes": 60,
+    "hashMethod": "sha256",
+    "archiveSnapshots": true
+  },
+  "processing": {
+    "autoClean": false,
+    "detectOutliers": true,
+    "deduplicateByDefault": true,
+    "dateFormatISO8601": true
+  },
+  "largeScale": {
+    "checkpointEveryN": 50,
+    "checkpointEveryMinutes": 5,
+    "maxErrorRatePercent": 20,
+    "adaptiveRateLimit": true
   }
 }

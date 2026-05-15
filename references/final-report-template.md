@@ -111,3 +111,98 @@ Coverage:
 
 ## Reproduction steps
 ```
+
+## Report with data visualization
+
+Use when the research includes quantitative data that benefits from visual representation.
+
+```markdown
+# Research report: [topic]
+
+## Direct answer
+
+## Key findings with visualizations
+
+### Finding 1
+- Evidence:
+- Chart: ![description](path/to/chart1.png)
+- Confidence:
+
+### Finding 2
+- Evidence:
+- Chart: ![description](path/to/chart2.png)
+- Confidence:
+
+## Data summary dashboard
+
+See: research-output/dashboard.html
+
+## Evidence summary table
+
+## Sources
+
+## Methodology notes
+- Chart generation: matplotlib/plotly
+- Data source and date range noted on each chart
+```
+
+See references/data-visualization.md for chart type selection and generation guidelines.
+
+## LaTeX academic report template
+
+Use for academic papers, theses, and formal publications.
+
+```latex
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{natbib}
+
+\title{[Research Title]}
+\author{[Author]}
+\date{\today}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+[Abstract text]
+\end{abstract}
+
+\section{Introduction}
+\section{Methodology}
+\section{Results}
+\section{Discussion}
+\section{Conclusion}
+
+\bibliographyle{apalike}
+\bibliography{references}
+\end{document}
+```
+
+Pair with exported BibTeX file from references/citation-management.md.
+
+## Citation list format
+
+Append to any report that uses academic sources:
+
+```markdown
+## References
+
+### Formatted reference list (APA 7)
+
+1. Author, A. A. (Year). Title of work. *Journal Name*, Volume(Issue), pages. https://doi.org/xxx
+
+### Machine-readable exports
+
+- BibTeX: research-output/references.bib
+- RIS: research-output/references.ris
+
+### Citation statistics
+
+- Total unique sources cited: N
+- Source types: journal articles (X), conference papers (Y), reports (Z), web (W)
+- Date range: YYYY - YYYY
+- Sources with DOI: N/M (percentage)
+```

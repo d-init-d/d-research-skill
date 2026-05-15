@@ -56,6 +56,19 @@ Use the best available tool stack in this order:
 
 If a tool is unavailable, continue with the next-best method and record the limitation.
 
+## Data access layers
+
+Access data in order of preference:
+
+1. **Web layer** — public pages, dynamic content, file downloads (existing browser/fetch workflow)
+2. **File layer** — CSV, JSON, XML, PDF, XLSX, DOCX from public URLs
+3. **API layer** — REST, GraphQL, SPARQL endpoints with proper authentication. See `references/api-access-workflow.md`
+4. **Database layer** — read-only SQL/NoSQL access when user provides credentials. See `adapters/database-readonly.md`
+5. **Academic database layer** — OpenAlex, CrossRef, PubMed, Semantic Scholar, arXiv. See `references/academic-databases.md`
+6. **Specialized domain layer** — financial APIs, patent databases, government portals. See `references/specialized-domains.md`
+
+For each layer, follow the safety boundary: read-only, respect rate limits, log all access.
+
 ## Safety boundary
 
 Allowed:
@@ -103,6 +116,34 @@ Probe the URL first with the browser. Classify access status, extract available 
 ### If only web search exists
 
 Run search-based research. Prefer official and primary sources. Mark sources that were found but not directly opened.
+
+### If the user asks to collect data from an API
+
+Use `references/api-access-workflow.md`. Discover endpoints, authenticate if user provides keys, paginate, handle rate limits, export structured data.
+
+### If the user asks for large-scale collection (100+ pages/records)
+
+Use `references/large-scale-collection.md`. Enable checkpointing, adaptive rate limiting, batch processing.
+
+### If the user asks for financial, patent, legal, or government data
+
+Use `references/specialized-domains.md`. Route to appropriate free APIs and data portals.
+
+### If the user asks for a literature review with citations
+
+Combine the academic workflow with `references/academic-databases.md` and `references/citation-management.md`. Export citations in BibTeX or RIS format.
+
+### If the user wants data cleaned or analyzed
+
+Use `references/data-processing-pipeline.md` after extraction. Run cleaning, validation, and analysis stages.
+
+### If the user wants visualizations or charts
+
+Use `references/data-visualization.md`. Generate matplotlib/plotly charts as part of the report.
+
+### If the user wants to monitor changes over time
+
+Use `references/monitoring-change-detection.md`. Take baseline snapshots, detect changes, report diffs.
 
 ## Standard deep research workflow
 
@@ -284,6 +325,9 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/playwright_extract.mjs`: extract visible text, tables, links, metadata, and files into JSON or Markdown
 - `scripts/playwright_crawl.mjs`: bounded same-domain crawl with basic robots awareness and page manifests
 - `scripts/evidence_ledger.py`: initialize and validate CSV evidence ledgers
+- `scripts/api_fetch.mjs`: paginated API fetch with rate limiting, retry, and multiple output formats
+- `scripts/data_clean.py`: data cleaning, deduplication, validation, statistics, and merging
+- `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via CrossRef
 
 The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.
 
@@ -305,6 +349,20 @@ Important config fields:
 - access.allowPaywalledSources
 - access.allowCaptchaSolving
 - access.allowStealthEvasion
+- api.defaultDelayMs
+- api.maxRetries
+- api.respectRateLimitHeaders
+- database.queryTimeoutMs
+- database.maxResultRows
+- database.readOnly
+- citation.defaultFormat
+- citation.enrichFromCrossRef
+- monitoring.enabled
+- monitoring.defaultIntervalMinutes
+- processing.autoClean
+- processing.detectOutliers
+- largeScale.checkpointEveryN
+- largeScale.adaptiveRateLimit
 
 Default access policy is conservative and read-only.
 

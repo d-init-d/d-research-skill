@@ -132,6 +132,41 @@ Use one or more:
 - blocked sources
 ```
 
+## Database search workflow
+
+For systematic reviews and literature reviews, supplement web searches with academic database APIs:
+
+1. **OpenAlex** (recommended first): search /works with topic query + year filter + concept filter. Use cursor pagination. Returns DOI, title, abstract, citation count, referenced works.
+2. **CrossRef**: enrich metadata for papers found via DOI lookup. Get full author lists, journal info, funding data.
+3. **Semantic Scholar**: find related papers, citation graphs, and influential citations.
+4. **PubMed**: required for biomedical/clinical topics. Use MeSH terms for precise searches.
+5. **arXiv**: for CS, physics, math, quantitative biology/finance preprints.
+
+Workflow:
+- Run the same query across multiple databases
+- Deduplicate results by DOI
+- Record which databases yielded which sources in search-log
+- Cross-reference citation lists between databases
+- Use snowballing on highly-cited papers
+
+See `references/academic-databases.md` for endpoint details and rate limits.
+
+## Citation export
+
+After evidence extraction is complete:
+
+1. Collect all unique sources from the evidence ledger
+2. Enrich source metadata via CrossRef DOI lookup
+3. Deduplicate by DOI or exact title match
+4. Export in user's preferred format:
+   - BibTeX (.bib) for LaTeX workflows
+   - RIS (.ris) for Zotero/Mendeley/EndNote import
+   - Formatted reference list (APA 7, IEEE, Chicago, Vancouver)
+5. Include citation in final report
+
+Use `scripts/citation_export.py` for automated export.
+See `references/citation-management.md` for full workflow.
+
 ## Academic integrity
 
 Never invent citations. Mark inaccessible papers, uncertain claims, and sources requiring manual retrieval.

@@ -114,3 +114,42 @@ Extraction date:
 
 ## Blocked or partial sources
 ```
+### 8. API extraction
+
+When a public API or authorized API endpoint is available:
+- discover API docs (swagger, openapi.json, developer portal)
+- test with smallest possible request
+- implement proper pagination (offset, cursor, page, link-header)
+- respect rate limits (parse X-RateLimit headers, adaptive backoff)
+- validate response schema
+- flatten nested JSON to tabular format when needed
+- log all requests to api-request-log
+
+See references/api-access-workflow.md for full workflow.
+See adapters/graphql.md for GraphQL-specific extraction.
+
+### 9. Database extraction
+
+When user provides database access:
+- connect with user-provided credentials (NEVER guess or brute-force)
+- discover schema (tables, columns, types)
+- build SELECT queries from research questions
+- always use LIMIT to prevent overwhelming results
+- export to CSV/JSON
+- document schema in data dictionary
+- READ-ONLY operations only
+
+See adapters/database-readonly.md for full workflow.
+
+### 10. Academic database extraction
+
+For literature and research data:
+- use free academic APIs first (OpenAlex, CrossRef, Semantic Scholar, PubMed, arXiv)
+- paginate through results (cursor-based for OpenAlex, offset for CrossRef)
+- enrich metadata via DOI lookup on CrossRef
+- build citation networks from referenced_works
+- export citations in BibTeX/RIS format
+- log all queries to search-log for reproducibility
+
+See references/academic-databases.md for endpoints and query syntax.
+See references/citation-management.md for citation export.
