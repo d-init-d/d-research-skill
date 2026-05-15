@@ -328,257 +328,123 @@ PRISMA 2020 Flow Diagram - Implemented Checks
 ## 📁 Repository Layout
 
 ```
-d-research/
-├── README.md
-├── LICENSE
-├── pyproject.toml
-├── uv.lock
-├── .env.example
-├── docker-compose.yml
-├── Dockerfile
+d-research-skill/
+├── SKILL.md                         # Main skill definition (12-step workflow)
+├── AGENTS.md                        # Agent instructions
+├── README.md                        # This file
+├── LICENSE                          # MIT License
+├── package.json                     # Node.js scripts & config
+├── research.config.example.json     # Research configuration template
 │
-├── src/
-│   └── dresearch/
-│       ├── __init__.py
-│       ├── __version__.py
-│       │
-│       ├── core/
-│       │   ├── __init__.py
-│       │   ├── agent.py              # AI agent interface
-│       │   ├── browser.py            # Browser automation
-│       │   ├── workflow.py           # 12-step workflow engine
-│       │   ├── scheduler.py          # Task scheduling
-│       │   └── config.py             # Configuration management
-│       │
-│       ├── collectors/
-│       │   ├── __init__.py
-│       │   ├── api_client.py         # API access layer
-│       │   ├── database_searcher.py  # Academic DB queries
-│       │   ├── web_scraper.py        # Web data collection
-│       │   ├── pdf_extractor.py      # PDF content extraction
-│       │   └── scale_controller.py   # Large-scale orchestration
-│       │
-│       ├── processing/
-│       │   ├── __init__.py
-│       │   ├── etl_pipeline.py       # ETL pipelines
-│       │   ├── text_processor.py     # NLP processing
-│       │   ├── entity_extractor.py   # NER pipeline
-│       │   ├── deduplicator.py       # Duplicate detection
-│       │   └── language_detector.py  # Multilingual support
-│       │
-│       ├── citations/
-│       │   ├── __init__.py
-│       │   ├── generator.py          # Citation creation
-│       │   ├── formatter.py          # Style formatting
-│       │   ├── bibliography.py       # Reference management
-│       │   └── exporter.py           # Export to managers
-│       │
-│       ├── evidence/
-│       │   ├── __init__.py
-│       │   ├── ledger.py             # Blockchain ledger
-│       │   ├── hasher.py            # Hash computation
-│       │   ├── verifier.py           # Integrity checks
-│       │   └── block.py             # Block management
-│       │
-│       ├── monitoring/
-│       │   ├── __init__.py
-│       │   ├── metrics.py           # Prometheus metrics
-│       │   ├── logger.py            # Structured logging
-│       │   ├── tracer.py            # Distributed tracing
-│       │   ├── alerts.py            # Alert management
-│       │   └── dashboard.py         # Dashboard components
-│       │
-│       ├── visualization/
-│       │   ├── __init__.py
-│       │   ├── charts.py            # Chart generation
-│       │   ├── network.py          # Network graphs
-│       │   ├── timeline.py         # Timeline views
-│       │   ├── map.py              # Geographic maps
-│       │   └── exporter.py         # Export utilities
-│       │
-│       ├── prisma/
+├── adapters/                        # Browser/tool adapter definitions
+│   ├── playwright.md                # Default: Playwright browser
+│   ├── generic-browser.md           # Fallback: any browser
+│   ├── fetch-only.md                # Fallback: HTTP fetch only
+│   ├── web-search-only.md           # Fallback: web search only
+│   ├── database-readonly.md         # SQL/NoSQL read-only access
+│   └── graphql.md                   # GraphQL introspection + query
 │
-
-py
-│   │   ├── financial.py        # Nguồn tài chính
-│   │   ├── patents.py          # Cơ sở dữ liệu sáng chế
-│   │   ├── legal.py            # Nguồn pháp lý
-│   │   ├── government.py       # Dữ liệu chính phủ
-│   │   └── geospatial.py       # GIS/bản đồ
-│   ├── multilingual/
-│   │   ├── __init__.py
-│   │   ├── translator.py       # Dịch vụ dịch
-│   │   ├── search.py           # Tìm kiếm xuyên ngôn ngữ
-│   │   └── parser.py           # Phân tích đa ngôn ngữ
-│   ├── monitoring/
-│   │   ├── __init__.py
-│   │   ├── tracker.py          # Phát hiện thay đổi
-│   │   └── notifier.py         # Hệ thống cảnh báo
-│   └── prisma/
-│       ├── __init__.py
-│       ├── protocol.py         # Giao thức đánh giá
-│       ├── search.py           # Tìm kiếm có hệ thống
-│       └── screening.py        # Sàng lọc eligibility
+├── references/                      # Research methodology & protocols
+│   ├── academic-databases.md        # OpenAlex, CrossRef, PubMed, etc.
+│   ├── academic-research-protocol.md # PRISMA, PICO, SPIDER
+│   ├── api-access-workflow.md       # REST/GraphQL/SPARQL access
+│   ├── blocker-report.md            # Blocked source reporting
+│   ├── browser-first-crawl.md       # Browser automation strategy
+│   ├── citation-management.md       # BibTeX/RIS export, DOI enrichment
+│   ├── data-processing-pipeline.md  # ETL: clean → transform → validate
+│   ├── data-visualization.md        # Chart selection, plotting
+│   ├── evidence-ledger.md           # Atomic claims + contradiction
+│   ├── extraction-methods.md        # 10 extraction methods
+│   ├── final-report-template.md     # Report output format
+│   ├── large-scale-collection.md    # Checkpoint, resume, rate-limit
+│   ├── monitoring-change-detection.md # Track changes over time
+│   ├── multilingual-research.md     # Multi-language research
+│   ├── query-patterns.md            # Query fanout patterns
+│   ├── research-bibliography.md     # Reference sources
+│   ├── safety-and-access-policy.md  # Ethics & legal compliance
+│   ├── source-discovery.md          # Source identification layers
+│   ├── source-quality-rubric.md     # Source evaluation criteria
+│   ├── specialized-domains.md       # Finance, patent, legal, gov
+│   ├── tool-adapter-policy.md       # Adapter selection rules
+│   └── topic-decomposition.md       # Topic → sub-questions
 │
-├── references/
-│   ├── __init__.py
-│   ├── taxonomy.py             # Phân loại nguồn
-│   ├── schemas.py              # Schema dữ liệu
-│   └── policies.py             # Chính sách truy cập
+├── scripts/                         # Executable tools
+│   ├── api_fetch.mjs                # Paginated API fetch with retry
+│   ├── data_clean.py                # CSV clean, dedup, stats, merge
+│   ├── citation_export.py           # BibTeX/RIS export from ledger
+│   ├── evidence_ledger.py           # Evidence ledger management
+│   ├── playwright_probe.mjs         # URL accessibility probe
+│   ├── playwright_extract.mjs       # Page content extraction
+│   ├── playwright_crawl.mjs         # Multi-page crawl
+│   └── run_python.mjs               # Python script runner
 │
-├── adapters/
-│   ├── __init__.py
-│   ├── base.py                 # Lớp adapter cơ sở
-│   ├── web_scraper.py          # Adapter thu thập web
-│   ├── api_client.py           # Adapter API tổng quát
-│   └── database.py             # Adapter cơ sở dữ liệu
+├── templates/                       # CSV/BibTeX templates
+│   ├── evidence-ledger.csv          # Evidence tracking template
+│   ├── search-log.csv               # Search log template
+│   ├── screening-log.csv            # Screening log template
+│   ├── api-request-log.csv          # API request tracking
+│   ├── data-dictionary.csv          # Dataset field documentation
+│   └── citation-library.bib         # BibTeX citation template
 │
-├── scripts/
-│   ├── __init__.py
-│   ├── setup.py                # Thiết lập môi trường
-│   ├── batch_collect.py        # Công cụ thu thập hàng loạt
-│   ├── export_data.py          # Tiện ích xuất dữ liệu
-│   ├── generate_report.py      # Tạo báo cáo
-│   └── monitor_sources.py      # Giám sát nguồn
+├── examples/                        # Usage examples
+│   ├── academic-review.md           # Literature review workflow
+│   ├── scientific-literature-review.md # Full scientific review
+│   ├── api-dataset-collection.md    # API data collection
+│   ├── large-scale-crawl.md         # Large-scale web crawl
+│   ├── dataset-collection.md        # Dataset collection
+│   ├── technical-research.md        # Technical investigation
+│   └── blocked-source-report.md     # Blocker report example
 │
-├── templates/
-│   ├── __init__.py
-│   ├── research_template.md    # Mẫu tài liệu nghiên cứu
-│   ├── citation_template.bib    # Mẫu trích dẫn BibTeX
-│   ├── prisma_template.md      # Mẫu sơ đồ PRISMA
-│   └── blocker_report.md       # Mẫu báo cáo blocker
-│
-├── examples/
-│   ├── __init__.py
-│   ├── basic_research.py       # Ví dụ nghiên cứu cơ bản
-│   ├── academic_review.py      # Đánh giá tài liệu học thuật
-│   ├── financial_analysis.py   # Thu thập dữ liệu tài chính
-│   ├── patent_search.py        # Ví dụ tìm kiếm sáng chế
-│   ├── multilingual_research.py # Nghiên cứu đa ngôn ngữ
-│   └── custom_adapter.py       # Phát triển adapter tùy chỉnh
-│
-├── docs/
-│   ├── README.md               # File này
-│   ├── QUICKSTART.md           # Hướng dẫn bắt đầu nhanh
-│   ├── API_REFERENCE.md        # Tài liệu API
-│   ├── RESEARCH_WORKFLOW.md    # Tài liệu quy trình
-│   ├── DOMAIN_GUIDES/
-│   │   ├── financial.md
-│   │   ├── patents.md
-│   │   ├── legal.md
-│   │   └── government.md
-│   └── PRISMA_GUIDE.md         # Hướng dẫn giao thức PRISMA
-│
-├── tests/
-│   ├── __init__.py
-│   ├── test_scraper.py
-│   ├── test_api_clients.py
-│   ├── test_academic.py
-│   ├── test_collector.py
-│   ├── test_processor.py
-│   └── test_citation.py
-│
-├── config/
-│   ├── __init__.py
-│   ├── settings.py             # Quản lý cấu hình
-│   ├── api_keys.json           # Lưu trữ API key (gitignored)
-│   └── rate_limits.json        # Cấu hình giới hạn tốc độ
-│
-├── notebooks/
-│   ├── data_analysis.ipynb     # Ví dụ phân tích dữ liệu
-│   ├── visualization.ipynb     # Ví dụ biểu đồ
-│   └── research_demo.ipynb     # Demo quy trình nghiên cứu
-│
-├── .env.example                # Mẫu biến môi trường
-├── .gitignore
-├── requirements.txt            # Phụ thuộc Python
-├── package.json                # Cấu hình package Node.js
-├── setup.py                    # Thiết lập package Python
-├── pyproject.toml              # Cấu hình Python hiện đại
-├── CLAUDE.md                   # Hướng dẫn Claude AI
-├── LICENSE                    # Giấy phép MIT
-└── README.md                   # File này
+├── agents/openai.yaml               # OpenAI agent config
+└── docs/UPGRADE-PLAN.md             # Upgrade documentation
 ```
 
 ---
 
-## Bắt đầu nhanh
+## 🚀 Quick Start | Bắt Đầu Nhanh
 
-### Cài đặt
+### Scripts (no installation required)
+
+All scripts are standalone — no `npm install` needed. Requires Node.js and Python 3.
 
 ```bash
-# Clone repository
-git clone https://github.com/your-org/d-research.git
-cd d-research
+# Clone
+git clone https://github.com/d-init-d/d-research-skill.git
+cd d-research-skill
 
-# Cài đặt phụ thuộc Python
-pip install -r requirements.txt
-
-# Cài đặt phụ thuộc Node.js (cho tự động hóa trình duyệt)
-npm install
-
-# Sao chép mẫu môi trường
-cp .env.example .env
+# Run self-tests to verify everything works
+node scripts/api_fetch.mjs --self-test
+python3 scripts/data_clean.py self-test
+python3 scripts/citation_export.py self-test
 ```
 
-### Cấu hình
+### Usage Examples
 
-Chỉnh sửa `.env` với các API key của bạn:
+```bash
+# Fetch data from any paginated API
+node scripts/api_fetch.mjs \
+  --url "https://api.openalex.org/works?search=AI&per_page=10" \
+  --max-pages 5 --out results.json
 
-```env
-# Academic APIs
-OPENALEX_API_KEY=your_openalex_key
-CROSSREF_API_KEY=your_crossref_key
-PUBMED_API_KEY=your_pubmed_key
+# Clean & deduplicate CSV data
+python3 scripts/data_clean.py clean --file raw_data.csv --out cleaned.csv
+python3 scripts/data_clean.py stats --file cleaned.csv
+python3 scripts/data_clean.py dedup --file cleaned.csv --out unique.csv
 
-# Data APIs
-SEMANTIC_SCHOLAR_API_KEY=your_s2_key
-ARXIV_API_KEY=your_arxiv_key
-
-# Optional services
-TRANSLATION_API_KEY=your_translation_key
+# Export citations from evidence ledger
+python3 scripts/citation_export.py export \
+  --file evidence-ledger.csv --format bibtex --out references.bib
 ```
 
-### Sử dụng cơ bản
+### Configuration
 
-```python
-from src.main import DResearch
+Copy and edit the research config:
 
-# Khởi tạo phiên nghiên cứu
-research = DResearch(
-    query="tác động của trí tuệ nhân tạo lên y tế",
-    max_sources=50
-)
-
-# Thực thi quy trình 12 bước
-results = await research.execute()
-
-# Truy cập dữ liệu đã thu thập
-documents = results['documents']
-evidence = results['evidence']
-citations = results['citations']
-
-# Xuất sang BibTeX
-research.export_citations('references.bib', format='bibtex')
+```bash
+cp research.config.example.json research.config.json
 ```
 
-### Nâng cao: Đánh giá tài liệu PRISMA
-
-```python
-from src.prisma import PRISMAReview
-
-review = PRISMAReview(
-    research_question="Tác động của AI lên chẩn đoán y tế là gì?",
-    inclusion_criteria=["peer-reviewed", "2018-2024", "English"],
-    exclusion_criteria=["non-empirical", "opinion pieces"]
-)
-
-# Thực thi đánh giá có hệ thống
-report = await review.execute()
-
-# Tạo sơ đồ PRISMA
-review.generate_flowchart('prisma_diagram.png')
-```
+Edit `research.config.json` with your API keys (OpenAlex, CrossRef, PubMed, etc.) and preferences. See `research.config.example.json` for all available options.
 
 ---
 
