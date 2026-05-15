@@ -114,10 +114,15 @@ BibTeX is the standard format for LaTeX documents and reference managers.
 
 **Key format**: `{LastName}{Year}_{ShortTitle}` with no spaces or special characters except underscore.
 
-**Export script**:
+**Export from the evidence-ledger CSV** (the script consumes `templates/evidence-ledger.csv`, not JSON):
 ```bash
-python scripts/citation_export.py --format bibtex --input references.json --output citations.bib
+python3 scripts/citation_export.py export \
+  --file evidence.csv \
+  --format bibtex \
+  --out citations.bib
 ```
+
+Note: the bundled `scripts/citation_export.py` currently emits BibTeX `@misc` entries built from the evidence-ledger schema. The richer entry types shown above (`@article`, `@book`, `@inproceedings`, etc.) are the target shape an external tool (Zotero, BibLaTeX) can use after manual editing or extension of the script.
 
 ## RIS Export
 
@@ -127,7 +132,10 @@ RIS format imports into Zotero, Mendeley, EndNote, and other managers.
 
 **Export script**:
 ```bash
-python scripts/citation_export.py --format ris --input references.json --output citations.ris
+python3 scripts/citation_export.py export \
+  --file evidence.csv \
+  --format ris \
+  --out citations.ris
 ```
 
 **Generated output example**:
@@ -165,11 +173,23 @@ Generate in-text citations per style requirements:
 | **Vancouver** | `(N)` | `(1)` |
 
 **Formatted reference list generation**:
-```bash
-python scripts/citation_export.py --format apa7 --input references.json --output references.md
-```
 
-Output produces properly formatted bibliography entries in requested style.
+The bundled `scripts/citation_export.py` supports `--format bibtex` and `--format ris`. To produce APA/IEEE/Chicago/Vancouver formatted output, pipe the BibTeX export through an external formatter such as `pandoc` or a CSL processor:
+
+```bash
+# Export BibTeX from the evidence ledger first
+python3 scripts/citation_export.py export \
+  --file evidence.csv \
+  --format bibtex \
+  --out citations.bib
+
+# Then format with pandoc + a CSL style (e.g., APA 7th)
+pandoc references.md \
+  --citeproc \
+  --bibliography citations.bib \
+  --csl apa.csl \
+  -o references_formatted.md
+```
 
 ## DOI Enrichment
 
@@ -189,47 +209,35 @@ curl "https://api.crossref.org/works/10.1234/example.doi"
 - `message.page` → pages
 - `message.abstract` → abstract
 
-**Enrichment script**:
-```python
-# scripts/citation_enrich.py
-import requests
+**Enrichment from CrossRef**:
 
-def enrich_doi(doi: str) -> dict:
-    url = f"https://api.crossref.org/works/{doi}"
-    headers = {"User-Agent": "ResearchAgent/1.0 (mailto:agent@example.com)"}
-    response = requests.get(url, headers=headers, timeout=10)
-    if response.status_code == 200:
-        data = response.json()["message"]
-        return {
-            "title": data.get("title", [""])[0],
-            "authors": [{"family": a.get("family", ""), 
-                        "given": a.get("given", ""),
-                        "orcid": a.get("ORCID", "")} 
-                       for a in data.get("author", [])],
-            "year": data.get("published", {}).get("date-parts", [[0]])[0][0],
-            "journal": data.get("container-title", [""])[0],
-            "volume": data.get("volume", ""),
-            "issue": data.get("issue", ""),
-            "pages": data.get("page", ""),
-            "doi": doi
-        }
-    return None
+The bundled `scripts/citation_export.py` exposes an `enrich` subcommand that queries CrossRef for a single DOI (stdlib only, no `requests` dependency):
+
+```bash
+python3 scripts/citation_export.py enrich --doi 10.1234/example.doi
+```
+
+It prints a JSON object with title, authors, year, journal, volume, issue, pages, and DOI extracted from the CrossRef `message` payload. Use it inline or wrap it in a loop to enrich every row in your evidence ledger before exporting:
+
+```bash
+# Pseudocode: enrich each DOI then re-export
+for doi in $(cut -d, -f<doi_col> evidence.csv | tail -n +2 | sort -u); do
+  python3 scripts/citation_export.py enrich --doi "$doi" \
+    > "enriched/$(echo "$doi" | tr '/' '_').json"
+done
 ```
 
 ## Workflow
 
 Follow this sequence for citation management:
 
-1. **Collect**: Gather references into `evidence/references.json` ledger
+1. **Collect**: Gather references into the evidence-ledger CSV (`templates/evidence-ledger.csv`)
    - Scrape from web searches, academic databases, paper PDFs
-   - Store each citation with available metadata immediately
+   - Append one row per claim with available metadata immediately
 
-2. **Enrich**: Query CrossRef API for each DOI
-   ```python
-   for ref in references:
-       if ref.get("doi") and not ref.get("authors"):
-           enriched = enrich_doi(ref["doi"])
-           ref.update(enriched)
+2. **Enrich**: Run the CrossRef enrichment subcommand for each DOI
+   ```bash
+   python3 scripts/citation_export.py enrich --doi 10.1234/example.doi
    ```
 
 3. **Deduplicate**: Remove duplicate entries
@@ -246,14 +254,17 @@ Follow this sequence for citation management:
            seen_dois.add(doi)
    ```
 
-4. **Export**: Generate format needed by user
+4. **Export**: Generate the format the downstream tool needs
    ```bash
-   python scripts/citation_export.py --format bibtex --input references.json
+   python3 scripts/citation_export.py export \
+     --file evidence.csv --format bibtex --out citations.bib
    ```
 
-5. **Generate formatted list**: Create in-text citation and bibliography
+5. **Generate formatted list (optional)**: convert BibTeX to APA/MLA/IEEE/etc. with pandoc + a CSL style
    ```bash
-   python scripts/citation_export.py --format apa7 --input references.json --output refs.md
+   pandoc references.md \
+     --citeproc --bibliography citations.bib --csl apa.csl \
+     -o references_formatted.md
    ```
 
 ## Quality Checks
@@ -270,28 +281,43 @@ Before finalizing any citation export, verify:
 | **DOI format valid** | DOIs match `10.xxxx/xxxxx` pattern | Verify or search for correct DOI |
 | **Journal title** | Abbreviated or full name consistent | Use CrossRef canonical form |
 
-**Validation script**:
-```python
-# scripts/citation_validate.py
-def validate_citations(refs: list) -> list:
-    errors = []
-    dois = set()
-    keys = set()
-    for i, ref in enumerate(refs):
-        if not ref.get("doi") and not ref.get("url"):
-            errors.append(f"Entry {i}: Missing DOI and URL")
-        if ref.get("doi"):
-            if ref["doi"].lower() in dois:
-                errors.append(f"Entry {i}: Duplicate DOI {ref['doi']}")
-            dois.add(ref["doi"].lower())
-        if not ref.get("authors"):
-            errors.append(f"Entry {i}: No authors listed")
-        if not ref.get("year"):
-            errors.append(f"Entry {i}: Missing year")
-    return errors
+**Validation**: there is no separate `citation_validate.py` script. Use the existing evidence-ledger validator, which checks the evidence-ledger CSV that `citation_export.py` consumes (required headers, non-empty atomic claims, present source URLs, well-formed confidence values, etc.):
+
+```bash
+python3 scripts/evidence_ledger.py validate --file evidence.csv
 ```
 
-Run validation before any export:
-```bash
-python scripts/citation_validate.py --input references.json
+If you need extra checks specific to bibliographic quality (DOI shape, duplicate DOI detection, missing authors/year), implement them as a small wrapper around the evidence-ledger validator. Reference template:
+
+```python
+# Example wrapper — not bundled in scripts/
+import csv, re, sys
+
+DOI_RE = re.compile(r"^10\.\d{4,9}/[-._;()/:A-Z0-9]+$", re.IGNORECASE)
+
+def validate_citations(path: str) -> list[str]:
+    errors: list[str] = []
+    seen_dois: set[str] = set()
+    with open(path, newline="", encoding="utf-8") as f:
+        for i, row in enumerate(csv.DictReader(f), start=2):  # 2 = first data row
+            url = (row.get("source_url") or "").strip()
+            title = (row.get("source_title") or "").strip()
+            date = (row.get("date_published") or "").strip()
+            if not url:
+                errors.append(f"Row {i}: missing source_url")
+            if not title:
+                errors.append(f"Row {i}: missing source_title")
+            if not date:
+                errors.append(f"Row {i}: missing date_published")
+            doi_match = DOI_RE.search(url)
+            if doi_match:
+                doi = doi_match.group(0).lower()
+                if doi in seen_dois:
+                    errors.append(f"Row {i}: duplicate DOI {doi}")
+                seen_dois.add(doi)
+    return errors
+
+if __name__ == "__main__":
+    for err in validate_citations(sys.argv[1]):
+        print(err)
 ```
