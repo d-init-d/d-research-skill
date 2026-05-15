@@ -12,14 +12,14 @@
     "ledger:init": "node scripts/run_python.mjs scripts/evidence_ledger.py init",
     "ledger:validate": "node scripts/run_python.mjs scripts/evidence_ledger.py validate",
     "api:fetch": "node scripts/api_fetch.mjs",
-    "data:clean": "python3 scripts/data_clean.py clean",
-    "data:stats": "python3 scripts/data_clean.py stats",
-    "data:dedup": "python3 scripts/data_clean.py dedup",
-    "data:validate": "python3 scripts/data_clean.py validate",
-    "data:merge": "python3 scripts/data_clean.py merge",
-    "citation:export": "python3 scripts/citation_export.py export",
-    "citation:enrich": "python3 scripts/citation_export.py enrich",
-    "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test"
+    "data:clean": "node scripts/run_python.mjs scripts/data_clean.py clean",
+    "data:stats": "node scripts/run_python.mjs scripts/data_clean.py stats",
+    "data:dedup": "node scripts/run_python.mjs scripts/data_clean.py dedup",
+    "data:validate": "node scripts/run_python.mjs scripts/data_clean.py validate",
+    "data:merge": "node scripts/run_python.mjs scripts/data_clean.py merge",
+    "citation:export": "node scripts/run_python.mjs scripts/citation_export.py export",
+    "citation:enrich": "node scripts/run_python.mjs scripts/citation_export.py enrich",
+    "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test && node scripts/api_fetch.mjs --self-test && node scripts/run_python.mjs scripts/data_clean.py self-test && node scripts/run_python.mjs scripts/citation_export.py self-test"
   },
   "dependencies": {
     "playwright": "^1.56.0"
