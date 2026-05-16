@@ -16,11 +16,11 @@ Concretely, the repo contains:
 
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 26 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, …).
+- `references/` — 27 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, …).
 - `adapters/` — 6 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, database read-only, GraphQL).
-- `examples/` — 8 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, and a full PRISMA 2020 systematic review.
-- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**.
-- `scripts/` — 11 small, self-contained helper scripts (3 Playwright Node scripts + 8 Python utilities). Each ships with an offline `--self-test`. CI runs all of them on every PR.
+- `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
+- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**.
+- `scripts/` — 12 small, self-contained helper scripts (3 Playwright Node scripts + 9 Python utilities). Each ships with an offline `--self-test`. CI runs all of them on every PR.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -50,6 +50,7 @@ Repo là tài liệu + một số script phụ trợ, **không phải Python app
 10. **PRISMA 2020 systematic reviews** — full protocol, flow diagram template (`templates/prisma-flow.json`), synthesis-pattern decision tree, worked example (`examples/systematic-review-prisma.md`). See `references/systematic-review-protocol.md` and `references/synthesis-patterns.md`.
 11. **Source quality rubric** — 5-axis deterministic scoring (type, authority, recency, methodology, independence) applied automatically by `scripts/score_source.py`. See `references/source-quality-rubric.md`.
 12. **Reproducibility checklist** — every deliverable can be audited against `references/reproducibility-checklist.md` before declaring "done".
+12a. **Context-safe long-horizon protocol** — for tasks bigger than one model context window: write a `research-plan.json` (from `templates/research-plan.json`), drive it with `scripts/research_plan.py`, dispatch parallel-safe tasks to sub-agents, and gate the synthesize step with `gate.synthesize_ready`. See `references/research-plan-protocol.md` and `examples/long-horizon-research-plan.md`.
 13. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 14. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
 15. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
@@ -114,6 +115,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── query-patterns.md
 │   ├── reproducibility-checklist.md      # new — pre-release audit
 │   ├── research-bibliography.md
+│   ├── research-plan-protocol.md         # new — context-safe long-horizon protocol
 │   ├── safety-and-access-policy.md
 │   ├── source-discovery.md
 │   ├── source-quality-rubric.md
@@ -129,6 +131,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── blocked-source-report.md
 │   ├── dataset-collection.md
 │   ├── large-scale-crawl.md
+│   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
 │   ├── scientific-literature-review.md
 │   ├── systematic-review-prisma.md       # new — full PRISMA walkthrough
 │   └── technical-research.md
@@ -140,6 +143,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── data-package.json                 # new — Frictionless Data Package
 │   ├── evidence-ledger.csv
 │   ├── prisma-flow.json                  # new — PRISMA 2020 flow diagram
+│   ├── research-plan.json                # new — research-plan schema
 │   ├── screening-log.csv
 │   └── search-log.csv
 │
@@ -154,6 +158,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── citation_render.py                # new — APA/MLA/IEEE/… via pandoc+CSL
 │   ├── extract_tables.py                 # new — HTML tables → CSV
 │   ├── score_source.py                   # new — rubric-based source scoring
+│   ├── research_plan.py                  # new — research-plan manager
 │   ├── check_internal_refs.py            # CI guard for path-style references
 │   └── run_python.mjs                    # tiny wrapper to invoke Python
 │
@@ -231,10 +236,11 @@ python3 scripts/citation_export.py self-test
 python3 scripts/citation_render.py self-test
 python3 scripts/extract_tables.py self-test
 python3 scripts/score_source.py self-test
+python3 scripts/research_plan.py self-test
 python3 scripts/check_internal_refs.py
 ```
 
-All eleven exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
+All twelve exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
 
 ### npm scripts
 
@@ -259,6 +265,11 @@ npm run extract:tables -- --in page.html --out-dir out/
 npm run score:source -- --file evidence.csv --out scored.csv
 npm run ledger:sign -- --file evidence.csv --key-env D_RESEARCH_LEDGER_KEY
 npm run ledger:verify -- --file evidence.csv --key-env D_RESEARCH_LEDGER_KEY
+npm run plan:init                             # write research-plan.json from template
+npm run plan:check                            # validate schema + dep graph
+npm run plan:status                           # one-line status per task
+npm run plan:parallelizable                   # list task ids ready to dispatch
+npm run plan:gate -- --gate synthesize_ready  # run a named gate
 npm run refs:check                            # internal-refs CI guard, locally
 ```
 

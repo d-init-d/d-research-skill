@@ -101,6 +101,8 @@ The full safety and access policy (legal/ethical framing, what counts as a publi
 
 ## Workflow decision tree
 
+**Before picking a branch:** if the task is long-horizon (more than 5 sub-questions, more than 50 sources, multi-context-window runtime, or audit-grade output), apply the **research plan protocol** from `references/research-plan-protocol.md` as an outer loop *around* whichever branch fits the topic. The agent writes `research-plan.json` (from `templates/research-plan.json`), drives it with `scripts/research_plan.py`, dispatches parallel-safe tasks (optionally to sub-agents), gates the synthesize step, and only then composes the final report. See `examples/long-horizon-research-plan.md`. The branches below describe the *content* of the work; the protocol describes the *flow control* that keeps the work surviving across context resets.
+
 ### If the user asks for a broad research answer
 
 Use the full deep research workflow. Produce a source-backed synthesis with evidence, confidence, caveats, and next steps.
@@ -152,6 +154,10 @@ Use `references/data-extraction-toolbox.md` for recipe-style playbooks. Use `scr
 ### If the user needs tamper-evident research output, a signed evidence ledger, or a reproducibility audit
 
 Sign the ledger with `scripts/evidence_ledger.py sign --file evidence-ledger.csv --key-env D_RESEARCH_LEDGER_KEY`; the verifier is `evidence_ledger.py verify`. Then walk through `references/reproducibility-checklist.md` before declaring done.
+
+### If the task is long-horizon, multi-source, or risks blowing context
+
+Use the **research plan protocol** in `references/research-plan-protocol.md`. The agent MUST start by writing a `research-plan.json` (from `templates/research-plan.json`), validate it with `scripts/research_plan.py check`, dispatch parallel-safe tasks via `scripts/research_plan.py parallelizable`, mark task status as work progresses, gate the synthesize step with `scripts/research_plan.py gate --gate synthesize_ready`, and only then compose the final report. See `examples/long-horizon-research-plan.md` for the end-to-end walkthrough. This is the right default for any task with >5 sub-questions, >50 sources, or estimated runtime that does not fit in one context window.
 
 ### If the user wants visualizations or charts
 
@@ -357,6 +363,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + CSL
 - `scripts/extract_tables.py`: extract HTML `<table>` elements into CSV (handles `colspan`/`rowspan`, stdlib only)
 - `scripts/score_source.py`: apply the `references/source-quality-rubric.md` rubric to an evidence ledger and emit per-row scores + bands
+- `scripts/research_plan.py`: init / check / status / parallelizable / mark / block / add-task / gate — drives the long-horizon context-safe protocol in `references/research-plan-protocol.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 
 The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.

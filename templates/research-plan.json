@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$comment": "Research plan managed by scripts/research_plan.py. See references/research-plan-protocol.md for the protocol. Do not hand-edit task status fields while a task is running; use the script's mark/add-task/block subcommands so the schema stays valid.",
+  "plan_id": "example-plan-2026-01",
+  "title": "Example: comparison of headless-browser frameworks for crawling academic OAI-PMH endpoints",
+  "created": "2026-01-15",
+  "owner": "research-lead@example.org",
+  "context_budget_tokens": 200000,
+  "estimated_runtime_hours": 12,
+  "scope": "Evaluate the suitability of Playwright, Selenium, and Puppeteer for programmatic, lawful crawling of OAI-PMH endpoints exposed by academic-repository hosts. The output is a comparison report with reproducible benchmarks and a recommendation.",
+  "sub_questions": [
+    {"id": "SQ1", "text": "Which frameworks support the OAI-PMH XML response shape natively vs. need adapters?"},
+    {"id": "SQ2", "text": "How does each framework's default rate-limiting interact with the OAI-PMH spec's resumption-token model?"},
+    {"id": "SQ3", "text": "What is the failure mode of each framework when the OAI-PMH endpoint returns standard error verbs (badArgument, badResumptionToken, ...)?"}
+  ],
+  "source_classes": ["official", "primary", "paper", "code", "dataset"],
+  "stopping_criteria": "Stop once every sub-question has at least 3 sources covering its evidence ledger, AND the contradiction pass has run, AND the reproducibility checklist passes, AND the report has been rendered with citations.",
+  "stopping_criteria_satisfied": false,
+  "tasks": [
+    {
+      "id": "T1",
+      "description": "Read the OAI-PMH 2.0 spec and write a one-page summary.",
+      "depends_on": [],
+      "parallel_safe": true,
+      "owner": "main",
+      "inputs": [],
+      "outputs": ["research-output/notes/oai-pmh-spec-summary.md"],
+      "status": "todo",
+      "blocker_reason": ""
+    },
+    {
+      "id": "T2",
+      "description": "Pull the Playwright docs section on XML response handling.",
+      "depends_on": [],
+      "parallel_safe": true,
+      "owner": "sub-1",
+      "inputs": [],
+      "outputs": ["research-output/notes/playwright-xml-handling.md"],
+      "status": "todo",
+      "blocker_reason": ""
+    },
+    {
+      "id": "T3",
+      "description": "Pull the Selenium docs section on XML response handling.",
+      "depends_on": [],
+      "parallel_safe": true,
+      "owner": "sub-2",
+      "inputs": [],
+      "outputs": ["research-output/notes/selenium-xml-handling.md"],
+      "status": "todo",
+      "blocker_reason": ""
+    },
+    {
+      "id": "T4",
+      "description": "Pull the Puppeteer docs section on XML response handling.",
+      "depends_on": [],
+      "parallel_safe": true,
+      "owner": "sub-3",
+      "inputs": [],
+      "outputs": ["research-output/notes/puppeteer-xml-handling.md"],
+      "status": "todo",
+      "blocker_reason": ""
+    },
+    {
+      "id": "T5",
+      "description": "Synthesise SQ1 from T1+T2+T3+T4 into one section.",
+      "depends_on": ["T1", "T2", "T3", "T4"],
+      "parallel_safe": false,
+      "owner": "main",
+      "inputs": [
+        "research-output/notes/oai-pmh-spec-summary.md",
+        "research-output/notes/playwright-xml-handling.md",
+        "research-output/notes/selenium-xml-handling.md",
+        "research-output/notes/puppeteer-xml-handling.md"
+      ],
+      "outputs": ["research-output/sections/sq1.md"],
+      "status": "todo",
+      "blocker_reason": ""
+    },
+    {
+      "id": "T6",
+      "description": "Run the contradiction pass over the evidence ledger.",
+      "depends_on": ["T5"],
+      "parallel_safe": false,
+      "owner": "main",
+      "inputs": ["evidence-ledger.csv"],
+      "outputs": ["research-output/notes/contradiction-pass.md"],
+      "status": "todo",
+      "blocker_reason": ""
+    },
+    {
+      "id": "T7",
+      "description": "Compose final report; render citations; sign ledger.",
+      "depends_on": ["T6"],
+      "parallel_safe": false,
+      "owner": "main",
+      "inputs": ["research-output/sections/sq1.md", "evidence-ledger.csv"],
+      "outputs": ["research-output/report.md", "research-output/report-citations.md"],
+      "status": "todo",
+      "blocker_reason": ""
+    }
+  ],
+  "gates": {
+    "execute_ready": {
+      "description": "Plan is shaped correctly and ready to dispatch.",
+      "assertions": ["schema_valid", "no_dependency_cycles", "no_orphan_dependencies", "no_task_is_done"]
+    },
+    "synthesize_ready": {
+      "description": "All tasks finished and all artefacts on disk.",
+      "assertions": ["all_tasks_terminal", "all_outputs_exist", "ledger_validates", "ledger_signed", "reproducibility_checklist_exists"]
+    },
+    "release_ready": {
+      "description": "Final synthesis exists and citations are rendered.",
+      "assertions": ["synthesize_ready", "final_report_exists", "rendered_citations_exist", "stopping_criteria_satisfied"]
+    }
+  },
+  "notes": "Free-form notes for humans. Decision log, open questions, etc. Ignored by the script."
+}

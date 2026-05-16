@@ -106,7 +106,8 @@ A template must include:
   keys for JSON, one entry for BibTeX).
 - At least 1–2 realistic sample rows / entries. The CSV samples must
   pass the corresponding validator (`scripts/data_clean.py validate`,
-  `scripts/evidence_ledger.py validate`).
+  `scripts/evidence_ledger.py validate`); the `research-plan.json`
+  template must pass `scripts/research_plan.py check`.
 - A reference doc explaining the field semantics.
 
 ## CI
