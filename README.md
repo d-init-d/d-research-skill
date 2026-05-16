@@ -4,6 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
+Vietnamese docs: [README.vi.md](README.vi.md)
+
 > A markdown-based skill that teaches AI agents (Claude, Devin, GPT-class agents) how to run rigorous, source-backed deep research and lawful public web/data collection. Read-only by default. Never bypasses login, paywalls, captchas, rate limits, or robots restrictions.
 
 ---
@@ -15,6 +17,7 @@ This is **a skill package**, not a runnable Python application or service.
 Concretely, the repo contains:
 
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
+- `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
 - `references/` — 27 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, …).
 - `adapters/` — 6 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, database read-only, GraphQL).
@@ -28,11 +31,9 @@ There is **no Python package**, **no API server**, **no Docker image**, **no `re
 
 ---
 
-## Mô tả ngắn (tiếng Việt)
+## Vietnamese summary
 
-D Research là một **bộ skill dạng markdown** dạy AI agent cách thực hiện nghiên cứu chuyên sâu có chứng cứ, thu thập dữ liệu công khai một cách hợp pháp. Mặc định đọc-only. Không bao giờ né login, paywall, captcha, rate-limit, hay robots restrictions.
-
-Repo là tài liệu + một số script phụ trợ, **không phải Python application**. Để dùng, agent đọc `SKILL.md` và làm theo workflow trong đó; các script trong `scripts/` là optional helper khi agent có Node/Python sẵn.
+For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays in English for broad compatibility with agent and IDE marketplaces.
 
 ---
 
@@ -50,10 +51,32 @@ Repo là tài liệu + một số script phụ trợ, **không phải Python app
 10. **PRISMA 2020 systematic reviews** — full protocol, flow diagram template (`templates/prisma-flow.json`), synthesis-pattern decision tree, worked example (`examples/systematic-review-prisma.md`). See `references/systematic-review-protocol.md` and `references/synthesis-patterns.md`.
 11. **Source quality rubric** — 5-axis deterministic scoring (type, authority, recency, methodology, independence) applied automatically by `scripts/score_source.py`. See `references/source-quality-rubric.md`.
 12. **Reproducibility checklist** — every deliverable can be audited against `references/reproducibility-checklist.md` before declaring "done".
-12a. **Context-safe long-horizon protocol** — for tasks bigger than one model context window: create one workspace directory, write `research-plan.json` (from `templates/research-plan.json`), render `PLAN.md`, require approval before dispatch, drive execution with `scripts/research_plan.py`, dispatch parallel-safe tasks to sub-agents, and gate the synthesize step with `gate.synthesize_ready`. See `references/research-plan-protocol.md` and `examples/long-horizon-research-plan.md`.
+12a. **Context-safe long-horizon protocol** — for tasks bigger than one model context window: create one workspace directory, write `research-plan.json`, annotate subagent slots/context budgets, render `PLAN.md` for review, require approval before dispatch, gate execution/synthesis, and write findings to disk immediately to avoid context loss. See `references/research-plan-protocol.md` and `examples/long-horizon-research-plan.md`.
 13. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 14. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
 15. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
+
+---
+
+## Feature matrix
+
+| Area | What users get | Main files / commands |
+|---|---|---|
+| Agent workflow | A complete browser-first research workflow for evidence-backed answers | `SKILL.md`, `AGENTS.md` |
+| Browser extraction | Playwright probing, extraction, bounded crawl, blocker screenshots | `adapters/playwright.md`, `scripts/playwright_*.mjs` |
+| API and databases | REST/GraphQL/SPARQL/API pagination plus read-only database guidance | `references/api-access-workflow.md`, `adapters/graphql.md`, `adapters/database-readonly.md` |
+| Academic research | OpenAlex/CrossRef/PubMed/Semantic Scholar/arXiv/CORE guidance | `references/academic-databases.md` |
+| Evidence ledger | Claim-level evidence CSV with HMAC signing/verification | `templates/evidence-ledger.csv`, `scripts/evidence_ledger.py` |
+| Citations | BibTeX/RIS export and APA/MLA/IEEE/Chicago/Vancouver/etc. rendering | `scripts/citation_export.py`, `scripts/citation_render.py` |
+| Data processing | Clean, deduplicate, validate, merge, summarize CSV data | `scripts/data_clean.py` |
+| Data extraction | HTML tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH, PDFs | `references/data-extraction-toolbox.md`, `scripts/extract_tables.py` |
+| PRISMA reviews | PRISMA 2020 systematic-review protocol and flow template | `references/systematic-review-protocol.md`, `templates/prisma-flow.json` |
+| Source scoring | Deterministic authority/recency/methodology/independence scoring | `scripts/score_source.py` |
+| Long-horizon workspaces | One reproducible folder per research run with plan, ledger, notes, report | `scripts/research_plan.py init` |
+| Approval gate | Human-readable `PLAN.md` must be approved before execution | `plan:render`, `plan:approve`, `plan:gate` |
+| Subagent planning | Portable execution contract: slots, max parallel, context budgets, task assignment | `plan:configure-execution`, `plan:set-execution` |
+| Context safety | Split work before context overflow; checkpoint findings to files immediately | `references/research-plan-protocol.md` |
+| Compatibility | Works as a markdown skill; runtime-specific models/API keys stay in the CLI/IDE | `research.config.example.json` |
 
 ---
 
@@ -82,6 +105,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 ├── SKILL.md                              # entry point for the agent
 ├── AGENTS.md                             # short root-level instructions
 ├── README.md                             # this file
+├── README.vi.md                          # Vietnamese overview
 ├── LICENSE                               # MIT
 ├── research.config.example.json          # default config values
 ├── package.json                          # npm scripts for the helper scripts
@@ -96,7 +120,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── database-readonly.md              # SQL/NoSQL read-only access
 │   └── graphql.md                        # GraphQL endpoints
 │
-├── references/                           # 26 deep-dive guides
+├── references/                           # 27 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── api-access-workflow.md
@@ -158,7 +182,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── citation_render.py                # new — APA/MLA/IEEE/… via pandoc+CSL
 │   ├── extract_tables.py                 # new — HTML tables → CSV
 │   ├── score_source.py                   # new — rubric-based source scoring
-│   ├── research_plan.py                  # new — workspace, approval, and plan manager
+│   ├── research_plan.py                  # new — workspace, approval, context budget, and plan manager
 │   ├── check_internal_refs.py            # CI guard for path-style references
 │   └── run_python.mjs                    # tiny wrapper to invoke Python
 │
@@ -179,6 +203,60 @@ When blocked, the agent stops and produces a blocker report — it does not forc
         └── testing-scripts/
             └── SKILL.md                  # sub-skill for testing scripts
 ```
+
+---
+
+## Installation
+
+### For humans
+
+#### Option A: Let an LLM do it
+
+Paste this into any LLM agent or IDE assistant (Claude Code, OpenCode, Cursor, Windsurf, etc.):
+
+```text
+Install the D Research skill from https://github.com/d-init-d/d-research-skill.git into this project so you can use it for deep research. Prefer vendoring it at .agents/skills/d-research, keep it read-only by default, copy research.config.example.json to research.config.json only if I want project-specific settings, and run the optional self-tests if Node/Python are available.
+```
+
+#### Option B: Manual setup
+
+1. Add the skill to your project:
+
+```bash
+mkdir -p .agents/skills
+git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
+```
+
+2. Point your agent/IDE at the skill entry point:
+
+```text
+.agents/skills/d-research/SKILL.md
+```
+
+3. Optional: create a project config you can edit:
+
+```bash
+cp .agents/skills/d-research/research.config.example.json research.config.json
+```
+
+4. Optional: install helper-script dependencies:
+
+```bash
+cd .agents/skills/d-research
+npm install
+npx playwright install
+npm run self-test
+```
+
+5. Use it by asking your agent for research work, for example:
+
+```text
+Use the D Research skill to research the current state of open-source browser automation for lawful public data collection. Create a reproducible workspace, show me the plan before execution, and cite sources.
+```
+
+### For agent / IDE maintainers
+
+D Research does not store API keys, model routing, or provider credentials. Configure those in your host runtime (OpenCode, Claude Code, Cursor, VS Code extension, custom CLI, etc.). The skill only defines the portable workflow, scripts, plan schema, and subagent execution contract.
 
 ---
 
@@ -209,14 +287,14 @@ The agent then reads `SKILL.md` and follows the workflow. No installation, no en
 
 ### Running the optional scripts
 
-The 7 helper scripts in `scripts/` are independent. Only install what you actually want to run.
+The helper scripts in `scripts/` are independent. Only install what you actually want to run.
 
 ```bash
 # For the Playwright scripts (probe / extract / crawl)
 npm install                  # installs playwright (declared in package.json)
 npx playwright install        # downloads browser binaries
 
-# For the Python scripts (data_clean / citation_export / evidence_ledger)
+# For the Python scripts (data_clean / citation_export / evidence_ledger / research_plan / etc.)
 # Stdlib only — no pip install needed.
 python3 --version             # 3.9+ recommended
 ```
@@ -313,24 +391,92 @@ human reviewer is reachable, the agent must explicitly pass
 
 ## Configuration
 
-The skill respects a project-local `research.config.json` when present. `research.config.example.json` documents every field with safe defaults. Highlights:
+The skill respects a project-local `research.config.json` when present. Start from `research.config.example.json`:
 
-- `browser.default` — `playwright` (override to use another browser adapter)
-- `crawl.maxDepth` / `crawl.maxPagesPerDomain` / `crawl.maxTotalPages` / `crawl.delayMs`
-- `crawl.respectRobots` — default `true`
-- `research.requireEvidenceLedger`, `research.requireContradictionPass` — default `true`
-- `researchPlan.context.mainContextLength` — default `null`; when set, main-agent tasks receive a derived per-task context budget
-- `researchPlan.context.taskBudgetRatio` — default `0.5`; task budget = context length × ratio
-- `researchPlan.context.writeFindingsImmediately` — default `true`; agents must write findings to output files as they research
-- `researchPlan.workspace.baseDir` — default `.`; each run creates a fresh `research-<slug>-<date>` folder under this parent
-- `researchPlan.workspace.fallbackToCwdOnError` — default `true`; if the configured output root is inaccessible, create the run folder in the current working directory and warn the user
-- `researchPlan.subagents.slots[]` — default one disabled `default` slot; set `agent`, `contextLength`, and `maxParallel` to allow sub-agent dispatch
-- `researchPlan.finalResponse.reportWorkspacePath` — default `true`; final answers must state the workspace path
-- `access.allowLoginWithUserPermission`, `access.allowPaywalledSources`, `access.allowCaptchaSolving`, `access.allowStealthEvasion` — default **`false`** for all four; only flip these with explicit, lawful user authorization
-- `api.defaultDelayMs`, `api.maxRetries`, `api.respectRateLimitHeaders`
-- `database.readOnly` — default `true`
-- `citation.defaultFormat` — `bibtex`
-- `largeScale.checkpointEveryN`, `largeScale.adaptiveRateLimit`
+```bash
+cp .agents/skills/d-research/research.config.example.json research.config.json
+```
+
+Precedence for plan-related settings is: explicit CLI flags (for example `--workspace`, `--config`, `set-execution`) > `research.config.json` > built-in defaults. Runtime credentials, API keys, model selection, and real subagent invocation are intentionally configured outside this skill in your CLI/IDE.
+
+### Configuration reference
+
+| Key | Default | Purpose |
+|---|---:|---|
+| `browser.default` | `playwright` | Preferred browser adapter. |
+| `browser.headless` | `true` | Run browser automation headlessly when the adapter supports it. |
+| `browser.timeoutMs` | `30000` | Default browser operation timeout. |
+| `browser.screenshotOnBlocker` | `true` | Capture screenshots for blocker reports. |
+| `browser.screenshotOnEvidence` | `false` | Capture screenshots for evidence items when useful. |
+| `crawl.maxDepth` | `2` | Maximum crawl depth. |
+| `crawl.maxPagesPerDomain` | `30` | Per-domain crawl cap. |
+| `crawl.maxTotalPages` | `100` | Total crawl cap. |
+| `crawl.delayMs` | `1000` | Delay between crawl requests. |
+| `crawl.respectRobots` | `true` | Respect robots/site restrictions. |
+| `crawl.followExternalLinks` | `false` | Whether bounded crawls may leave the seed domain. |
+| `research.requireEvidenceLedger` | `true` | Require claim-level evidence ledger for important claims. |
+| `research.requireContradictionPass` | `true` | Require a contradiction search/pass before synthesis. |
+| `research.preferPrimarySources` | `true` | Prefer official/primary sources over summaries. |
+| `research.minSourcesForStrongClaim` | `2` | Minimum supporting sources for high-confidence claims. |
+| `research.searchLogRequired` | `true` | Keep a search/query log for reproducibility. |
+| `researchPlan.context.mainContextLength` | `null` | Main agent context length. If set, task budgets derive from it. |
+| `researchPlan.context.taskBudgetRatio` | `0.5` | Task budget = context length x ratio. |
+| `researchPlan.context.writeFindingsImmediately` | `true` | Write findings to task output files as soon as they are found. |
+| `researchPlan.subagents.slots[].id` | `default` | Stable slot id shown in `PLAN.md`. |
+| `researchPlan.subagents.slots[].agent` | `null` | Host/runtime subagent label. `null` means the slot is disabled. |
+| `researchPlan.subagents.slots[].contextLength` | `null` | Context length for that slot. Required when `agent` is set. |
+| `researchPlan.subagents.slots[].maxParallel` | `null` | Maximum parallel threads for that slot. Required when `agent` is set. |
+| `researchPlan.workspace.baseDir` | `.` | Parent folder for new research workspaces. |
+| `researchPlan.workspace.nameTemplate` | `research-{slug}-{date}` | Workspace naming template. Supports `{slug}`, `{date}`, `{datetime}`. |
+| `researchPlan.workspace.fallbackToCwdOnError` | `true` | If `baseDir` is inaccessible, fall back to the current directory and warn. |
+| `researchPlan.approval.requireHuman` | `true` | Human review is expected before dispatch. |
+| `researchPlan.approval.allowUnattended` | `false` | Whether host policy allows `--allow-unattended`. |
+| `researchPlan.finalResponse.reportWorkspacePath` | `true` | Final responses must state the workspace path. |
+| `access.allowLoginWithUserPermission` | `false` | Allow login only when the user explicitly authorizes it. |
+| `access.allowPaywalledSources` | `false` | Allow paywalled sources only with explicit lawful access. |
+| `access.allowCaptchaSolving` | `false` | Captcha solving is disabled by default. |
+| `access.allowStealthEvasion` | `false` | Stealth/anti-bot evasion is disabled by default. |
+| `access.defaultMode` | `read-only` | Default data-access posture. |
+| `output.defaultReport` | `research-report` | Default report base name for non-plan workflows. |
+| `output.includeBlockedSources` | `true` | Include blocked sources in final outputs. |
+| `output.includeConfidence` | `true` | Include confidence labels. |
+| `output.includeNextSearches` | `true` | Include suggested next searches. |
+| `api.defaultDelayMs` | `500` | Delay between API requests. |
+| `api.maxRetries` | `3` | API retry count. |
+| `api.backoffMultiplier` | `2` | Retry backoff multiplier. |
+| `api.respectRateLimitHeaders` | `true` | Respect API rate-limit headers. |
+| `api.maxPagesPerEndpoint` | `50` | Pagination cap per API endpoint. |
+| `api.timeoutMs` | `30000` | API request timeout. |
+| `database.queryTimeoutMs` | `30000` | Read-only database query timeout. |
+| `database.maxResultRows` | `10000` | Result-row cap for database reads. |
+| `database.readOnly` | `true` | Database access must be read-only. |
+| `citation.defaultFormat` | `bibtex` | Default citation export format. |
+| `citation.enrichFromCrossRef` | `true` | Use CrossRef enrichment when available. |
+| `citation.autoGenerateKeys` | `true` | Generate citation keys automatically. |
+| `citation.deduplicateByDOI` | `true` | Deduplicate citations by DOI. |
+| `monitoring.enabled` | `false` | Enable change-monitoring workflows. |
+| `monitoring.defaultIntervalMinutes` | `60` | Default monitoring interval. |
+| `monitoring.hashMethod` | `sha256` | Hash method for change detection. |
+| `monitoring.archiveSnapshots` | `true` | Archive snapshots in monitoring workflows. |
+| `processing.autoClean` | `false` | Automatically clean extracted tabular data. |
+| `processing.detectOutliers` | `true` | Flag outliers in processing workflows. |
+| `processing.deduplicateByDefault` | `true` | Deduplicate by default when processing data. |
+| `processing.dateFormatISO8601` | `true` | Normalize dates to ISO 8601. |
+| `largeScale.checkpointEveryN` | `50` | Record checkpoint after this many items. |
+| `largeScale.checkpointEveryMinutes` | `5` | Time-based checkpoint interval. |
+| `largeScale.maxErrorRatePercent` | `20` | Abort/review threshold for large-scale collection errors. |
+| `largeScale.adaptiveRateLimit` | `true` | Slow down automatically on rate-limit signals. |
+
+### Subagent slots are portable by design
+
+`researchPlan.subagents.slots[]` is an execution planning contract, not a provider API. The skill records which task should use which slot, how much context it may consume, and how many parallel threads it may reserve. Your host runtime decides how to call the real worker:
+
+- OpenCode can map a slot to its configured subagent / Task tool.
+- Claude Code or another IDE can map a slot to its own agent mechanism.
+- A custom CLI can read `research-plan.json` and dispatch tasks however it wants.
+- If no slot is configured, the main agent must split tasks to fit its own context length.
+
+Do not put provider secrets in `research.config.json`; keep API keys, auth, model routing, and account management in the CLI/IDE/runtime that actually executes the work.
 
 ---
 

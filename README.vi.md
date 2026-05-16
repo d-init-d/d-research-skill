@@ -1,0 +1,91 @@
+# D Research (Tiếng Việt)
+
+Tài liệu tiếng Anh chính và đầy đủ nhất: [README.md](README.md). Bản tiếng Việt này là bản tóm tắt nhanh; bảng tính năng và bảng config đầy đủ nằm trong README tiếng Anh.
+
+D Research là một skill dạng markdown cho AI agent. Nó dạy agent cách làm nghiên cứu chuyên sâu, thu thập dữ liệu công khai hợp pháp, ghi chứng cứ, tạo báo cáo có trích dẫn và giữ toàn bộ đầu ra trong một workspace có thể bàn giao lại.
+
+Đây không phải app, API server hay package Python. Agent đọc `SKILL.md` và làm theo workflow; các script trong `scripts/` chỉ là helper tùy chọn.
+
+## Tính năng chính
+
+- Workflow nghiên cứu 12 bước: hiểu mục tiêu, chia câu hỏi, tìm nguồn, trích xuất, ledger chứng cứ, kiểm tra mâu thuẫn, tổng hợp.
+- Browser-first research với Playwright mặc định, nhưng vẫn có adapter generic browser/fetch/search.
+- Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
+- Citation export/render: BibTeX, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
+- PRISMA 2020 systematic review và template flow diagram.
+- Data extraction toolbox: HTML tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH, REST/GraphQL, PDFs.
+- Long-horizon research protocol: tạo workspace riêng, `research-plan.json`, `PLAN.md`, approval gate, notes, sections, report, checklist.
+- Lập kế hoạch subagent portable: slot, context length, max parallel, task budget, không khóa cứng vào CLI/IDE cụ thể.
+- Chống tràn context: task phải fit `execution.context_budget`, findings phải ghi ra file ngay.
+
+## Cài đặt
+
+### Cách A: Nhờ LLM agent cài giúp
+
+Paste đoạn này vào Claude Code, OpenCode, Cursor, Windsurf hoặc agent bạn dùng:
+
+```text
+Install the D Research skill from https://github.com/d-init-d/d-research-skill.git into this project so you can use it for deep research. Prefer vendoring it at .agents/skills/d-research, keep it read-only by default, copy research.config.example.json to research.config.json only if I want project-specific settings, and run the optional self-tests if Node/Python are available.
+```
+
+### Cách B: Cài thủ công
+
+```bash
+mkdir -p .agents/skills
+git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
+```
+
+Trỏ agent/IDE của bạn tới:
+
+```text
+.agents/skills/d-research/SKILL.md
+```
+
+Nếu muốn chỉnh config theo project:
+
+```bash
+cp .agents/skills/d-research/research.config.example.json research.config.json
+```
+
+Nếu muốn dùng các script helper:
+
+```bash
+cd .agents/skills/d-research
+npm install
+npx playwright install
+npm run self-test
+```
+
+## Config quan trọng
+
+- `researchPlan.workspace.baseDir`: thư mục cha để tạo workspace nghiên cứu. Mặc định là thư mục hiện tại.
+- `researchPlan.workspace.fallbackToCwdOnError`: nếu output dir lỗi, fallback về thư mục hiện tại và báo cho user.
+- `researchPlan.context.mainContextLength`: context length của main agent.
+- `researchPlan.context.taskBudgetRatio`: tỷ lệ context dùng cho mỗi task.
+- `researchPlan.context.writeFindingsImmediately`: bắt agent ghi findings ra file ngay.
+- `researchPlan.subagents.slots[]`: danh sách slot subagent. Mặc định có một slot disabled.
+- `researchPlan.subagents.slots[].agent`: tên subagent trong runtime/CLI/IDE của bạn.
+- `researchPlan.subagents.slots[].contextLength`: context length của slot đó.
+- `researchPlan.subagents.slots[].maxParallel`: số luồng song song tối đa cho slot đó.
+- `researchPlan.approval.requireHuman`: yêu cầu user duyệt plan trước khi chạy.
+- `researchPlan.finalResponse.reportWorkspacePath`: bắt agent báo workspace path trong kết quả cuối.
+
+Lưu ý: skill không quản lý API key, model, provider, login hay cách gọi subagent thật. Những phần đó nên cấu hình trong OpenCode, Claude Code, Cursor, IDE hoặc CLI bạn dùng.
+
+## Workflow long-horizon mẫu
+
+```bash
+python3 scripts/research_plan.py init --slug topic
+cd research-topic-2026-05-16
+python3 ../scripts/research_plan.py configure-execution --file research-plan.json
+python3 ../scripts/research_plan.py render --file research-plan.json
+python3 ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
+python3 ../scripts/research_plan.py approve --file research-plan.json --by "Reviewer"
+python3 ../scripts/research_plan.py gate --file research-plan.json --gate execute_ready
+```
+
+Trên Windows, dùng `python` thay cho `python3` nếu cần.
+
+## An toàn
+
+Mặc định read-only. Không bypass login, paywall, captcha, rate limit, robots restriction hoặc access control. Nếu nguồn bị chặn, agent phải dừng và tạo blocker report thay vì cố truy cập.
