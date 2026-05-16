@@ -20,6 +20,9 @@ Subcommands
 * ``mark``            set a task's status (todo/running/done/blocked)
 * ``block``           set status=blocked AND record a blocker_reason
 * ``add-task``        append a new task row
+* ``render``          write a human-readable PLAN.md review artefact
+* ``approve``         record human approval before execution
+* ``revoke``          clear approval after scope changes
 * ``gate``            run a named gate's assertions
 * ``self-test``       offline self-test (multiple sub-tests)
 
@@ -34,6 +37,7 @@ Design notes
   that check ``evidence-ledger.csv`` etc. read paths relative to
   the plan's directory.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,6 +45,7 @@ import json
 import os
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -53,8 +58,11 @@ VALID_OWNER_PREFIX = ("main", "sub-")
 REQUIRED_TOP_KEYS = {
     "plan_id",
     "title",
+    "workspace_dir",
+    "plan_render_path",
     "scope",
     "sub_questions",
+    "approval",
     "tasks",
     "gates",
     "stopping_criteria",
@@ -71,12 +79,68 @@ REQUIRED_TASK_KEYS = {
     "status",
 }
 
+REQUIRED_APPROVAL_KEYS = {"approved_by", "approved_at", "notes"}
+
+STANDARD_WORKSPACE_DIRS = [
+    "research-output",
+    "research-output/notes",
+    "research-output/sections",
+]
+
+EVIDENCE_LEDGER_HEADER = (
+    "claim_id,claim,sub_question,source_title,source_url,source_type,"
+    "date_published,date_accessed,access_method,evidence,quote_or_anchor,"
+    "contradiction,confidence,notes\n"
+)
+
 # Path resolution helpers operate relative to the plan file's parent
 # directory so plans can be moved around without breaking checks.
 
 
 def _plan_dir(plan_path: Path) -> Path:
     return plan_path.resolve().parent
+
+
+def _utc_now_iso() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _parse_iso_utc(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _is_safe_relative_path(raw: str) -> bool:
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    p = Path(raw)
+    if p.is_absolute():
+        return False
+    return ".." not in p.parts
+
+
+def _resolve_workspace_path(base: Path, raw: str) -> tuple[Path | None, str]:
+    if not _is_safe_relative_path(raw):
+        return None, f"path must be relative and stay inside workspace: {raw!r}"
+    target = (base / raw).resolve()
+    try:
+        target.relative_to(base.resolve())
+    except ValueError:
+        return None, f"path escapes workspace: {raw!r}"
+    return target, "OK"
+
+
+def _scaffold_workspace(base: Path) -> None:
+    base.mkdir(parents=True, exist_ok=True)
+    for rel in STANDARD_WORKSPACE_DIRS:
+        (base / rel).mkdir(parents=True, exist_ok=True)
+    ledger = base / "evidence-ledger.csv"
+    if not ledger.exists():
+        ledger.write_text(EVIDENCE_LEDGER_HEADER, encoding="utf-8")
 
 
 def load(plan_path: Path) -> dict[str, Any]:
@@ -121,6 +185,45 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
     if missing:
         errors.append(f"missing top-level keys: {sorted(missing)}")
 
+    workspace_dir = plan.get("workspace_dir")
+    if not isinstance(workspace_dir, str) or not workspace_dir:
+        errors.append("`workspace_dir` must be a non-empty string")
+    elif not _is_safe_relative_path(workspace_dir):
+        errors.append("`workspace_dir` must be a relative path inside the workspace")
+
+    plan_render_path = plan.get("plan_render_path")
+    if not isinstance(plan_render_path, str) or not plan_render_path:
+        errors.append("`plan_render_path` must be a non-empty string")
+    elif not _is_safe_relative_path(plan_render_path):
+        errors.append("`plan_render_path` must be a relative path inside the workspace")
+
+    approval = plan.get("approval")
+    if not isinstance(approval, dict):
+        errors.append("`approval` must be an object")
+    else:
+        missing_a = REQUIRED_APPROVAL_KEYS - set(approval)
+        if missing_a:
+            errors.append(f"approval missing keys: {sorted(missing_a)}")
+        approved_by = approval.get("approved_by", "")
+        approved_at = approval.get("approved_at", "")
+        notes = approval.get("notes", "")
+        if not isinstance(approved_by, str):
+            errors.append("approval.approved_by must be a string")
+        if not isinstance(approved_at, str):
+            errors.append("approval.approved_at must be a string")
+        if not isinstance(notes, str):
+            errors.append("approval.notes must be a string")
+        if isinstance(approved_by, str) and isinstance(approved_at, str):
+            if bool(approved_by) != bool(approved_at):
+                errors.append(
+                    "approval.approved_by and approval.approved_at must be set together"
+                )
+            if approved_at:
+                try:
+                    _parse_iso_utc(approved_at)
+                except ValueError:
+                    errors.append("approval.approved_at must be ISO 8601 UTC")
+
     tasks = plan.get("tasks", [])
     if not isinstance(tasks, list):
         errors.append("`tasks` must be a list")
@@ -151,15 +254,28 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
             errors.append(f"tasks[{tid}].depends_on must be a list")
         if not isinstance(task["outputs"], list) or not task["outputs"]:
             errors.append(f"tasks[{tid}].outputs must be a non-empty list of paths")
+        else:
+            for op in task["outputs"]:
+                if not isinstance(op, str) or not _is_safe_relative_path(op):
+                    errors.append(f"tasks[{tid}].outputs contains unsafe path {op!r}")
+                elif not op.replace("\\", "/").startswith("research-output/"):
+                    errors.append(
+                        f"tasks[{tid}].outputs must live under research-output/: {op!r}"
+                    )
+        inputs = task.get("inputs", [])
+        if not isinstance(inputs, list):
+            errors.append(f"tasks[{tid}].inputs must be a list when present")
+        else:
+            for ip in inputs:
+                if not isinstance(ip, str) or not _is_safe_relative_path(ip):
+                    errors.append(f"tasks[{tid}].inputs contains unsafe path {ip!r}")
         if not isinstance(task["parallel_safe"], bool):
             errors.append(f"tasks[{tid}].parallel_safe must be a boolean")
         owner = task["owner"]
         if not isinstance(owner, str) or not (
             owner == "main" or owner.startswith("sub-")
         ):
-            errors.append(
-                f"tasks[{tid}].owner={owner!r} must be 'main' or 'sub-<n>'"
-            )
+            errors.append(f"tasks[{tid}].owner={owner!r} must be 'main' or 'sub-<n>'")
 
     # Dependency closure.
     if not errors:
@@ -244,15 +360,9 @@ def parallelizable_tasks(plan: dict[str, Any]) -> list[str]:
 
 def format_status(plan: dict[str, Any]) -> str:
     rows: list[str] = []
-    rows.append(
-        f"plan_id={plan.get('plan_id')}  title={plan.get('title')!r}"
-    )
-    rows.append(
-        "id      status      par   owner     outputs"
-    )
-    rows.append(
-        "------  ----------  ----  --------  -------"
-    )
+    rows.append(f"plan_id={plan.get('plan_id')}  title={plan.get('title')!r}")
+    rows.append("id      status      par   owner     outputs")
+    rows.append("------  ----------  ----  --------  -------")
     for t in plan.get("tasks", []):
         rows.append(
             "{id:6s}  {status:10s}  {par:4s}  {owner:8s}  {outputs}".format(
@@ -278,8 +388,10 @@ def _all_outputs_exist(plan: dict[str, Any], plan_path: Path) -> tuple[bool, lis
         if t["status"] == "blocked":
             continue
         for p in t.get("outputs", []):
-            target = (base / p).resolve()
-            if not target.exists():
+            target, detail = _resolve_workspace_path(base, p)
+            if target is None:
+                missing.append(f"{p} ({detail})")
+            elif not target.exists():
                 missing.append(p)
     return (not missing), missing
 
@@ -332,6 +444,48 @@ def _reproducibility_checklist_exists(plan_path: Path) -> tuple[bool, str]:
     return False, "reproducibility-checklist.md not found"
 
 
+def _workspace_layout_valid(plan: dict[str, Any], plan_path: Path) -> tuple[bool, str]:
+    base = _plan_dir(plan_path)
+    errors: list[str] = []
+    for rel in STANDARD_WORKSPACE_DIRS:
+        if not (base / rel).is_dir():
+            errors.append(f"missing directory: {rel}")
+    for rel in ["evidence-ledger.csv", str(plan.get("plan_render_path", "PLAN.md"))]:
+        target, detail = _resolve_workspace_path(base, rel)
+        if target is None:
+            errors.append(detail)
+        elif rel == "evidence-ledger.csv" and not target.exists():
+            errors.append("missing file: evidence-ledger.csv")
+    for task in plan.get("tasks", []):
+        for field in ("inputs", "outputs"):
+            for rel in task.get(field, []):
+                _target, detail = _resolve_workspace_path(base, rel)
+                if _target is None:
+                    errors.append(f"tasks[{task.get('id')}].{field}: {detail}")
+                elif field == "outputs" and not rel.replace("\\", "/").startswith(
+                    "research-output/"
+                ):
+                    errors.append(
+                        f"tasks[{task.get('id')}].outputs must live under research-output/: {rel!r}"
+                    )
+    return (not errors), "; ".join(errors) if errors else "OK"
+
+
+def _plan_rendered_exists(plan: dict[str, Any], plan_path: Path) -> tuple[bool, str]:
+    base = _plan_dir(plan_path)
+    rel = str(plan.get("plan_render_path", "PLAN.md"))
+    target, detail = _resolve_workspace_path(base, rel)
+    if target is None:
+        return False, detail
+    if not target.exists():
+        return False, f"rendered plan not found at {target}"
+    expected = render_plan_markdown(plan, plan_path).replace("\r\n", "\n")
+    actual = target.read_text(encoding="utf-8").replace("\r\n", "\n")
+    if actual != expected:
+        return False, f"rendered plan is stale; re-run render for {target}"
+    return True, f"rendered plan is current at {target}"
+
+
 def _final_report_exists(plan_path: Path) -> tuple[bool, str]:
     base = _plan_dir(plan_path)
     candidates = [
@@ -381,6 +535,30 @@ def _assert_no_task_is_done(plan, plan_path):
     return (not done), ("already-done tasks: " + str(done)) if done else "OK"
 
 
+def _assert_workspace_layout(plan, plan_path):
+    return _workspace_layout_valid(plan, plan_path)
+
+
+def _assert_plan_rendered(plan, plan_path):
+    return _plan_rendered_exists(plan, plan_path)
+
+
+def _assert_plan_approved(plan, plan_path):
+    approval_obj = plan.get("approval")
+    approval: dict[str, Any] = approval_obj if isinstance(approval_obj, dict) else {}
+    approved_by = str(approval.get("approved_by", "")).strip()
+    approved_at = str(approval.get("approved_at", "")).strip()
+    if not approved_by:
+        return False, "approval.approved_by is empty; run approve --by <name>"
+    if not approved_at:
+        return False, "approval.approved_at is empty"
+    try:
+        _parse_iso_utc(approved_at)
+    except ValueError:
+        return False, "approval.approved_at must be ISO 8601 UTC"
+    return True, f"approved by {approved_by} at {approved_at}"
+
+
 def _assert_all_tasks_terminal(plan, plan_path):
     non_terminal = [
         t["id"] for t in plan.get("tasks", []) if t["status"] not in TERMINAL_STATUS
@@ -422,6 +600,9 @@ def _assert_stopping_criteria_satisfied(plan, plan_path):
 
 ASSERTIONS = {
     "schema_valid": _assert_schema_valid,
+    "workspace_layout": _assert_workspace_layout,
+    "plan_rendered": _assert_plan_rendered,
+    "plan_approved": _assert_plan_approved,
     "no_dependency_cycles": _assert_no_cycles,
     "no_orphan_dependencies": _assert_no_orphans,
     "no_task_is_done": _assert_no_task_is_done,
@@ -433,28 +614,44 @@ ASSERTIONS = {
     "final_report_exists": _assert_final_report_exists,
     "rendered_citations_exist": _assert_rendered_citations_exist,
     "stopping_criteria_satisfied": _assert_stopping_criteria_satisfied,
-    # The "synthesize_ready" assertion in release_ready is satisfied by
-    # running that gate transitively; we treat it as a no-op marker here.
-    "synthesize_ready": lambda plan, plan_path: (True, "evaluated via gate transition"),
 }
 
 
-def run_gate(plan: dict[str, Any], plan_path: Path, gate_name: str) -> tuple[bool, list[tuple[str, bool, str]]]:
+def run_gate(
+    plan: dict[str, Any],
+    plan_path: Path,
+    gate_name: str,
+    seen: set[str] | None = None,
+) -> tuple[bool, list[tuple[str, bool, str]]]:
     gate = plan.get("gates", {}).get(gate_name)
     if gate is None:
         raise KeyError(f"gate not found: {gate_name!r}")
+    seen = set(seen or set())
+    if gate_name in seen:
+        raise KeyError(f"recursive gate reference: {gate_name!r}")
+    seen.add(gate_name)
     results: list[tuple[str, bool, str]] = []
     all_ok = True
     for name in gate.get("assertions", []):
         fn = ASSERTIONS.get(name)
-        if fn is None:
+        if fn is not None:
+            ok, detail = fn(plan, plan_path)
+            results.append((name, ok, detail))
+            if not ok:
+                all_ok = False
+            continue
+        if name in plan.get("gates", {}):
+            ok, nested = run_gate(plan, plan_path, name, set(seen))
+            failed = [n for n, passed, _detail in nested if not passed]
+            detail = "OK" if ok else f"nested gate failed assertions: {failed}"
+            results.append((name, ok, detail))
+            if not ok:
+                all_ok = False
+            continue
+        else:
             results.append((name, False, f"unknown assertion {name!r}"))
             all_ok = False
             continue
-        ok, detail = fn(plan, plan_path)
-        results.append((name, ok, detail))
-        if not ok:
-            all_ok = False
     return all_ok, results
 
 
@@ -464,11 +661,19 @@ def run_gate(plan: dict[str, Any], plan_path: Path, gate_name: str) -> tuple[boo
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    template = Path(__file__).resolve().parent.parent / "templates" / "research-plan.json"
+    template = (
+        Path(__file__).resolve().parent.parent / "templates" / "research-plan.json"
+    )
     if not template.exists():
         print(f"FAIL: template missing at {template}", file=sys.stderr)
         return 1
-    out = Path(args.out).resolve()
+    if args.workspace:
+        workspace = Path(args.workspace).resolve()
+        out_arg = Path(args.out) if args.out else Path("research-plan.json")
+        out = out_arg if out_arg.is_absolute() else workspace / out_arg
+        out = out.resolve()
+    else:
+        out = Path(args.out or "research-plan.json").resolve()
     if out.exists() and not args.force:
         print(
             f"FAIL: {out} exists; pass --force to overwrite",
@@ -477,7 +682,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 1
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    _scaffold_workspace(out.parent)
     print(f"wrote plan template to {out}")
+    print(f"scaffolded workspace at {out.parent}")
     return 0
 
 
@@ -527,6 +734,27 @@ def _find_task(plan: dict[str, Any], task_id: str) -> dict[str, Any] | None:
         if t["id"] == task_id:
             return t
     return None
+
+
+def _approval_is_set(plan: dict[str, Any]) -> bool:
+    approval = plan.get("approval")
+    return isinstance(approval, dict) and bool(approval.get("approved_by"))
+
+
+def _clear_approval(plan: dict[str, Any], notes: str = "") -> None:
+    plan["approval"] = {"approved_by": "", "approved_at": "", "notes": notes}
+
+
+def _remove_rendered_plan(plan: dict[str, Any], plan_path: Path) -> None:
+    base = _plan_dir(plan_path)
+    target, _detail = _resolve_workspace_path(
+        base, str(plan.get("plan_render_path", "PLAN.md"))
+    )
+    if target is not None:
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def cmd_mark(args: argparse.Namespace) -> int:
@@ -588,8 +816,136 @@ def cmd_add_task(args: argparse.Namespace) -> int:
     if detect_cycles(plan):
         print("FAIL: new task introduces a cycle; not saved", file=sys.stderr)
         return 1
+    if _approval_is_set(plan):
+        _clear_approval(plan, f"revoked after adding task {args.id}")
+    _remove_rendered_plan(plan, plan_path)
     save(plan, plan_path)
     print(f"added task {args.id}")
+    return 0
+
+
+def _md_cell(value: Any) -> str:
+    return str(value).replace("\n", " ").replace("|", "\\|")
+
+
+def render_plan_markdown(plan: dict[str, Any], plan_path: Path) -> str:
+    lines: list[str] = []
+    lines.append(f"# {plan.get('title', 'Research Plan')}")
+    lines.append("")
+    lines.append("## Overview")
+    lines.append(f"- Plan ID: `{plan.get('plan_id', '')}`")
+    lines.append(f"- Plan file: `{plan_path.name}`")
+    lines.append(f"- Workspace: `{_plan_dir(plan_path)}`")
+    lines.append("- Approval: recorded in `research-plan.json` after review")
+    lines.append("")
+    lines.append("## Scope")
+    lines.append(str(plan.get("scope", "")))
+    lines.append("")
+    lines.append("## Sub-questions")
+    sub_questions = plan.get("sub_questions", [])
+    if sub_questions:
+        for sq in sub_questions:
+            lines.append(f"- `{sq.get('id', '')}`: {sq.get('text', '')}")
+    else:
+        lines.append("- None declared")
+    lines.append("")
+    lines.append("## Source Classes")
+    source_classes = plan.get("source_classes", [])
+    lines.append(", ".join(source_classes) if source_classes else "Not specified")
+    lines.append("")
+    lines.append("## Tasks")
+    lines.append(
+        "| ID | Status | Owner | Parallel | Depends on | Outputs | Description |"
+    )
+    lines.append("|---|---|---|---|---|---|---|")
+    for task in plan.get("tasks", []):
+        depends = ", ".join(task.get("depends_on", [])) or "-"
+        outputs = "<br>".join(task.get("outputs", [])) or "-"
+        lines.append(
+            "| {id} | {status} | {owner} | {parallel} | {depends} | {outputs} | {description} |".format(
+                id=_md_cell(task.get("id", "")),
+                status=_md_cell(task.get("status", "")),
+                owner=_md_cell(task.get("owner", "")),
+                parallel="yes" if task.get("parallel_safe") else "no",
+                depends=_md_cell(depends),
+                outputs=_md_cell(outputs),
+                description=_md_cell(task.get("description", "")),
+            )
+        )
+    lines.append("")
+    lines.append("## Gates")
+    lines.append("| Gate | Assertions | Description |")
+    lines.append("|---|---|---|")
+    for name, gate in plan.get("gates", {}).items():
+        assertions = ", ".join(gate.get("assertions", []))
+        lines.append(
+            f"| {_md_cell(name)} | {_md_cell(assertions)} | {_md_cell(gate.get('description', ''))} |"
+        )
+    lines.append("")
+    lines.append("## Stopping Criteria")
+    lines.append(str(plan.get("stopping_criteria", "")))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    plan_path = Path(args.file).resolve()
+    plan = load(plan_path)
+    base = _plan_dir(plan_path)
+    rel = args.out or plan.get("plan_render_path", "PLAN.md")
+    target, detail = _resolve_workspace_path(base, str(rel))
+    if target is None:
+        print(f"FAIL: {detail}", file=sys.stderr)
+        return 1
+    if args.out:
+        plan["plan_render_path"] = target.relative_to(base).as_posix()
+        if _approval_is_set(plan):
+            _clear_approval(plan, "revoked after changing plan_render_path")
+        save(plan, plan_path)
+    rendered = render_plan_markdown(plan, plan_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(rendered, encoding="utf-8")
+    print(f"wrote rendered plan to {target}")
+    return 0
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    plan_path = Path(args.file).resolve()
+    plan = load(plan_path)
+    if not args.by and not args.allow_unattended:
+        print(
+            "FAIL: approval requires --by <name>; use --allow-unattended for explicit bypass",
+            file=sys.stderr,
+        )
+        return 1
+    if "plan_ready" in plan.get("gates", {}):
+        ok, results = run_gate(plan, plan_path, "plan_ready")
+        if not ok:
+            for name, passed, detail in results:
+                flag = "OK  " if passed else "FAIL"
+                print(f"  [{flag}] {name}: {detail}")
+            print("FAIL: plan_ready must pass before approval", file=sys.stderr)
+            return 1
+    by = args.by or "agent-self-approved"
+    notes = args.notes or ""
+    if args.allow_unattended and not args.notes:
+        notes = "unattended approval via --allow-unattended"
+    plan["approval"] = {
+        "approved_by": by,
+        "approved_at": _utc_now_iso(),
+        "notes": notes,
+    }
+    save(plan, plan_path)
+    print(f"approved by {by}")
+    return 0
+
+
+def cmd_revoke(args: argparse.Namespace) -> int:
+    plan_path = Path(args.file).resolve()
+    plan = load(plan_path)
+    _clear_approval(plan, args.reason or "approval revoked")
+    save(plan, plan_path)
+    print("approval revoked")
     return 0
 
 
@@ -620,8 +976,11 @@ def _make_minimal_plan() -> dict[str, Any]:
     return {
         "plan_id": "test-plan",
         "title": "Test plan",
+        "workspace_dir": ".",
+        "plan_render_path": "PLAN.md",
         "scope": "scope",
         "sub_questions": [{"id": "SQ1", "text": "x"}],
+        "approval": {"approved_by": "", "approved_at": "", "notes": ""},
         "stopping_criteria": "done when done",
         "stopping_criteria_satisfied": False,
         "tasks": [
@@ -632,7 +991,7 @@ def _make_minimal_plan() -> dict[str, Any]:
                 "parallel_safe": True,
                 "owner": "main",
                 "inputs": [],
-                "outputs": ["out/a.md"],
+                "outputs": ["research-output/notes/a.md"],
                 "status": "todo",
                 "blocker_reason": "",
             },
@@ -643,7 +1002,7 @@ def _make_minimal_plan() -> dict[str, Any]:
                 "parallel_safe": True,
                 "owner": "sub-1",
                 "inputs": [],
-                "outputs": ["out/b.md"],
+                "outputs": ["research-output/notes/b.md"],
                 "status": "todo",
                 "blocker_reason": "",
             },
@@ -653,31 +1012,63 @@ def _make_minimal_plan() -> dict[str, Any]:
                 "depends_on": ["A", "B"],
                 "parallel_safe": False,
                 "owner": "main",
-                "inputs": ["out/a.md", "out/b.md"],
-                "outputs": ["out/c.md"],
+                "inputs": [
+                    "research-output/notes/a.md",
+                    "research-output/notes/b.md",
+                ],
+                "outputs": ["research-output/sections/c.md"],
                 "status": "todo",
                 "blocker_reason": "",
             },
         ],
         "gates": {
-            "execute_ready": {
-                "description": "ready to execute",
+            "plan_ready": {
+                "description": "ready for human review",
                 "assertions": [
                     "schema_valid",
+                    "workspace_layout",
+                    "plan_rendered",
                     "no_dependency_cycles",
                     "no_orphan_dependencies",
                     "no_task_is_done",
                 ],
             },
+            "execute_ready": {
+                "description": "ready to execute",
+                "assertions": [
+                    "schema_valid",
+                    "workspace_layout",
+                    "plan_rendered",
+                    "no_dependency_cycles",
+                    "no_orphan_dependencies",
+                    "no_task_is_done",
+                    "plan_approved",
+                ],
+            },
             "synthesize_ready": {
                 "description": "ready to synth",
-                "assertions": ["all_tasks_terminal", "all_outputs_exist"],
+                "assertions": [
+                    "schema_valid",
+                    "workspace_layout",
+                    "all_tasks_terminal",
+                    "all_outputs_exist",
+                ],
             },
         },
     }
 
 
 def _self_test() -> int:
+    import contextlib
+    import io
+
+    def call_silent(fn, ns) -> int:
+        with (
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            return fn(ns)
+
     failures: list[str] = []
 
     # Sub-test 1: schema validation passes on a clean plan.
@@ -723,9 +1114,7 @@ def _self_test() -> int:
     plan["tasks"][0]["status"] = "done"
     ready = parallelizable_tasks(plan)
     if set(ready) != {"B"}:
-        failures.append(
-            f"after A=done expected ready={{B}}, got {ready}"
-        )
+        failures.append(f"after A=done expected ready={{B}}, got {ready}")
 
     # Sub-test 8: after A and B done, C still excluded because parallel_safe=False.
     plan = _make_minimal_plan()
@@ -740,12 +1129,10 @@ def _self_test() -> int:
     # Sub-test 9: output overlap with running task removes the candidate.
     plan = _make_minimal_plan()
     plan["tasks"][0]["status"] = "running"
-    plan["tasks"][1]["outputs"] = ["out/a.md"]  # collide with A
+    plan["tasks"][1]["outputs"] = ["research-output/notes/a.md"]  # collide with A
     ready = parallelizable_tasks(plan)
     if "B" in ready:
-        failures.append(
-            "B collides with running A's outputs; should be filtered"
-        )
+        failures.append("B collides with running A's outputs; should be filtered")
 
     # Sub-test 10: round-trip save/load preserves the plan.
     with tempfile.TemporaryDirectory() as td:
@@ -756,45 +1143,130 @@ def _self_test() -> int:
         if loaded != plan:
             failures.append("round-trip save/load did not match")
 
-    # Sub-test 11: execute_ready gate passes on a clean plan.
+    # Sub-test 11: plan_ready fails until PLAN.md is rendered.
     with tempfile.TemporaryDirectory() as td:
-        path = Path(td) / "plan.json"
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
         plan = _make_minimal_plan()
+        _scaffold_workspace(td_path)
         save(plan, path)
-        ok, results = run_gate(load(path), path, "execute_ready")
-        if not ok:
-            failures.append(
-                f"execute_ready should pass on clean plan, got {results}"
-            )
+        ok, _results = run_gate(load(path), path, "plan_ready")
+        if ok:
+            failures.append("plan_ready should fail before PLAN.md exists")
 
-    # Sub-test 12: execute_ready FAILS when a task is already `done`.
+    # Sub-test 12: render writes PLAN.md and plan_ready passes.
     with tempfile.TemporaryDirectory() as td:
-        path = Path(td) / "plan.json"
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        rc = call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+        ok, results = run_gate(load(path), path, "plan_ready")
+        if rc != 0 or not ok:
+            failures.append(f"plan_ready should pass after render, got {results}")
+
+    # Sub-test 13: plan_ready fails if PLAN.md is stale.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+        plan = load(path)
+        plan["scope"] = "changed after render"
+        save(plan, path)
+        ok, _results = run_gate(load(path), path, "plan_ready")
+        if ok:
+            failures.append("plan_ready should fail when PLAN.md is stale")
+
+    # Sub-test 14: execute_ready fails until approval is recorded.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+        ok, _results = run_gate(load(path), path, "execute_ready")
+        if ok:
+            failures.append("execute_ready should fail before approval")
+
+    # Sub-test 15: approve records approval and execute_ready passes.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+        rc = call_silent(
+            cmd_approve,
+            argparse.Namespace(
+                file=str(path), by="unit-test", notes="ok", allow_unattended=False
+            ),
+        )
+        ok, results = run_gate(load(path), path, "execute_ready")
+        if rc != 0 or not ok:
+            failures.append(f"execute_ready should pass after approval, got {results}")
+
+    # Sub-test 16: approve fails without --by unless unattended bypass is explicit.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+        rc = call_silent(
+            cmd_approve,
+            argparse.Namespace(
+                file=str(path), by=None, notes=None, allow_unattended=False
+            ),
+        )
+        if rc == 0:
+            failures.append("approve should require --by without --allow-unattended")
+
+    # Sub-test 17: execute_ready FAILS when a task is already `done`.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
         plan = _make_minimal_plan()
         plan["tasks"][0]["status"] = "done"
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+        plan = load(path)
+        plan["approval"] = {
+            "approved_by": "unit-test",
+            "approved_at": _utc_now_iso(),
+            "notes": "",
+        }
         save(plan, path)
         ok, _results = run_gate(load(path), path, "execute_ready")
         if ok:
             failures.append("execute_ready should fail when a task is done")
 
-    # Sub-test 13: synthesize_ready fails when outputs are missing.
-    with tempfile.TemporaryDirectory() as td:
-        path = Path(td) / "plan.json"
-        plan = _make_minimal_plan()
-        for t in plan["tasks"]:
-            t["status"] = "done"
-        save(plan, path)
-        ok, _results = run_gate(load(path), path, "synthesize_ready")
-        if ok:
-            failures.append(
-                "synthesize_ready should fail when outputs do not exist"
-            )
-
-    # Sub-test 14: synthesize_ready passes when outputs do exist.
+    # Sub-test 18: synthesize_ready fails when outputs are missing.
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
         path = td_path / "plan.json"
         plan = _make_minimal_plan()
+        for t in plan["tasks"]:
+            t["status"] = "done"
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        ok, _results = run_gate(load(path), path, "synthesize_ready")
+        if ok:
+            failures.append("synthesize_ready should fail when outputs do not exist")
+
+    # Sub-test 19: synthesize_ready passes when outputs do exist.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "plan.json"
+        plan = _make_minimal_plan()
+        _scaffold_workspace(td_path)
         for t in plan["tasks"]:
             t["status"] = "done"
             for op in t["outputs"]:
@@ -808,7 +1280,21 @@ def _self_test() -> int:
                 f"synthesize_ready should pass when outputs exist, got {results}"
             )
 
-    # Sub-test 15: add-task rejects a cycle.
+    # Sub-test 20: synthesize_ready rejects output paths outside the workspace.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "plan.json"
+        plan = _make_minimal_plan()
+        plan["tasks"][0]["outputs"] = ["../escape.md"]
+        for t in plan["tasks"]:
+            t["status"] = "done"
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        ok, _results = run_gate(load(path), path, "synthesize_ready")
+        if ok:
+            failures.append("synthesize_ready should reject escaping output paths")
+
+    # Sub-test 21: add-task rejects a cycle.
     plan = _make_minimal_plan()
     plan["tasks"].append(
         {
@@ -818,7 +1304,7 @@ def _self_test() -> int:
             "parallel_safe": True,
             "owner": "main",
             "inputs": [],
-            "outputs": ["out/d.md"],
+            "outputs": ["research-output/notes/d.md"],
             "status": "todo",
             "blocker_reason": "",
         }
@@ -827,7 +1313,7 @@ def _self_test() -> int:
     if not detect_cycles(plan):
         failures.append("A->D->C->A cycle should be detected")
 
-    # Sub-test 16: blocked dep does not satisfy parallelizable.
+    # Sub-test 22: blocked dep does not satisfy parallelizable.
     plan = _make_minimal_plan()
     plan["tasks"][0]["status"] = "blocked"
     plan["tasks"][0]["blocker_reason"] = "manual"
@@ -835,20 +1321,36 @@ def _self_test() -> int:
     plan["tasks"][2]["parallel_safe"] = True  # in case
     ready = parallelizable_tasks(plan)
     if "C" in ready:
-        failures.append(
-            "C must not be ready when one of its deps is blocked"
-        )
+        failures.append("C must not be ready when one of its deps is blocked")
 
-    # Sub-test 17: real template parses cleanly.
-    template = Path(__file__).resolve().parent.parent / "templates" / "research-plan.json"
+    # Sub-test 23: init scaffolds a workspace.
+    with tempfile.TemporaryDirectory() as td:
+        workspace = Path(td) / "research-test"
+        rc = call_silent(
+            cmd_init,
+            argparse.Namespace(workspace=str(workspace), out=None, force=False),
+        )
+        if rc != 0:
+            failures.append("init --workspace should pass")
+        for rel in [
+            "research-plan.json",
+            "evidence-ledger.csv",
+            "research-output/notes",
+            "research-output/sections",
+        ]:
+            if not (workspace / rel).exists():
+                failures.append(f"init --workspace missing {rel}")
+
+    # Sub-test 24: real template parses cleanly.
+    template = (
+        Path(__file__).resolve().parent.parent / "templates" / "research-plan.json"
+    )
     if template.exists():
         try:
             plan = load(template)
             errs = validate_schema(plan)
             if errs:
-                failures.append(
-                    f"shipped template fails schema: {errs}"
-                )
+                failures.append(f"shipped template fails schema: {errs}")
             if detect_cycles(plan):
                 failures.append("shipped template has a cycle")
         except Exception as e:
@@ -858,7 +1360,7 @@ def _self_test() -> int:
         for f in failures:
             print(f"FAIL: {f}", file=sys.stderr)
         return 1
-    print("OK: research_plan self-test passed (17 sub-tests).")
+    print("OK: research_plan self-test passed (24 sub-tests).")
     return 0
 
 
@@ -879,7 +1381,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("init", help="copy the template to a working plan path")
-    sp.add_argument("--out", default="research-plan.json")
+    sp.add_argument("--out", default=None)
+    sp.add_argument(
+        "--workspace",
+        default=None,
+        help="workspace directory to scaffold; plan defaults to <workspace>/research-plan.json",
+    )
     sp.add_argument("--force", action="store_true")
     sp.set_defaults(func=cmd_init)
 
@@ -920,6 +1427,27 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--inputs", nargs="*", default=[])
     sp.add_argument("--outputs", nargs="+", required=True)
     sp.set_defaults(func=cmd_add_task)
+
+    sp = sub.add_parser("render", help="write a human-readable PLAN.md")
+    sp.add_argument("--file", default="research-plan.json")
+    sp.add_argument("--out", default=None)
+    sp.set_defaults(func=cmd_render)
+
+    sp = sub.add_parser("approve", help="record approval before execution")
+    sp.add_argument("--file", default="research-plan.json")
+    sp.add_argument("--by", default=None)
+    sp.add_argument("--notes", default=None)
+    sp.add_argument(
+        "--allow-unattended",
+        action="store_true",
+        help="explicitly bypass human review and record agent-self-approved",
+    )
+    sp.set_defaults(func=cmd_approve)
+
+    sp = sub.add_parser("revoke", help="clear plan approval")
+    sp.add_argument("--file", default="research-plan.json")
+    sp.add_argument("--reason", default=None)
+    sp.set_defaults(func=cmd_revoke)
 
     sp = sub.add_parser("gate", help="run a named gate's assertions")
     sp.add_argument("--file", default="research-plan.json")

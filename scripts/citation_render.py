@@ -31,9 +31,11 @@ This script only fetches public CSL files from a public GitHub raw URL.
 It does not bypass any access control. To work fully offline, pass a
 local ``.csl`` path via ``--style /path/to/style.csl``.
 """
+
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -62,9 +64,7 @@ DEFAULT_STYLES: dict[str, str] = {
     "ama": "american-medical-association",
 }
 
-CSL_BASE_URL = (
-    "https://raw.githubusercontent.com/citation-style-language/styles/master"
-)
+CSL_BASE_URL = "https://raw.githubusercontent.com/citation-style-language/styles/master"
 
 
 def cache_dir() -> Path:
@@ -81,7 +81,12 @@ def pandoc_supports_citeproc() -> bool:
         return False
     try:
         proc = subprocess.run(
-            ["pandoc", "--version"], capture_output=True, text=True, timeout=5
+            ["pandoc", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
@@ -205,17 +210,19 @@ def render(
         "w", suffix=".md", delete=False, encoding="utf-8"
     ) as f:
         f.write("---\n")
-        f.write(f"bibliography: {bib.resolve()}\n")
+        f.write(f"bibliography: {json.dumps(bib.resolve().as_posix())}\n")
         if csl is not None:
-            f.write(f"csl: {csl.resolve()}\n")
+            f.write(f"csl: {json.dumps(csl.resolve().as_posix())}\n")
         f.write("nocite: '@*'\n")
         f.write("---\n\n")
         f.write("# References\n\n")
-        f.write("<div id=\"refs\"></div>\n")
+        f.write('<div id="refs"></div>\n')
         tmpmd = Path(f.name)
     try:
         cmd = ["pandoc", "--citeproc", "-t", fmt, str(tmpmd)]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
     finally:
         try:
             tmpmd.unlink()

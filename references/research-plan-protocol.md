@@ -36,10 +36,57 @@ quick fact checks. The overhead is not worth it.
 
 ## The five phases
 
+## Workspace layout
+
+Every long-horizon research run lives in exactly one workspace directory.
+The workspace is the deliverable: the user can zip or tar it and hand it
+to another reviewer without relying on chat history.
+
+Use this layout:
+
+```text
+research-<slug>-<YYYY-MM-DD>/
+├── research-plan.json
+├── PLAN.md
+├── evidence-ledger.csv
+├── evidence-ledger.csv.hmac
+├── reproducibility-checklist.md
+└── research-output/
+    ├── notes/
+    │   └── <task-id>-<topic>.md
+    ├── sections/
+    │   └── <sub-question-id>.md
+    ├── report.md
+    └── report-citations.md
+```
+
+Rules:
+
+- The plan file's parent directory is the workspace root.
+- Task `outputs` must stay under `research-output/`.
+- Shared audit files (`evidence-ledger.csv`, its `.hmac` signature,
+  `PLAN.md`, and `reproducibility-checklist.md`) stay at the workspace
+  root.
+- Agents must not write outside the workspace. The checker rejects
+  absolute paths and `..` path escapes in task inputs and outputs.
+
+Create a workspace with:
+
+```sh
+python3 scripts/research_plan.py init \
+  --workspace research-oai-review-2026-05-16
+```
+
+On Windows, use `python` instead of `python3` if `python3` is not on
+PATH, or call the same subcommands through `npm run plan:*`.
+
+This writes `research-plan.json`, creates the standard output folders,
+and initialises an empty `evidence-ledger.csv` header.
+
 ### 1. Plan
 
-Output a single artefact: `research-plan.json` (start from
-`templates/research-plan.json`). The plan must contain:
+Output the draft plan inside the workspace as `research-plan.json`
+(start from `templates/research-plan.json`). The plan must contain:
 
 - **Scope**: the research goal, in one paragraph, framed so a
   stranger could pick up the task and finish it.
@@ -55,6 +102,8 @@ Output a single artefact: `research-plan.json` (start from
 - **Gates**: the conditions that must be true before declaring the
   plan executable, and before declaring the synthesis allowed. See
   the "Gate definitions" section below.
+- **Approval**: the `approval` block starts empty and must be filled by
+  `research_plan.py approve` before execution.
 - **Stopping criteria**: the explicit "we are done" signal. Without
   this the agent will not know when to stop.
 
@@ -65,6 +114,41 @@ Verify the plan with `scripts/research_plan.py check --file
 research-plan.json` before doing any work. The checker validates
 schema, dependency closure (no cycles, no orphan deps), and gate
 consistency.
+
+Render the plan for human review:
+
+```sh
+python3 scripts/research_plan.py render --file research-plan.json
+python3 scripts/research_plan.py gate --file research-plan.json --gate plan_ready
+```
+
+The render command writes `PLAN.md`, a human-readable version of scope,
+sub-questions, source classes, tasks, gates, and stopping criteria. The
+agent shows `PLAN.md` to the user and asks for corrections before
+execution.
+
+After the user approves the plan:
+
+```sh
+python3 scripts/research_plan.py approve \
+  --file research-plan.json \
+  --by "Reviewer Name" \
+  --notes "Approved scope and task split."
+```
+
+If a host runtime is truly unattended, approval fails by default. The
+agent must explicitly bypass the human gate and leave an audit trail:
+
+```sh
+python3 scripts/research_plan.py approve \
+  --file research-plan.json \
+  --allow-unattended
+```
+
+This records `approved_by=agent-self-approved` and notes that the run
+used `--allow-unattended`. If the scope or task graph changes before
+execution, run `research_plan.py revoke`, update the plan, render again,
+and re-approve.
 
 ### 2. Execute
 
@@ -147,11 +231,13 @@ Before transitioning between phases, the orchestrator runs
 The gate checks the assertions declared in the plan and exits non-zero
 if any fail.
 
-Three standard gates are provided. A plan can add more.
+Four standard gates are provided. A plan can add more.
 
-- **`gate.execute_ready`** — every task has `id`, `description`,
-  `outputs`; dependency graph is acyclic; no task is `done` yet.
-  Passes once at the end of the plan phase.
+- **`gate.plan_ready`** — schema is valid; workspace layout exists;
+  `PLAN.md` exists; dependency graph is acyclic; all dependencies point
+  at known task ids; no task is `done` yet. Passes before approval.
+- **`gate.execute_ready`** — `plan_ready` assertions plus
+  `plan_approved`. Passes once at the end of the approval phase.
 - **`gate.synthesize_ready`** — every task is `done` or `blocked`;
   every blocked task has a non-empty `blocker_reason`; every
   declared `outputs` path exists on disk; the evidence ledger
@@ -191,7 +277,7 @@ never silently expands scope.
 
 Gates are declared inline in `research-plan.json` under `gates`. Each
 gate has a name and an ordered list of assertions. The default
-template defines `execute_ready`, `synthesize_ready`, and
+template defines `plan_ready`, `execute_ready`, `synthesize_ready`, and
 `release_ready` (above). Custom gates can be added for domain-specific
 requirements — e.g. a PRISMA review might add:
 
@@ -204,7 +290,7 @@ requirements — e.g. a PRISMA review might add:
 
 | Failure | Detection | Response |
 |---|---|---|
-| A task takes longer than its budget | `research_plan.py status` shows it `running` past budget | Split the task into smaller sub-tasks, update the plan, re-run `gate.execute_ready` |
+| A task takes longer than its budget | `research_plan.py status` shows it `running` past budget | Split the task into smaller sub-tasks, revoke approval if scope changes, render again, re-approve, then re-run `gate.execute_ready` |
 | A sub-agent returns inconsistent output | Output schema mismatch on read-back | Mark the task `blocked` with `blocker_reason`, re-dispatch with a tighter prompt |
 | Two tasks accidentally write to the same file | `parallelizable` would have caught it; if it slipped, the second write overwrites the first | Treat as data loss; re-run the task; tighten the plan to fix the conflict |
 | The agent runs out of context anyway | The orchestrator detects a long-input retry | Checkpoint: persist `research_plan.py status` output, then restart in a fresh session with the same plan file |
@@ -218,6 +304,9 @@ requirements — e.g. a PRISMA review might add:
 - **Hand-editing `research-plan.json` while a task is running.** Use
   the script's `mark` / `add-task` / `block` subcommands so the
   schema stays valid.
+- **Skipping `PLAN.md` review or approval.** Long runs should not spend
+  hours executing a scope that no human has seen. Use `--allow-unattended`
+  only when a human is truly unavailable.
 - **Skipping gates "because it's just a small task".** Gates are
   cheap to run. Skipping them is how regressions happen.
 - **Letting sub-agents talk to each other.** They must communicate
@@ -227,8 +316,9 @@ requirements — e.g. a PRISMA review might add:
 
 - `templates/research-plan.json` — the starter plan with the schema
   the script enforces.
-- `scripts/research_plan.py` — `init`, `add-task`, `mark`, `block`,
-  `check`, `parallelizable`, `gate`, `status`, `self-test`.
+- `scripts/research_plan.py` — `init`, `render`, `approve`, `revoke`,
+  `add-task`, `mark`, `block`, `check`, `parallelizable`, `gate`,
+  `status`, `self-test`.
 - `references/evidence-ledger.md` — the ledger schema, also the
   signing flow.
 - `references/reproducibility-checklist.md` — the post-execute

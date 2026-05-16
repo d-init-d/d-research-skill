@@ -30,6 +30,9 @@
     "plan:parallelizable": "node scripts/run_python.mjs scripts/research_plan.py parallelizable",
     "plan:mark": "node scripts/run_python.mjs scripts/research_plan.py mark",
     "plan:block": "node scripts/run_python.mjs scripts/research_plan.py block",
+    "plan:render": "node scripts/run_python.mjs scripts/research_plan.py render",
+    "plan:approve": "node scripts/run_python.mjs scripts/research_plan.py approve",
+    "plan:revoke": "node scripts/run_python.mjs scripts/research_plan.py revoke",
     "plan:gate": "node scripts/run_python.mjs scripts/research_plan.py gate",
     "refs:check": "node scripts/run_python.mjs scripts/check_internal_refs.py",
     "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test && node scripts/api_fetch.mjs --self-test && node scripts/run_python.mjs scripts/data_clean.py self-test && node scripts/run_python.mjs scripts/citation_export.py self-test && node scripts/run_python.mjs scripts/citation_render.py self-test && node scripts/run_python.mjs scripts/extract_tables.py self-test && node scripts/run_python.mjs scripts/score_source.py self-test && node scripts/run_python.mjs scripts/research_plan.py self-test && node scripts/run_python.mjs scripts/check_internal_refs.py"

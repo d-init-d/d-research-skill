@@ -7,7 +7,7 @@ Default browser automation: Playwright.
 Core workflow:
 1. Restate the research goal.
 2. Decompose the topic into sub-questions, facets, entities, aliases, and source classes.
-2a. For any long-horizon task (>5 sub-questions, >50 sources, multi-context-window runtime, or audit-grade output), initialise a research plan from `templates/research-plan.json` and follow `references/research-plan-protocol.md`. Use `scripts/research_plan.py` to validate the plan, list parallel-safe tasks, mark task status, and gate the synthesize step. See `examples/long-horizon-research-plan.md`.
+2a. For any long-horizon task (>5 sub-questions, >50 sources, multi-context-window runtime, or audit-grade output), initialise one workspace directory from `templates/research-plan.json` and follow `references/research-plan-protocol.md`. Use `scripts/research_plan.py render` to create `PLAN.md`, run `gate --gate plan_ready`, get approval with `approve` before dispatch, then list parallel-safe tasks, mark task status, and gate the synthesize step. Use `--allow-unattended` only when no human review is available. See `examples/long-horizon-research-plan.md`.
 3. Build a source map before extraction.
 4. Generate query fanout: broad, exact, official, primary, filetype, site-specific, dataset/API, recent, and contradiction queries.
 5. Use browser-first probing for promising URLs.

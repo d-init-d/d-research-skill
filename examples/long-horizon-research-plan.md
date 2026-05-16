@@ -17,13 +17,16 @@ resets and parallelisable where safe.
 ## Step 1 — Initialise the plan
 
 ```sh
-mkdir -p ./oai-review && cd ./oai-review
-python3 ../scripts/research_plan.py init --out research-plan.json
+python3 scripts/research_plan.py init --workspace ./research-oai-review-2026-05-16
+cd ./research-oai-review-2026-05-16
 python3 ../scripts/research_plan.py check --file research-plan.json
 ```
 
-The template ships with seven illustrative tasks (T1–T7) and three gates
-(`execute_ready`, `synthesize_ready`, `release_ready`). The
+On Windows, use `python` instead of `python3` if `python3` is not on
+PATH, or use the matching `npm run plan:*` commands from the repo root.
+
+The template ships with seven illustrative tasks (T1–T7) and four gates
+(`plan_ready`, `execute_ready`, `synthesize_ready`, `release_ready`). The
 orchestrator edits the plan to match the real research goal but keeps
 the schema intact.
 
@@ -32,9 +35,38 @@ into context and then immediately swap to working off of `status` /
 `parallelizable` / `mark` outputs — none of the raw plan text re-enters
 context after this point.
 
-## Step 2 — Confirm the plan is ready
+## Step 2 — Render, review, and approve the plan
 
 ```sh
+python3 ../scripts/research_plan.py render --file research-plan.json
+python3 ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
+```
+
+Expected:
+
+```
+  [OK  ] schema_valid: OK
+  [OK  ] workspace_layout: OK
+  [OK  ] plan_rendered: rendered plan is current at .../PLAN.md
+  [OK  ] no_dependency_cycles: OK
+  [OK  ] no_orphan_dependencies: OK
+  [OK  ] no_task_is_done: OK
+GATE PASS: plan_ready
+```
+
+The orchestrator shows `PLAN.md` to the user. The user can ask for scope
+changes, sub-question edits, source-class changes, task additions, or
+owner changes. If the task graph changes, re-run `render` and
+`plan_ready`.
+
+Once the user approves:
+
+```sh
+python3 ../scripts/research_plan.py approve \
+  --file research-plan.json \
+  --by "reviewer@example.org" \
+  --notes "Scope, tasks, and stopping criteria approved."
+
 python3 ../scripts/research_plan.py gate --file research-plan.json --gate execute_ready
 ```
 
@@ -42,15 +74,23 @@ Expected:
 
 ```
   [OK  ] schema_valid: OK
+  [OK  ] workspace_layout: OK
+  [OK  ] plan_rendered: rendered plan is current at .../PLAN.md
   [OK  ] no_dependency_cycles: OK
   [OK  ] no_orphan_dependencies: OK
   [OK  ] no_task_is_done: OK
+  [OK  ] plan_approved: approved by reviewer@example.org at ...
 GATE PASS: execute_ready
 ```
 
-If any assertion fails, the orchestrator fixes the plan (typically via
-`add-task` or by hand-editing the JSON and re-running `check`) before
-moving on.
+Unattended runs fail by default. If no human can review the plan, the
+agent must explicitly record the bypass:
+
+```sh
+python3 ../scripts/research_plan.py approve \
+  --file research-plan.json \
+  --allow-unattended
+```
 
 ## Step 3 — Dispatch parallel tasks
 
@@ -177,8 +217,9 @@ When `release_ready` is `GATE PASS`, the review is published.
 ## Outputs at the end
 
 ```
-oai-review/
+research-oai-review-2026-05-16/
 ├── research-plan.json
+├── PLAN.md
 ├── evidence-ledger.csv
 ├── evidence-ledger.csv.hmac
 ├── reproducibility-checklist.md
