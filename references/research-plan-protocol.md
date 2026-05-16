@@ -109,6 +109,11 @@ Output the draft plan inside the workspace as `research-plan.json`
   `owner` (`main` or `sub-N`), `outputs` (paths under
   `research-output/` that the task will produce), and `status`
   (`todo` / `running` / `done` / `blocked`).
+- **Execution profile**: the `execution_profile` block records the
+  configured main-agent context length, sub-agent slots, per-task
+  context budget ratio, and checkpoint policy. Each task has an
+  `execution` object stating whether it runs on `main` or a sub-agent
+  slot, how many sub-agent threads it consumes, and its context budget.
 - **Gates**: the conditions that must be true before declaring the
   plan executable, and before declaring the synthesis allowed. See
   the "Gate definitions" section below.
@@ -124,6 +129,37 @@ Verify the plan with `scripts/research_plan.py check --file
 research-plan.json` before doing any work. The checker validates
 schema, dependency closure (no cycles, no orphan deps), and gate
 consistency.
+
+After editing the task graph, refresh execution annotations from config:
+
+```sh
+python3 scripts/research_plan.py configure-execution --file research-plan.json
+```
+
+This reads `research.config.json` if present. If sub-agent slots are
+configured, parallel-safe `sub-N` tasks are annotated with the assigned
+slot, one consumed sub-agent thread, the slot's context length, and the
+derived per-task context budget. If no sub-agent slot is configured, all
+tasks are annotated for the main agent and must be split according to
+the main agent's own context length.
+
+The rendered `PLAN.md` includes an **Execution Slots** table and task
+columns for `Execution`, `Threads`, `Context length`, and `Context
+budget`. Users can review this division before approval and change any
+task assignment with:
+
+```sh
+python3 scripts/research_plan.py set-execution \
+  --file research-plan.json \
+  --id T2 \
+  --agent subagent \
+  --slot deep-reader \
+  --parallel-threads 2
+```
+
+Use `--agent main` to move a task back to the main agent. Any execution
+change revokes approval and removes stale `PLAN.md`; render and approve
+again.
 
 Render the plan for human review:
 
@@ -167,18 +203,24 @@ For every task in the plan, the agent does this and **only** this:
 1. Re-read the plan row for the task. Do not re-read the whole plan.
 2. Re-read the artefacts listed in the task's `inputs` (if any).
 3. Do the work.
-4. Write the result to the path declared in `outputs`. Never keep the
-   result in chat context for the next task.
+4. Write each useful finding to the path declared in `outputs` as soon
+   as it is found. Never keep the result in chat context for the next
+   task.
 5. Append every claim worth keeping to the evidence ledger
    (`evidence-ledger.csv`, see `references/evidence-ledger.md`).
 6. Mark the task `done` with `scripts/research_plan.py mark --id <id>
    --status done`.
 
-**Context discipline.** The agent must never paste the contents of a
-raw extraction back into the chat. Raw extractions live on disk
-(typically under `research-output/raw/<source>.json` or `.md`). Only
-the structured rows in the evidence ledger and the per-task summary
-artefact are allowed to re-enter context, and only when needed.
+**Context discipline.** Context overflow is a hard failure. The agent
+must inspect each task's `execution.context_budget` before starting. If
+the expected source text, inputs, or synthesis state may exceed that
+budget, split the work into smaller tasks, run `configure-execution`,
+render the plan again, and re-approve before execution. The agent must
+never paste the contents of a raw extraction back into the chat. Raw
+extractions live on disk (typically under `research-output/raw/<source>.json`
+or `.md`). Only the structured rows in the evidence ledger and the
+per-task summary artefact are allowed to re-enter context, and only when
+needed.
 
 A practical rule: if the artefact for one source is larger than
 ~4 000 tokens, the next task must re-read it via file system, not via
@@ -211,7 +253,36 @@ Typical **not** parallel-safe:
 
 To list ready-to-dispatch tasks, run `scripts/research_plan.py
 parallelizable --file research-plan.json`. The script prints task ids
-that have all dependencies satisfied and no output-path conflicts.
+that have all dependencies satisfied, no output-path conflicts, and an
+available sub-agent slot thread when `execution.agent=subagent`.
+
+Sub-agent usage is controlled by `research.config.json`:
+
+```json
+{
+  "researchPlan": {
+    "subagents": {
+      "slots": [
+        {
+          "id": "deep-reader",
+          "agent": "explore",
+          "contextLength": 32000,
+          "maxParallel": 3
+        }
+      ]
+    }
+  }
+}
+```
+
+The default config contains one `default` slot with `agent`,
+`contextLength`, and `maxParallel` set to `null`, meaning no configured
+sub-agent. Users can add more objects to `researchPlan.subagents.slots[]`.
+A slot only becomes usable when all three fields are set: `agent`,
+`contextLength`, and `maxParallel`. When slots are configured, the
+orchestrator dispatches no more than each slot's `maxParallel` tasks
+concurrently and ensures every task fits within that slot's context
+budget.
 
 Dispatch mechanism depends on the host runtime:
 
@@ -244,8 +315,9 @@ if any fail.
 Four standard gates are provided. A plan can add more.
 
 - **`gate.plan_ready`** — schema is valid; workspace layout exists;
-  `PLAN.md` exists; dependency graph is acyclic; all dependencies point
-  at known task ids; no task is `done` yet. Passes before approval.
+  execution annotations are configured; `PLAN.md` exists; dependency
+  graph is acyclic; all dependencies point at known task ids; no task is
+  `done` yet. Passes before approval.
 - **`gate.execute_ready`** — `plan_ready` assertions plus
   `plan_approved`. Passes once at the end of the approval phase.
 - **`gate.synthesize_ready`** — every task is `done` or `blocked`;

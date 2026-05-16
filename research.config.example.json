@@ -22,9 +22,20 @@
     "searchLogRequired": true
   },
   "researchPlan": {
+    "context": {
+      "mainContextLength": null,
+      "taskBudgetRatio": 0.5,
+      "writeFindingsImmediately": true
+    },
     "subagents": {
-      "enabled": true,
-      "maxParallel": 4
+      "slots": [
+        {
+          "id": "default",
+          "agent": null,
+          "contextLength": null,
+          "maxParallel": null
+        }
+      ]
     },
     "workspace": {
       "baseDir": ".",

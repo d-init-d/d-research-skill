@@ -157,7 +157,7 @@ Sign the ledger with `scripts/evidence_ledger.py sign --file evidence-ledger.csv
 
 ### If the task is long-horizon, multi-source, or risks blowing context
 
-Use the **research plan protocol** in `references/research-plan-protocol.md`. The agent MUST start by creating a single workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writing `research-plan.json` (from `templates/research-plan.json`), validating it with `scripts/research_plan.py check`, rendering `PLAN.md`, running `gate --gate plan_ready`, and getting approval with `scripts/research_plan.py approve` before dispatch. `init` reads `research.config.json` when present; by default it creates a fresh run folder in the current working directory, or under `researchPlan.workspace.baseDir` if configured. If that configured folder is inaccessible, it falls back to the current directory and warns. Unattended runs fail by default unless the agent explicitly records `--allow-unattended`. After approval, dispatch parallel-safe tasks via `scripts/research_plan.py parallelizable` only when `researchPlan.subagents.enabled=true`, mark task status as work progresses, gate the synthesize step with `scripts/research_plan.py gate --gate synthesize_ready`, and only then compose the final report. Always include the final workspace path in the user-facing answer. See `examples/long-horizon-research-plan.md` for the end-to-end walkthrough. This is the right default for any task with >5 sub-questions, >50 sources, or estimated runtime that does not fit in one context window.
+Use the **research plan protocol** in `references/research-plan-protocol.md`. The agent MUST start by creating a single workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writing `research-plan.json` (from `templates/research-plan.json`), validating it with `scripts/research_plan.py check`, refreshing execution annotations with `scripts/research_plan.py configure-execution`, rendering `PLAN.md`, running `gate --gate plan_ready`, and getting approval with `scripts/research_plan.py approve` before dispatch. `init` reads `research.config.json` when present; by default it creates a fresh run folder in the current working directory, or under `researchPlan.workspace.baseDir` if configured. If that configured folder is inaccessible, it falls back to the current directory and warns. Unattended runs fail by default unless the agent explicitly records `--allow-unattended`. After approval, dispatch parallel-safe tasks via `scripts/research_plan.py parallelizable` only when `researchPlan.subagents.slots[]` contains configured slots (`agent`, `contextLength`, and `maxParallel` are not null). If the user changes task assignment, slot, or thread count during review, use `scripts/research_plan.py set-execution --id <task> --agent <main|subagent> [--slot <slot>] [--parallel-threads <n>]`, then render and approve again. If no sub-agent is configured, run tasks with the main agent and split the plan according to the main agent's context length. Context overflow is a hard failure: each task must fit its `execution.context_budget`; if not, split the task, write partial findings to files immediately, re-run `configure-execution`, render, and re-approve. Mark task status as work progresses, gate the synthesize step with `scripts/research_plan.py gate --gate synthesize_ready`, and only then compose the final report. Always include the final workspace path in the user-facing answer. See `examples/long-horizon-research-plan.md` for the end-to-end walkthrough. This is the right default for any task with >5 sub-questions, >50 sources, or estimated runtime that does not fit in one context window.
 
 ### If the user wants visualizations or charts
 
@@ -363,7 +363,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + CSL
 - `scripts/extract_tables.py`: extract HTML `<table>` elements into CSV (handles `colspan`/`rowspan`, stdlib only)
 - `scripts/score_source.py`: apply the `references/source-quality-rubric.md` rubric to an evidence ledger and emit per-row scores + bands
-- `scripts/research_plan.py`: init / render / approve / revoke / check / status / parallelizable / mark / block / add-task / gate — drives the long-horizon context-safe protocol in `references/research-plan-protocol.md`
+- `scripts/research_plan.py`: init / configure-execution / set-execution / render / approve / revoke / check / status / parallelizable / mark / block / add-task / gate — drives the long-horizon context-safe protocol in `references/research-plan-protocol.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 
 The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.
@@ -382,8 +382,13 @@ Important config fields:
 - crawl.respectRobots
 - research.requireEvidenceLedger
 - research.requireContradictionPass
-- researchPlan.subagents.enabled
-- researchPlan.subagents.maxParallel
+- researchPlan.context.mainContextLength
+- researchPlan.context.taskBudgetRatio
+- researchPlan.context.writeFindingsImmediately
+- researchPlan.subagents.slots[].id
+- researchPlan.subagents.slots[].agent
+- researchPlan.subagents.slots[].contextLength
+- researchPlan.subagents.slots[].maxParallel
 - researchPlan.workspace.baseDir
 - researchPlan.workspace.nameTemplate
 - researchPlan.workspace.fallbackToCwdOnError

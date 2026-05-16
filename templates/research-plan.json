@@ -8,6 +8,20 @@
   "created": "2026-01-15",
   "owner": "research-lead@example.org",
   "context_budget_tokens": 200000,
+  "execution_profile": {
+    "source": "defaults",
+    "main_context_length": null,
+    "task_budget_ratio": 0.5,
+    "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget",
+    "subagent_slots": [
+      {
+        "id": "default",
+        "agent": null,
+        "context_length": null,
+        "max_parallel": null
+      }
+    ]
+  },
   "estimated_runtime_hours": 12,
   "scope": "Evaluate the suitability of Playwright, Selenium, and Puppeteer for programmatic, lawful crawling of OAI-PMH endpoints exposed by academic-repository hosts. The output is a comparison report with reproducible benchmarks and a recommendation.",
   "sub_questions": [
@@ -33,7 +47,16 @@
       "inputs": [],
       "outputs": ["research-output/notes/oai-pmh-spec-summary.md"],
       "status": "todo",
-      "blocker_reason": ""
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": null,
+        "context_budget": null,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
     },
     {
       "id": "T2",
@@ -44,7 +67,16 @@
       "inputs": [],
       "outputs": ["research-output/notes/playwright-xml-handling.md"],
       "status": "todo",
-      "blocker_reason": ""
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": null,
+        "context_budget": null,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
     },
     {
       "id": "T3",
@@ -55,7 +87,16 @@
       "inputs": [],
       "outputs": ["research-output/notes/selenium-xml-handling.md"],
       "status": "todo",
-      "blocker_reason": ""
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": null,
+        "context_budget": null,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
     },
     {
       "id": "T4",
@@ -66,7 +107,16 @@
       "inputs": [],
       "outputs": ["research-output/notes/puppeteer-xml-handling.md"],
       "status": "todo",
-      "blocker_reason": ""
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": null,
+        "context_budget": null,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
     },
     {
       "id": "T5",
@@ -82,7 +132,16 @@
       ],
       "outputs": ["research-output/sections/sq1.md"],
       "status": "todo",
-      "blocker_reason": ""
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": null,
+        "context_budget": null,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
     },
     {
       "id": "T6",
@@ -93,7 +152,16 @@
       "inputs": ["evidence-ledger.csv"],
       "outputs": ["research-output/notes/contradiction-pass.md"],
       "status": "todo",
-      "blocker_reason": ""
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": null,
+        "context_budget": null,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
     },
     {
       "id": "T7",
@@ -104,21 +172,30 @@
       "inputs": ["research-output/sections/sq1.md", "evidence-ledger.csv"],
       "outputs": ["research-output/report.md", "research-output/report-citations.md"],
       "status": "todo",
-      "blocker_reason": ""
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": null,
+        "context_budget": null,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
     }
   ],
   "gates": {
     "plan_ready": {
       "description": "Plan is shaped correctly, rendered for review, and ready for approval.",
-      "assertions": ["schema_valid", "workspace_layout", "plan_rendered", "no_dependency_cycles", "no_orphan_dependencies", "no_task_is_done"]
+      "assertions": ["schema_valid", "workspace_layout", "execution_configured", "plan_rendered", "no_dependency_cycles", "no_orphan_dependencies", "no_task_is_done"]
     },
     "execute_ready": {
       "description": "Plan is approved and ready to dispatch.",
-      "assertions": ["schema_valid", "workspace_layout", "plan_rendered", "no_dependency_cycles", "no_orphan_dependencies", "no_task_is_done", "plan_approved"]
+      "assertions": ["schema_valid", "workspace_layout", "execution_configured", "plan_rendered", "no_dependency_cycles", "no_orphan_dependencies", "no_task_is_done", "plan_approved"]
     },
     "synthesize_ready": {
       "description": "All tasks finished and all artefacts on disk.",
-      "assertions": ["schema_valid", "workspace_layout", "all_tasks_terminal", "all_outputs_exist", "ledger_validates", "ledger_signed", "reproducibility_checklist_exists"]
+      "assertions": ["schema_valid", "workspace_layout", "execution_configured", "all_tasks_terminal", "all_outputs_exist", "ledger_validates", "ledger_signed", "reproducibility_checklist_exists"]
     },
     "release_ready": {
       "description": "Final synthesis exists and citations are rendered.",

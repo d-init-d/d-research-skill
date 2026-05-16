@@ -269,6 +269,8 @@ npm run plan:init                             # write research-plan.json from te
 npm run plan:check                            # validate schema + dep graph
 npm run plan:status                           # one-line status per task
 npm run plan:parallelizable                   # list task ids ready to dispatch
+npm run plan:configure-execution              # refresh context/subagent annotations
+npm run plan:set-execution -- --id T2 --agent subagent --slot deep-reader --parallel-threads 2
 npm run plan:render                           # write PLAN.md for review
 npm run plan:approve -- --by "Reviewer"       # approve before execution
 npm run plan:revoke -- --reason "scope changed"
@@ -289,6 +291,7 @@ notes, sections, final report, and reproducibility checklist:
 ```bash
 python3 scripts/research_plan.py init --slug topic
 cd research-topic-2026-05-16
+python3 ../scripts/research_plan.py configure-execution --file research-plan.json
 python3 ../scripts/research_plan.py render --file research-plan.json
 python3 ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
 python3 ../scripts/research_plan.py approve --file research-plan.json --by "Reviewer"
@@ -316,9 +319,12 @@ The skill respects a project-local `research.config.json` when present. `researc
 - `crawl.maxDepth` / `crawl.maxPagesPerDomain` / `crawl.maxTotalPages` / `crawl.delayMs`
 - `crawl.respectRobots` — default `true`
 - `research.requireEvidenceLedger`, `research.requireContradictionPass` — default `true`
+- `researchPlan.context.mainContextLength` — default `null`; when set, main-agent tasks receive a derived per-task context budget
+- `researchPlan.context.taskBudgetRatio` — default `0.5`; task budget = context length × ratio
+- `researchPlan.context.writeFindingsImmediately` — default `true`; agents must write findings to output files as they research
 - `researchPlan.workspace.baseDir` — default `.`; each run creates a fresh `research-<slug>-<date>` folder under this parent
 - `researchPlan.workspace.fallbackToCwdOnError` — default `true`; if the configured output root is inaccessible, create the run folder in the current working directory and warn the user
-- `researchPlan.subagents.enabled` / `researchPlan.subagents.maxParallel` — control whether the agent dispatches parallel-safe plan tasks to sub-agents
+- `researchPlan.subagents.slots[]` — default one disabled `default` slot; set `agent`, `contextLength`, and `maxParallel` to allow sub-agent dispatch
 - `researchPlan.finalResponse.reportWorkspacePath` — default `true`; final answers must state the workspace path
 - `access.allowLoginWithUserPermission`, `access.allowPaywalledSources`, `access.allowCaptchaSolving`, `access.allowStealthEvasion` — default **`false`** for all four; only flip these with explicit, lawful user authorization
 - `api.defaultDelayMs`, `api.maxRetries`, `api.respectRateLimitHeaders`

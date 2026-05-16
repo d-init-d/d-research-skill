@@ -30,6 +30,8 @@
     "plan:parallelizable": "node scripts/run_python.mjs scripts/research_plan.py parallelizable",
     "plan:mark": "node scripts/run_python.mjs scripts/research_plan.py mark",
     "plan:block": "node scripts/run_python.mjs scripts/research_plan.py block",
+    "plan:configure-execution": "node scripts/run_python.mjs scripts/research_plan.py configure-execution",
+    "plan:set-execution": "node scripts/run_python.mjs scripts/research_plan.py set-execution",
     "plan:render": "node scripts/run_python.mjs scripts/research_plan.py render",
     "plan:approve": "node scripts/run_python.mjs scripts/research_plan.py approve",
     "plan:revoke": "node scripts/run_python.mjs scripts/research_plan.py revoke",

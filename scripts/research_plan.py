@@ -23,6 +23,8 @@ Subcommands
 * ``render``          write a human-readable PLAN.md review artefact
 * ``approve``         record human approval before execution
 * ``revoke``          clear approval after scope changes
+* ``configure-execution`` annotate tasks from research.config.json
+* ``set-execution``   override one task's main/subagent assignment
 * ``gate``            run a named gate's assertions
 * ``self-test``       offline self-test (multiple sub-tests)
 
@@ -61,6 +63,7 @@ REQUIRED_TOP_KEYS = {
     "title",
     "workspace_dir",
     "plan_render_path",
+    "execution_profile",
     "scope",
     "sub_questions",
     "approval",
@@ -81,6 +84,15 @@ REQUIRED_TASK_KEYS = {
 }
 
 REQUIRED_APPROVAL_KEYS = {"approved_by", "approved_at", "notes"}
+REQUIRED_EXECUTION_KEYS = {
+    "agent",
+    "subagent_slot",
+    "parallel_threads",
+    "max_parallel_threads",
+    "context_length",
+    "context_budget",
+    "checkpoint_policy",
+}
 
 STANDARD_WORKSPACE_DIRS = [
     "research-output",
@@ -96,7 +108,21 @@ EVIDENCE_LEDGER_HEADER = (
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "researchPlan": {
-        "subagents": {"enabled": True, "maxParallel": 4},
+        "context": {
+            "mainContextLength": None,
+            "taskBudgetRatio": 0.5,
+            "writeFindingsImmediately": True,
+        },
+        "subagents": {
+            "slots": [
+                {
+                    "id": "default",
+                    "agent": None,
+                    "contextLength": None,
+                    "maxParallel": None,
+                }
+            ]
+        },
         "workspace": {
             "baseDir": ".",
             "nameTemplate": "research-{slug}-{date}",
@@ -136,6 +162,179 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         else:
             merged[key] = value
     return merged
+
+
+def _positive_int_or_none(value: Any) -> int | None:
+    if value is None or value == "none" or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _float_in_range(value: Any, default: float, low: float, high: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed < low or parsed > high:
+        return default
+    return parsed
+
+
+def _context_budget(length: int | None, ratio: float) -> int | None:
+    if length is None:
+        return None
+    return max(1, int(length * ratio))
+
+
+def _normalise_slot(raw: dict[str, Any], fallback_id: str) -> dict[str, Any]:
+    slot_id = str(raw.get("id") or fallback_id).strip() or fallback_id
+    agent = raw.get("agent")
+    if agent is None or str(agent).strip().lower() in {"", "none", "null"}:
+        agent_value = None
+    else:
+        agent_value = str(agent).strip()
+    return {
+        "id": _slugify(slot_id),
+        "agent": agent_value,
+        "context_length": _positive_int_or_none(raw.get("contextLength")),
+        "max_parallel": _positive_int_or_none(raw.get("maxParallel")),
+    }
+
+
+def _subagent_slots(config: dict[str, Any]) -> list[dict[str, Any]]:
+    rp = config.get("researchPlan", {})
+    subagents = rp.get("subagents", {}) if isinstance(rp, dict) else {}
+    if not isinstance(subagents, dict):
+        subagents = {}
+    raw_slots = subagents.get("slots")
+    slots: list[dict[str, Any]] = []
+    if isinstance(raw_slots, list) and raw_slots:
+        for idx, raw in enumerate(raw_slots, start=1):
+            if isinstance(raw, dict):
+                slots.append(_normalise_slot(raw, f"slot-{idx}"))
+    else:
+        # Backwards compatibility with the older enabled/maxParallel shape.
+        slots.append(
+            {
+                "id": "default",
+                "agent": None,
+                "context_length": None,
+                "max_parallel": _positive_int_or_none(subagents.get("maxParallel")),
+            }
+        )
+    return slots or [
+        {
+            "id": "default",
+            "agent": None,
+            "context_length": None,
+            "max_parallel": None,
+        }
+    ]
+
+
+def _checkpoint_policy(config: dict[str, Any]) -> str:
+    rp = config.get("researchPlan", {})
+    context = rp.get("context", {}) if isinstance(rp, dict) else {}
+    if not isinstance(context, dict):
+        context = {}
+    if context.get("writeFindingsImmediately", True):
+        return (
+            "write findings to declared output files immediately; split the task "
+            "before reading sources or inputs that risk exceeding the context budget"
+        )
+    return "write final task artefact before marking done"
+
+
+def _execution_profile(
+    config: dict[str, Any], config_path: Path | None
+) -> dict[str, Any]:
+    rp = config.get("researchPlan", {})
+    context = rp.get("context", {}) if isinstance(rp, dict) else {}
+    if not isinstance(context, dict):
+        context = {}
+    ratio = _float_in_range(context.get("taskBudgetRatio"), 0.5, 0.1, 0.9)
+    return {
+        "source": str(config_path) if config_path is not None else "defaults",
+        "main_context_length": _positive_int_or_none(context.get("mainContextLength")),
+        "task_budget_ratio": ratio,
+        "checkpoint_policy": _checkpoint_policy(config),
+        "subagent_slots": _subagent_slots(config),
+    }
+
+
+def _configured_slots(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    slots = profile.get("subagent_slots", [])
+    if not isinstance(slots, list):
+        return []
+    return [
+        s
+        for s in slots
+        if isinstance(s, dict)
+        and s.get("agent")
+        and _positive_int_or_none(s.get("context_length")) is not None
+        and _positive_int_or_none(s.get("max_parallel")) is not None
+    ]
+
+
+def _slot_by_id(profile: dict[str, Any], slot_id: str) -> dict[str, Any] | None:
+    for slot in _configured_slots(profile):
+        if slot.get("id") == slot_id:
+            return slot
+    return None
+
+
+def _execution_for_task(
+    task: dict[str, Any], profile: dict[str, Any], subagent_index: int
+) -> dict[str, Any]:
+    ratio = _float_in_range(profile.get("task_budget_ratio"), 0.5, 0.1, 0.9)
+    slots = _configured_slots(profile)
+    use_subagent = (
+        bool(slots)
+        and bool(task.get("parallel_safe"))
+        and str(task.get("owner", "")).startswith("sub-")
+    )
+    if use_subagent:
+        slot = slots[subagent_index % len(slots)]
+        context_length = _positive_int_or_none(slot.get("context_length"))
+        max_parallel = _positive_int_or_none(slot.get("max_parallel")) or 1
+        return {
+            "agent": "subagent",
+            "subagent_slot": slot.get("id"),
+            "parallel_threads": 1,
+            "max_parallel_threads": max_parallel,
+            "context_length": context_length,
+            "context_budget": _context_budget(context_length, ratio),
+            "checkpoint_policy": profile.get("checkpoint_policy"),
+        }
+    context_length = _positive_int_or_none(profile.get("main_context_length"))
+    return {
+        "agent": "main",
+        "subagent_slot": None,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": context_length,
+        "context_budget": _context_budget(context_length, ratio),
+        "checkpoint_policy": profile.get("checkpoint_policy"),
+    }
+
+
+def apply_execution_config(
+    plan: dict[str, Any], config: dict[str, Any], config_path: Path | None
+) -> None:
+    profile = _execution_profile(config, config_path)
+    plan["execution_profile"] = profile
+    subagent_index = 0
+    for task in plan.get("tasks", []):
+        execution = _execution_for_task(task, profile, subagent_index)
+        if execution["agent"] == "subagent":
+            subagent_index += 1
+        task["execution"] = execution
 
 
 def _find_config(explicit: str | None, cwd: Path) -> Path | None:
@@ -346,6 +545,54 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
                 except ValueError:
                     errors.append("approval.approved_at must be ISO 8601 UTC")
 
+    execution_profile = plan.get("execution_profile")
+    slot_ids: set[str] = set()
+    slot_max_parallel: dict[str, int | None] = {}
+    if not isinstance(execution_profile, dict):
+        errors.append("`execution_profile` must be an object")
+    else:
+        slots = execution_profile.get("subagent_slots")
+        if not isinstance(slots, list) or not slots:
+            errors.append("execution_profile.subagent_slots must be a non-empty list")
+        else:
+            for i, slot in enumerate(slots):
+                if not isinstance(slot, dict):
+                    errors.append(
+                        f"execution_profile.subagent_slots[{i}] must be an object"
+                    )
+                    continue
+                slot_id = slot.get("id")
+                if not isinstance(slot_id, str) or not slot_id:
+                    errors.append(f"execution_profile.subagent_slots[{i}].id required")
+                    continue
+                if slot_id in slot_ids:
+                    errors.append(f"duplicate subagent slot id: {slot_id!r}")
+                slot_ids.add(slot_id)
+                slot_max_parallel[slot_id] = slot.get("max_parallel")
+                for key in ("context_length", "max_parallel"):
+                    value = slot.get(key)
+                    if value is not None and (not isinstance(value, int) or value <= 0):
+                        errors.append(
+                            f"execution_profile.subagent_slots[{slot_id}].{key} must be null or positive integer"
+                        )
+                if slot.get("agent") and (
+                    slot.get("context_length") is None
+                    or slot.get("max_parallel") is None
+                ):
+                    errors.append(
+                        f"execution_profile.subagent_slots[{slot_id}] with an agent must set context_length and max_parallel"
+                    )
+        main_len = execution_profile.get("main_context_length")
+        if main_len is not None and (not isinstance(main_len, int) or main_len <= 0):
+            errors.append(
+                "execution_profile.main_context_length must be null or positive integer"
+            )
+        ratio = execution_profile.get("task_budget_ratio")
+        if not isinstance(ratio, (int, float)) or not (0.1 <= float(ratio) <= 0.9):
+            errors.append(
+                "execution_profile.task_budget_ratio must be between 0.1 and 0.9"
+            )
+
     tasks = plan.get("tasks", [])
     if not isinstance(tasks, list):
         errors.append("`tasks` must be a list")
@@ -393,6 +640,83 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
                     errors.append(f"tasks[{tid}].inputs contains unsafe path {ip!r}")
         if not isinstance(task["parallel_safe"], bool):
             errors.append(f"tasks[{tid}].parallel_safe must be a boolean")
+        execution = task.get("execution")
+        if not isinstance(execution, dict):
+            errors.append(f"tasks[{tid}].execution must be an object")
+        else:
+            missing_e = REQUIRED_EXECUTION_KEYS - set(execution)
+            if missing_e:
+                errors.append(
+                    f"tasks[{tid}].execution missing keys: {sorted(missing_e)}"
+                )
+            agent = execution.get("agent")
+            if agent not in {"main", "subagent"}:
+                errors.append(
+                    f"tasks[{tid}].execution.agent must be 'main' or 'subagent'"
+                )
+            subagent_slot = execution.get("subagent_slot")
+            if agent == "subagent":
+                if not isinstance(subagent_slot, str) or subagent_slot not in slot_ids:
+                    errors.append(
+                        f"tasks[{tid}].execution.subagent_slot must reference a configured slot"
+                    )
+                elif isinstance(execution.get("max_parallel_threads"), int):
+                    slot_max = slot_max_parallel.get(subagent_slot)
+                    if (
+                        isinstance(slot_max, int)
+                        and execution["max_parallel_threads"] > slot_max
+                    ):
+                        errors.append(
+                            f"tasks[{tid}].execution.max_parallel_threads must be <= slot max_parallel"
+                        )
+            elif subagent_slot is not None:
+                errors.append(
+                    f"tasks[{tid}].execution.subagent_slot must be null for main agent tasks"
+                )
+            for key in ("parallel_threads", "max_parallel_threads"):
+                value = execution.get(key)
+                if not isinstance(value, int) or value < 0:
+                    errors.append(
+                        f"tasks[{tid}].execution.{key} must be a non-negative integer"
+                    )
+            parallel_threads = execution.get("parallel_threads")
+            max_parallel_threads = execution.get("max_parallel_threads")
+            if (
+                isinstance(parallel_threads, int)
+                and isinstance(max_parallel_threads, int)
+                and parallel_threads > max_parallel_threads
+            ):
+                errors.append(
+                    f"tasks[{tid}].execution.parallel_threads must be <= max_parallel_threads"
+                )
+            if (
+                agent == "subagent"
+                and isinstance(parallel_threads, int)
+                and parallel_threads < 1
+            ):
+                errors.append(
+                    f"tasks[{tid}].execution.parallel_threads must be >= 1 for subagent tasks"
+                )
+            if (
+                agent == "main"
+                and isinstance(parallel_threads, int)
+                and parallel_threads != 0
+            ):
+                errors.append(
+                    f"tasks[{tid}].execution.parallel_threads must be 0 for main agent tasks"
+                )
+            for key in ("context_length", "context_budget"):
+                value = execution.get(key)
+                if value is not None and (not isinstance(value, int) or value <= 0):
+                    errors.append(
+                        f"tasks[{tid}].execution.{key} must be null or positive integer"
+                    )
+            if not isinstance(
+                execution.get("checkpoint_policy"), str
+            ) or not execution.get("checkpoint_policy"):
+                errors.append(
+                    f"tasks[{tid}].execution.checkpoint_policy must be a non-empty string"
+                )
         owner = task["owner"]
         if not isinstance(owner, str) or not (
             owner == "main" or owner.startswith("sub-")
@@ -457,11 +781,21 @@ def parallelizable_tasks(plan: dict[str, Any]) -> list[str]:
     tasks = {t["id"]: t for t in plan.get("tasks", [])}
     done_ids = {tid for tid, t in tasks.items() if t["status"] == "done"}
     running_outputs: set[str] = set()
+    running_slot_threads: dict[str, int] = {}
     for t in tasks.values():
         if t["status"] == "running":
             running_outputs.update(t.get("outputs", []))
+            execution = (
+                t.get("execution") if isinstance(t.get("execution"), dict) else {}
+            )
+            if execution.get("agent") == "subagent" and execution.get("subagent_slot"):
+                slot = str(execution.get("subagent_slot"))
+                running_slot_threads[slot] = running_slot_threads.get(slot, 0) + int(
+                    execution.get("parallel_threads") or 1
+                )
 
     ready: list[str] = []
+    reserved_slot_threads: dict[str, int] = {}
     for tid, t in tasks.items():
         if t["status"] != "todo":
             continue
@@ -471,6 +805,19 @@ def parallelizable_tasks(plan: dict[str, Any]) -> list[str]:
             continue
         if set(t.get("outputs", [])) & running_outputs:
             continue
+        execution = t.get("execution") if isinstance(t.get("execution"), dict) else {}
+        if execution.get("agent") == "subagent" and execution.get("subagent_slot"):
+            slot = str(execution.get("subagent_slot"))
+            max_threads = int(execution.get("max_parallel_threads") or 1)
+            need_threads = int(execution.get("parallel_threads") or 1)
+            used = running_slot_threads.get(slot, 0) + reserved_slot_threads.get(
+                slot, 0
+            )
+            if used + need_threads > max_threads:
+                continue
+            reserved_slot_threads[slot] = (
+                reserved_slot_threads.get(slot, 0) + need_threads
+            )
         ready.append(tid)
     return ready
 
@@ -657,6 +1004,15 @@ def _assert_no_task_is_done(plan, plan_path):
     return (not done), ("already-done tasks: " + str(done)) if done else "OK"
 
 
+def _assert_execution_configured(plan, plan_path):
+    errors = [
+        e
+        for e in validate_schema(plan)
+        if "execution_profile" in e or ".execution" in e or "subagent slot" in e
+    ]
+    return (not errors), "; ".join(errors) if errors else "OK"
+
+
 def _assert_workspace_layout(plan, plan_path):
     return _workspace_layout_valid(plan, plan_path)
 
@@ -725,6 +1081,7 @@ ASSERTIONS = {
     "workspace_layout": _assert_workspace_layout,
     "plan_rendered": _assert_plan_rendered,
     "plan_approved": _assert_plan_approved,
+    "execution_configured": _assert_execution_configured,
     "no_dependency_cycles": _assert_no_cycles,
     "no_orphan_dependencies": _assert_no_orphans,
     "no_task_is_done": _assert_no_task_is_done,
@@ -789,6 +1146,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     if not template.exists():
         print(f"FAIL: template missing at {template}", file=sys.stderr)
         return 1
+    try:
+        config, config_path = _load_config(args.config, Path.cwd().resolve())
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"FAIL: could not load config: {exc}", file=sys.stderr)
+        return 1
     if args.workspace:
         workspace = Path(args.workspace).resolve()
         out_arg = Path(args.out) if args.out else Path("research-plan.json")
@@ -798,7 +1160,6 @@ def cmd_init(args: argparse.Namespace) -> int:
         out = Path(args.out).resolve()
     else:
         try:
-            config, config_path = _load_config(args.config, Path.cwd().resolve())
             workspace, warning = _workspace_from_config(
                 config, config_path, Path.cwd().resolve(), args.slug
             )
@@ -817,7 +1178,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
         return 1
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    plan = json.loads(template.read_text(encoding="utf-8"))
+    apply_execution_config(plan, config, config_path)
+    save(plan, out)
     _scaffold_workspace(out.parent)
     print(f"wrote plan template to {out}")
     print(f"workspace: {out.parent}")
@@ -942,6 +1305,15 @@ def cmd_add_task(args: argparse.Namespace) -> int:
         "status": "todo",
         "blocker_reason": "",
     }
+    profile = plan.get("execution_profile")
+    if isinstance(profile, dict):
+        sub_count = sum(
+            1
+            for t in plan.get("tasks", [])
+            if isinstance(t.get("execution"), dict)
+            and t["execution"].get("agent") == "subagent"
+        )
+        new_task["execution"] = _execution_for_task(new_task, profile, sub_count)
     plan.setdefault("tasks", []).append(new_task)
     errors = validate_schema(plan)
     if errors:
@@ -973,6 +1345,34 @@ def render_plan_markdown(plan: dict[str, Any], plan_path: Path) -> str:
     lines.append(f"- Plan file: `{plan_path.name}`")
     lines.append(f"- Workspace: `{_plan_dir(plan_path)}`")
     lines.append("- Approval: recorded in `research-plan.json` after review")
+    profile = plan.get("execution_profile", {})
+    if isinstance(profile, dict):
+        slots = _configured_slots(profile)
+        lines.append(f"- Main context length: `{profile.get('main_context_length')}`")
+        lines.append(f"- Configured subagent slots: `{len(slots)}`")
+        lines.append(f"- Checkpoint policy: {profile.get('checkpoint_policy', '')}")
+    lines.append("")
+    lines.append("## Execution Slots")
+    lines.append("| Slot | Agent | Context length | Max parallel | Status |")
+    lines.append("|---|---|---|---|---|")
+    if isinstance(profile, dict) and isinstance(profile.get("subagent_slots"), list):
+        configured_ids = {slot.get("id") for slot in _configured_slots(profile)}
+        for slot in profile.get("subagent_slots", []):
+            if not isinstance(slot, dict):
+                continue
+            slot_id = slot.get("id", "")
+            status = "configured" if slot_id in configured_ids else "disabled"
+            lines.append(
+                "| {slot} | {agent} | {context} | {maxp} | {status} |".format(
+                    slot=_md_cell(slot_id),
+                    agent=_md_cell(slot.get("agent")),
+                    context=_md_cell(slot.get("context_length")),
+                    maxp=_md_cell(slot.get("max_parallel")),
+                    status=status,
+                )
+            )
+    else:
+        lines.append("| default | None | None | None | disabled |")
     lines.append("")
     lines.append("## Scope")
     lines.append(str(plan.get("scope", "")))
@@ -991,18 +1391,31 @@ def render_plan_markdown(plan: dict[str, Any], plan_path: Path) -> str:
     lines.append("")
     lines.append("## Tasks")
     lines.append(
-        "| ID | Status | Owner | Parallel | Depends on | Outputs | Description |"
+        "| ID | Status | Owner | Execution | Threads | Context length | Context budget | Depends on | Outputs | Description |"
     )
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for task in plan.get("tasks", []):
         depends = ", ".join(task.get("depends_on", [])) or "-"
         outputs = "<br>".join(task.get("outputs", [])) or "-"
+        execution = (
+            task.get("execution", {}) if isinstance(task.get("execution"), dict) else {}
+        )
+        execution_label = execution.get("agent", "")
+        if execution.get("subagent_slot"):
+            execution_label += f":{execution.get('subagent_slot')}"
+        thread_label = "{}/{}".format(
+            execution.get("parallel_threads", ""),
+            execution.get("max_parallel_threads", ""),
+        )
         lines.append(
-            "| {id} | {status} | {owner} | {parallel} | {depends} | {outputs} | {description} |".format(
+            "| {id} | {status} | {owner} | {execution} | {threads} | {context} | {budget} | {depends} | {outputs} | {description} |".format(
                 id=_md_cell(task.get("id", "")),
                 status=_md_cell(task.get("status", "")),
                 owner=_md_cell(task.get("owner", "")),
-                parallel="yes" if task.get("parallel_safe") else "no",
+                execution=_md_cell(execution_label),
+                threads=_md_cell(thread_label),
+                context=_md_cell(execution.get("context_length", "agent-resolved")),
+                budget=_md_cell(execution.get("context_budget", "agent-resolved")),
                 depends=_md_cell(depends),
                 outputs=_md_cell(outputs),
                 description=_md_cell(task.get("description", "")),
@@ -1085,6 +1498,125 @@ def cmd_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_configure_execution(args: argparse.Namespace) -> int:
+    plan_path = Path(args.file).resolve()
+    plan = load(plan_path)
+    config_hint = args.config
+    if not config_hint:
+        profile = plan.get("execution_profile")
+        if isinstance(profile, dict):
+            source = profile.get("source")
+            if isinstance(source, str) and source not in {"", "defaults"}:
+                config_hint = source
+    try:
+        config, config_path = _load_config(config_hint, _plan_dir(plan_path))
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"FAIL: could not load config: {exc}", file=sys.stderr)
+        return 1
+    apply_execution_config(plan, config, config_path)
+    if _approval_is_set(plan):
+        _clear_approval(plan, "revoked after execution config update")
+    _remove_rendered_plan(plan, plan_path)
+    save(plan, plan_path)
+    slots = _configured_slots(plan.get("execution_profile", {}))
+    print(
+        f"configured execution profile: {len(slots)} subagent slot(s), plan={plan_path}"
+    )
+    return 0
+
+
+def cmd_set_execution(args: argparse.Namespace) -> int:
+    plan_path = Path(args.file).resolve()
+    plan = load(plan_path)
+    task = _find_task(plan, args.id)
+    if task is None:
+        print(f"FAIL: task {args.id!r} not found", file=sys.stderr)
+        return 1
+    profile = plan.get("execution_profile")
+    if not isinstance(profile, dict):
+        print(
+            "FAIL: plan has no execution_profile; run configure-execution",
+            file=sys.stderr,
+        )
+        return 1
+    ratio = _float_in_range(profile.get("task_budget_ratio"), 0.5, 0.1, 0.9)
+    current_obj = task.get("execution")
+    current: dict[str, Any] = current_obj if isinstance(current_obj, dict) else {}
+    if args.agent == "main":
+        context_length = args.context_length
+        if context_length is None:
+            context_length = _positive_int_or_none(profile.get("main_context_length"))
+        context_budget = args.context_budget
+        if context_budget is None:
+            context_budget = _context_budget(context_length, ratio)
+        execution = {
+            "agent": "main",
+            "subagent_slot": None,
+            "parallel_threads": 0,
+            "max_parallel_threads": 0,
+            "context_length": context_length,
+            "context_budget": context_budget,
+            "checkpoint_policy": profile.get("checkpoint_policy"),
+        }
+    else:
+        slot_id = args.slot or current.get("subagent_slot")
+        configured = _configured_slots(profile)
+        if not slot_id and len(configured) == 1:
+            slot_id = configured[0].get("id")
+        if not slot_id:
+            print(
+                "FAIL: --slot is required when multiple or no subagent slots exist",
+                file=sys.stderr,
+            )
+            return 1
+        slot = _slot_by_id(profile, str(slot_id))
+        if slot is None:
+            print(
+                f"FAIL: configured subagent slot not found: {slot_id!r}",
+                file=sys.stderr,
+            )
+            return 1
+        max_parallel = args.max_parallel_threads
+        if max_parallel is None:
+            max_parallel = _positive_int_or_none(slot.get("max_parallel")) or 1
+        parallel_threads = args.parallel_threads
+        if parallel_threads is None:
+            parallel_threads = (
+                _positive_int_or_none(current.get("parallel_threads")) or 1
+            )
+        context_length = args.context_length
+        if context_length is None:
+            context_length = _positive_int_or_none(slot.get("context_length"))
+        context_budget = args.context_budget
+        if context_budget is None:
+            context_budget = _context_budget(context_length, ratio)
+        execution = {
+            "agent": "subagent",
+            "subagent_slot": str(slot_id),
+            "parallel_threads": parallel_threads,
+            "max_parallel_threads": max_parallel,
+            "context_length": context_length,
+            "context_budget": context_budget,
+            "checkpoint_policy": profile.get("checkpoint_policy"),
+        }
+    task["execution"] = execution
+    errors = validate_schema(plan)
+    if errors:
+        for e in errors:
+            print(f"  {e}", file=sys.stderr)
+        print("FAIL: execution override breaks schema; not saved", file=sys.stderr)
+        return 1
+    if _approval_is_set(plan):
+        _clear_approval(plan, f"revoked after execution override for {args.id}")
+    _remove_rendered_plan(plan, plan_path)
+    save(plan, plan_path)
+    print(
+        f"task {args.id} execution -> {execution['agent']}"
+        + (f":{execution['subagent_slot']}" if execution.get("subagent_slot") else "")
+    )
+    return 0
+
+
 def cmd_gate(args: argparse.Namespace) -> int:
     plan_path = Path(args.file).resolve()
     plan = load(plan_path)
@@ -1109,7 +1641,7 @@ def cmd_gate(args: argparse.Namespace) -> int:
 
 
 def _make_minimal_plan() -> dict[str, Any]:
-    return {
+    plan = {
         "plan_id": "test-plan",
         "title": "Test plan",
         "workspace_dir": ".",
@@ -1163,6 +1695,7 @@ def _make_minimal_plan() -> dict[str, Any]:
                 "assertions": [
                     "schema_valid",
                     "workspace_layout",
+                    "execution_configured",
                     "plan_rendered",
                     "no_dependency_cycles",
                     "no_orphan_dependencies",
@@ -1174,6 +1707,7 @@ def _make_minimal_plan() -> dict[str, Any]:
                 "assertions": [
                     "schema_valid",
                     "workspace_layout",
+                    "execution_configured",
                     "plan_rendered",
                     "no_dependency_cycles",
                     "no_orphan_dependencies",
@@ -1186,12 +1720,15 @@ def _make_minimal_plan() -> dict[str, Any]:
                 "assertions": [
                     "schema_valid",
                     "workspace_layout",
+                    "execution_configured",
                     "all_tasks_terminal",
                     "all_outputs_exist",
                 ],
             },
         },
     }
+    apply_execution_config(plan, DEFAULT_CONFIG, None)
+    return plan
 
 
 def _self_test() -> int:
@@ -1468,7 +2005,46 @@ def _self_test() -> int:
     if "C" in ready:
         failures.append("C must not be ready when one of its deps is blocked")
 
-    # Sub-test 23: init scaffolds a workspace.
+    # Sub-test 23: parallelizable respects subagent slot maxParallel.
+    plan = _make_minimal_plan()
+    plan["tasks"].append(
+        {
+            "id": "D",
+            "description": "root D",
+            "depends_on": [],
+            "parallel_safe": True,
+            "owner": "sub-2",
+            "inputs": [],
+            "outputs": ["research-output/notes/d.md"],
+            "status": "todo",
+            "blocker_reason": "",
+        }
+    )
+    cfg = _deep_merge(
+        DEFAULT_CONFIG,
+        {
+            "researchPlan": {
+                "subagents": {
+                    "slots": [
+                        {
+                            "id": "reader-a",
+                            "agent": "explore",
+                            "contextLength": 30000,
+                            "maxParallel": 1,
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    apply_execution_config(plan, cfg, None)
+    ready = parallelizable_tasks(plan)
+    if len([tid for tid in ready if tid in {"B", "D"}]) != 1:
+        failures.append(
+            "parallelizable should return only one task per saturated subagent slot"
+        )
+
+    # Sub-test 24: init scaffolds a workspace.
     with tempfile.TemporaryDirectory() as td:
         workspace = Path(td) / "research-test"
         rc = call_silent(
@@ -1492,7 +2068,7 @@ def _self_test() -> int:
             if not (workspace / rel).exists():
                 failures.append(f"init --workspace missing {rel}")
 
-    # Sub-test 24: init without --workspace creates a unique workspace in cwd.
+    # Sub-test 25: init without --workspace creates a unique workspace in cwd.
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
         with chdir(td_path):
@@ -1508,7 +2084,7 @@ def _self_test() -> int:
         elif not (workspaces[0] / "research-plan.json").exists():
             failures.append("auto workspace missing research-plan.json")
 
-    # Sub-test 25: config baseDir controls the workspace parent.
+    # Sub-test 26: config baseDir controls the workspace parent.
     with tempfile.TemporaryDirectory() as td:
         project = Path(td) / "project"
         project.mkdir()
@@ -1529,7 +2105,7 @@ def _self_test() -> int:
                 "config baseDir should create workspace under configured dir"
             )
 
-    # Sub-test 26: inaccessible config baseDir falls back to cwd.
+    # Sub-test 27: inaccessible config baseDir falls back to cwd.
     with tempfile.TemporaryDirectory() as td:
         project = Path(td) / "project"
         project.mkdir()
@@ -1549,7 +2125,228 @@ def _self_test() -> int:
         if rc != 0 or len(fallback_workspaces) != 1:
             failures.append("inaccessible config baseDir should fall back to cwd")
 
-    # Sub-test 27: real template parses cleanly.
+    # Sub-test 28: configured subagent slot annotates sub-owned tasks.
+    plan = _make_minimal_plan()
+    cfg = _deep_merge(
+        DEFAULT_CONFIG,
+        {
+            "researchPlan": {
+                "context": {"mainContextLength": 100000, "taskBudgetRatio": 0.4},
+                "subagents": {
+                    "slots": [
+                        {
+                            "id": "deep-reader",
+                            "agent": "explore",
+                            "contextLength": 32000,
+                            "maxParallel": 3,
+                        }
+                    ]
+                },
+            }
+        },
+    )
+    apply_execution_config(plan, cfg, None)
+    sub_task = next(t for t in plan["tasks"] if t["owner"] == "sub-1")
+    main_task = next(t for t in plan["tasks"] if t["owner"] == "main")
+    if sub_task["execution"]["agent"] != "subagent":
+        failures.append("configured subagent slot should annotate sub-owned tasks")
+    if sub_task["execution"]["context_budget"] != 12800:
+        failures.append(
+            "subagent context budget should derive from slot context length"
+        )
+    if main_task["execution"]["context_budget"] != 40000:
+        failures.append("main context budget should derive from main context length")
+
+    # Sub-test 29: configure-execution rewrites an existing plan from config.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        save(plan, path)
+        config_path = td_path / "research.config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "researchPlan": {
+                        "subagents": {
+                            "slots": [
+                                {
+                                    "id": "slot-a",
+                                    "agent": "general",
+                                    "contextLength": 24000,
+                                    "maxParallel": 2,
+                                }
+                            ]
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        rc = call_silent(
+            cmd_configure_execution,
+            argparse.Namespace(file=str(path), config=str(config_path)),
+        )
+        loaded = load(path)
+        sub_task = next(t for t in loaded["tasks"] if t["owner"] == "sub-1")
+        if rc != 0 or sub_task["execution"]["subagent_slot"] != "slot-a":
+            failures.append("configure-execution should apply configured subagent slot")
+
+    # Sub-test 30: set-execution lets a reviewer switch a task slot/thread count.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        cfg = _deep_merge(
+            DEFAULT_CONFIG,
+            {
+                "researchPlan": {
+                    "subagents": {
+                        "slots": [
+                            {
+                                "id": "reader-a",
+                                "agent": "explore",
+                                "contextLength": 30000,
+                                "maxParallel": 3,
+                            },
+                            {
+                                "id": "reader-b",
+                                "agent": "general",
+                                "contextLength": 60000,
+                                "maxParallel": 2,
+                            },
+                        ]
+                    }
+                }
+            },
+        )
+        apply_execution_config(plan, cfg, None)
+        save(plan, path)
+        rc = call_silent(
+            cmd_set_execution,
+            argparse.Namespace(
+                file=str(path),
+                id="B",
+                agent="subagent",
+                slot="reader-b",
+                parallel_threads=2,
+                max_parallel_threads=None,
+                context_length=None,
+                context_budget=None,
+            ),
+        )
+        loaded = load(path)
+        task_b = next(t for t in loaded["tasks"] if t["id"] == "B")
+        if rc != 0 or task_b["execution"]["subagent_slot"] != "reader-b":
+            failures.append(
+                "set-execution should switch the task to the requested slot"
+            )
+        if task_b["execution"]["parallel_threads"] != 2:
+            failures.append("set-execution should apply requested parallel_threads")
+
+    # Sub-test 31: set-execution rejects thread counts above the slot max.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        cfg = _deep_merge(
+            DEFAULT_CONFIG,
+            {
+                "researchPlan": {
+                    "subagents": {
+                        "slots": [
+                            {
+                                "id": "reader-a",
+                                "agent": "explore",
+                                "contextLength": 30000,
+                                "maxParallel": 1,
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+        apply_execution_config(plan, cfg, None)
+        save(plan, path)
+        rc = call_silent(
+            cmd_set_execution,
+            argparse.Namespace(
+                file=str(path),
+                id="B",
+                agent="subagent",
+                slot="reader-a",
+                parallel_threads=2,
+                max_parallel_threads=None,
+                context_length=None,
+                context_budget=None,
+            ),
+        )
+        if rc == 0:
+            failures.append("set-execution should reject parallel_threads above max")
+
+    # Sub-test 32: configure-execution reuses the config path recorded by init.
+    with tempfile.TemporaryDirectory() as td:
+        project = Path(td) / "project"
+        output_root = Path(td) / "external-runs"
+        project.mkdir()
+        config_path = project / "research.config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "researchPlan": {
+                        "workspace": {"baseDir": str(output_root)},
+                        "subagents": {
+                            "slots": [
+                                {
+                                    "id": "external-slot",
+                                    "agent": "general",
+                                    "contextLength": 30000,
+                                    "maxParallel": 2,
+                                }
+                            ]
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        with chdir(project):
+            rc = call_silent(
+                cmd_init,
+                argparse.Namespace(
+                    workspace=None, out=None, force=False, slug="topic", config=None
+                ),
+            )
+        workspaces = list(output_root.glob("research-topic-*"))
+        if rc != 0 or len(workspaces) != 1:
+            failures.append("init should create configured external workspace")
+        else:
+            plan_path = workspaces[0] / "research-plan.json"
+            with chdir(workspaces[0]):
+                rc = call_silent(
+                    cmd_configure_execution,
+                    argparse.Namespace(file=str(plan_path), config=None),
+                )
+            loaded = load(plan_path)
+            sub_task = next(t for t in loaded["tasks"] if t["owner"] == "sub-1")
+            if rc != 0 or sub_task["execution"]["subagent_slot"] != "external-slot":
+                failures.append(
+                    "configure-execution should reuse recorded external config path"
+                )
+
+    # Sub-test 33: subagent slot with agent requires contextLength and maxParallel.
+    plan = _make_minimal_plan()
+    cfg = _deep_merge(
+        DEFAULT_CONFIG,
+        {"researchPlan": {"subagents": {"slots": [{"id": "bad", "agent": "general"}]}}},
+    )
+    apply_execution_config(plan, cfg, None)
+    if not any("must set context_length" in e for e in validate_schema(plan)):
+        failures.append(
+            "configured subagent slot should require context length and max parallel"
+        )
+
+    # Sub-test 34: real template parses cleanly.
     template = (
         Path(__file__).resolve().parent.parent / "templates" / "research-plan.json"
     )
@@ -1568,7 +2365,7 @@ def _self_test() -> int:
         for f in failures:
             print(f"FAIL: {f}", file=sys.stderr)
         return 1
-    print("OK: research_plan self-test passed (27 sub-tests).")
+    print("OK: research_plan self-test passed (34 sub-tests).")
     return 0
 
 
@@ -1664,6 +2461,28 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--file", default="research-plan.json")
     sp.add_argument("--reason", default=None)
     sp.set_defaults(func=cmd_revoke)
+
+    sp = sub.add_parser(
+        "configure-execution",
+        help="annotate tasks with context budgets and subagent slot assignments",
+    )
+    sp.add_argument("--file", default="research-plan.json")
+    sp.add_argument("--config", default=None)
+    sp.set_defaults(func=cmd_configure_execution)
+
+    sp = sub.add_parser(
+        "set-execution",
+        help="override one task's main/subagent slot, thread count, or context budget",
+    )
+    sp.add_argument("--file", default="research-plan.json")
+    sp.add_argument("--id", required=True)
+    sp.add_argument("--agent", choices=["main", "subagent"], required=True)
+    sp.add_argument("--slot", default=None)
+    sp.add_argument("--parallel-threads", type=int, default=None)
+    sp.add_argument("--max-parallel-threads", type=int, default=None)
+    sp.add_argument("--context-length", type=int, default=None)
+    sp.add_argument("--context-budget", type=int, default=None)
+    sp.set_defaults(func=cmd_set_execution)
 
     sp = sub.add_parser("gate", help="run a named gate's assertions")
     sp.add_argument("--file", default="research-plan.json")

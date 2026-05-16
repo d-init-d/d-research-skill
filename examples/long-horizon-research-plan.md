@@ -20,6 +20,7 @@ resets and parallelisable where safe.
 python3 scripts/research_plan.py init --slug oai-review
 cd ./research-oai-review-2026-05-16
 python3 ../scripts/research_plan.py check --file research-plan.json
+python3 ../scripts/research_plan.py configure-execution --file research-plan.json
 ```
 
 The `init` command prints the actual `workspace:` path. Use that path in
@@ -51,6 +52,7 @@ Expected:
 ```
   [OK  ] schema_valid: OK
   [OK  ] workspace_layout: OK
+  [OK  ] execution_configured: OK
   [OK  ] plan_rendered: rendered plan is current at .../PLAN.md
   [OK  ] no_dependency_cycles: OK
   [OK  ] no_orphan_dependencies: OK
@@ -60,8 +62,9 @@ GATE PASS: plan_ready
 
 The orchestrator shows `PLAN.md` to the user. The user can ask for scope
 changes, sub-question edits, source-class changes, task additions, or
-owner changes. If the task graph changes, re-run `render` and
-`plan_ready`.
+owner/execution changes. If the user wants to move a task to a different
+sub-agent slot or change its thread count, use `set-execution`, then
+re-run `render` and `plan_ready`.
 
 Once the user approves:
 
@@ -79,6 +82,7 @@ Expected:
 ```
   [OK  ] schema_valid: OK
   [OK  ] workspace_layout: OK
+  [OK  ] execution_configured: OK
   [OK  ] plan_rendered: rendered plan is current at .../PLAN.md
   [OK  ] no_dependency_cycles: OK
   [OK  ] no_orphan_dependencies: OK
