@@ -19,7 +19,13 @@
     "data:merge": "node scripts/run_python.mjs scripts/data_clean.py merge",
     "citation:export": "node scripts/run_python.mjs scripts/citation_export.py export",
     "citation:enrich": "node scripts/run_python.mjs scripts/citation_export.py enrich",
-    "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test && node scripts/api_fetch.mjs --self-test && node scripts/run_python.mjs scripts/data_clean.py self-test && node scripts/run_python.mjs scripts/citation_export.py self-test"
+    "citation:render": "node scripts/run_python.mjs scripts/citation_render.py render",
+    "extract:tables": "node scripts/run_python.mjs scripts/extract_tables.py extract",
+    "score:source": "node scripts/run_python.mjs scripts/score_source.py score",
+    "ledger:sign": "node scripts/run_python.mjs scripts/evidence_ledger.py sign",
+    "ledger:verify": "node scripts/run_python.mjs scripts/evidence_ledger.py verify",
+    "refs:check": "node scripts/run_python.mjs scripts/check_internal_refs.py",
+    "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test && node scripts/api_fetch.mjs --self-test && node scripts/run_python.mjs scripts/data_clean.py self-test && node scripts/run_python.mjs scripts/citation_export.py self-test && node scripts/run_python.mjs scripts/citation_render.py self-test && node scripts/run_python.mjs scripts/extract_tables.py self-test && node scripts/run_python.mjs scripts/score_source.py self-test && node scripts/run_python.mjs scripts/check_internal_refs.py"
   },
   "dependencies": {
     "playwright": "^1.56.0"

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$comment": "PRISMA 2020 flow diagram counts. Populate this file once per systematic review and reference it from the report's PRISMA flow diagram. See references/systematic-review-protocol.md for context.",
+  "review_id": "example-review-2026",
+  "review_title": "Example: effectiveness of headless-browser automation for academic-database crawling",
+  "review_dates": {
+    "protocol_registered": "2026-01-15",
+    "search_executed": "2026-02-01",
+    "screening_completed": "2026-03-10",
+    "extraction_completed": "2026-04-01"
+  },
+  "identification": {
+    "records_from_databases": {
+      "OpenAlex": 412,
+      "CrossRef": 178,
+      "Semantic Scholar": 96,
+      "arXiv": 41
+    },
+    "records_from_registers": {
+      "OSF": 7
+    },
+    "records_from_other_sources": {
+      "citation_chaining": 23,
+      "grey_literature": 12,
+      "expert_recommendation": 4
+    },
+    "total_identified": 773,
+    "duplicates_removed": 187,
+    "records_marked_ineligible_by_automation": 0,
+    "records_removed_other": 0
+  },
+  "screening": {
+    "records_screened": 586,
+    "records_excluded_title_abstract": 502,
+    "reports_sought_for_retrieval": 84,
+    "reports_not_retrieved": 6,
+    "reports_assessed_for_eligibility": 78,
+    "reports_excluded_full_text": {
+      "wrong_population": 14,
+      "wrong_intervention": 9,
+      "wrong_outcome": 7,
+      "wrong_study_design": 12,
+      "language_excluded": 0,
+      "duplicate_or_overlap": 3,
+      "could_not_obtain_full_text": 2
+    }
+  },
+  "included": {
+    "studies_included_in_review": 31,
+    "reports_of_included_studies": 33,
+    "studies_included_in_meta_analysis": 0,
+    "studies_included_in_narrative_synthesis": 31
+  },
+  "notes": "Counts must add up: identification.total_identified - identification.duplicates_removed = screening.records_screened. screening.reports_assessed_for_eligibility - sum(screening.reports_excluded_full_text.*) = included.studies_included_in_review. Adjust counts to match your actual run before publishing."
+}

@@ -113,6 +113,10 @@ Use the crawl and extraction workflow. Produce structured data, a data dictionar
 
 Use the academic workflow. Define research questions, search strings, inclusion and exclusion criteria, screening log, evidence table, synthesis, and citations.
 
+### If the user asks for a systematic review, scoping review, rapid review, or PRISMA-grade output
+
+Use `references/systematic-review-protocol.md` (PRISMA 2020). Pick the right review type with `references/synthesis-patterns.md`. Populate `templates/prisma-flow.json` for the flow diagram and `templates/screening-log.csv` for screening decisions. See `examples/systematic-review-prisma.md` for an end-to-end walkthrough.
+
 ### If the user gives a specific URL
 
 Probe the URL first with the browser. Classify access status, extract available data, discover linked files/endpoints/pages, and report blockers.
@@ -135,11 +139,19 @@ Use `references/specialized-domains.md`. Route to appropriate free APIs and data
 
 ### If the user asks for a literature review with citations
 
-Combine the academic workflow with `references/academic-databases.md` and `references/citation-management.md`. Export citations in BibTeX or RIS format.
+Combine the academic workflow with `references/academic-databases.md` and `references/citation-management.md`. Export citations in BibTeX or RIS with `scripts/citation_export.py`, then render APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature with `scripts/citation_render.py` (pandoc + CSL).
 
 ### If the user wants data cleaned or analyzed
 
 Use `references/data-processing-pipeline.md` after extraction. Run cleaning, validation, and analysis stages.
+
+### If the user asks to extract structured data from web pages (tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH)
+
+Use `references/data-extraction-toolbox.md` for recipe-style playbooks. Use `scripts/extract_tables.py` for HTML `<table>` → CSV, `scripts/api_fetch.mjs` for REST/GraphQL, and `templates/data-package.json` to publish the result as a Frictionless Data Package.
+
+### If the user needs tamper-evident research output, a signed evidence ledger, or a reproducibility audit
+
+Sign the ledger with `scripts/evidence_ledger.py sign --file evidence-ledger.csv --key-env D_RESEARCH_LEDGER_KEY`; the verifier is `evidence_ledger.py verify`. Then walk through `references/reproducibility-checklist.md` before declaring done.
 
 ### If the user wants visualizations or charts
 
@@ -271,6 +283,8 @@ Default crawl limits unless overridden:
 
 Use `references/evidence-ledger.md`.
 
+For tamper-evidence, sign the ledger with `scripts/evidence_ledger.py sign` (HMAC-SHA256 over the canonicalised CSV bytes). The verifier (`scripts/evidence_ledger.py verify`) detects any edits made after signing.
+
 Every important claim must have:
 - claim
 - source
@@ -336,10 +350,14 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/playwright_probe.mjs`: classify a page, detect blockers, list links/files/tables, optionally screenshot
 - `scripts/playwright_extract.mjs`: extract visible text, tables, links, metadata, and files into JSON or Markdown
 - `scripts/playwright_crawl.mjs`: bounded same-domain crawl with basic robots awareness and page manifests
-- `scripts/evidence_ledger.py`: initialize and validate CSV evidence ledgers
+- `scripts/evidence_ledger.py`: initialize, validate, and **HMAC-sign / verify** CSV evidence ledgers
 - `scripts/api_fetch.mjs`: paginated API fetch with rate limiting, retry, and multiple output formats
 - `scripts/data_clean.py`: data cleaning, deduplication, validation, statistics, and merging
 - `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via CrossRef
+- `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + CSL
+- `scripts/extract_tables.py`: extract HTML `<table>` elements into CSV (handles `colspan`/`rowspan`, stdlib only)
+- `scripts/score_source.py`: apply the `references/source-quality-rubric.md` rubric to an evidence ledger and emit per-row scores + bands
+- `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 
 The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.
 
@@ -395,3 +413,5 @@ Use concise outputs for simple tasks. Use full evidence-ledger reports for high-
 ## Further reading
 
 The research methodology and source taxonomy behind this skill are written up in `references/research-bibliography.md`. Read it when adapting the skill to a new domain or when explaining the methodology to a stakeholder.
+
+For contributors extending the skill (new references, adapters, examples, scripts, or templates), see `CONTRIBUTING.md`.

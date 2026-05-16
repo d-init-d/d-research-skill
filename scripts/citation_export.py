@@ -3,14 +3,12 @@
 
 import argparse
 import csv
-import io
 import json
 import os
 import sys
 import tempfile
 import urllib.request
 import urllib.parse
-from datetime import datetime
 from typing import Dict, List, Optional
 
 

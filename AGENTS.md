@@ -16,8 +16,13 @@ Core workflow:
 9. Process and clean extracted data when building datasets (see `references/data-processing-pipeline.md`).
 10. Maintain an evidence ledger for important claims.
 11. Search for contradictions before final synthesis.
-12. Export citations in BibTeX/RIS format for academic work (see `references/citation-management.md`).
-13. If a source is blocked, produce a blocker report instead of trying to bypass access controls.
+12. Export citations in BibTeX/RIS format for academic work, and render to APA/MLA/IEEE/Chicago/Vancouver/Harvard/Nature with `scripts/citation_render.py` when needed (see `references/citation-management.md`).
+13. For PRISMA-grade systematic reviews, follow `references/systematic-review-protocol.md` and populate `templates/prisma-flow.json`.
+14. For structured data extraction (HTML tables, JSON-LD, sitemaps, RSS, OAI-PMH, embedded JSON), use the recipes in `references/data-extraction-toolbox.md` and `scripts/extract_tables.py`.
+15. For tamper-evidence on the evidence ledger, sign it with `scripts/evidence_ledger.py sign` (HMAC-SHA256). Verify with the same script's `verify` subcommand.
+16. Apply the source-quality rubric with `scripts/score_source.py score` to get deterministic per-row scores.
+17. Before declaring an output "done", walk through `references/reproducibility-checklist.md`.
+18. If a source is blocked, produce a blocker report instead of trying to bypass access controls.
 
 Data access layers (in order):
 - Web pages and files (browser/fetch)

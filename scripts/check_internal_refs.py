@@ -42,8 +42,10 @@ TRACKED_EXTENSIONS = {
 }
 
 # Backticked token: anything between single backticks, no whitespace, no glob
-# chars. We grab the inside of the backticks and later filter by shape.
-BACKTICK_RE = re.compile(r"`([^`\s\{\}\*]+)`")
+# chars, no angle-bracket placeholders (e.g. `references/<topic>.md` in
+# CONTRIBUTING.md is a docs template, not a real file). We grab the inside of
+# the backticks and later filter by shape.
+BACKTICK_RE = re.compile(r"`([^`\s\{\}\*<>]+)`")
 
 # Allowlist of path roots that DO live in the repo. Any reference must start
 # with one of these segments (after normalisation) for us to bother validating

@@ -174,7 +174,7 @@ Generate in-text citations per style requirements:
 
 **Formatted reference list generation**:
 
-The bundled `scripts/citation_export.py` supports `--format bibtex` and `--format ris`. To produce APA/IEEE/Chicago/Vancouver formatted output, pipe the BibTeX export through an external formatter such as `pandoc` or a CSL processor:
+The bundled `scripts/citation_export.py` supports `--format bibtex` and `--format ris`. To produce APA/IEEE/Chicago/Vancouver/Harvard/Nature/Science/ACM/AMA formatted output, use the bundled `scripts/citation_render.py` wrapper around `pandoc --citeproc` + CSL.
 
 ```bash
 # Export BibTeX from the evidence ledger first
@@ -183,11 +183,34 @@ python3 scripts/citation_export.py export \
   --format bibtex \
   --out citations.bib
 
-# Then format with pandoc + a CSL style (e.g., APA 7th)
+# Render directly into the target style (downloads the CSL file the
+# first time, then caches it under ~/.cache/d-research-skill/csl/).
+python3 scripts/citation_render.py render \
+  --bib citations.bib \
+  --style apa \
+  --format markdown \
+  --out references_formatted.md
+```
+
+Available style aliases (short name → official CSL): `apa`, `apa7`,
+`mla`, `mla9`, `ieee`, `chicago-author-date`, `chicago-note`,
+`vancouver`, `harvard-cite-them-right`, `nature`, `science`, `acm-sig-proceedings`,
+`ama`, `elsevier-harvard`, `acs`, `aiaa`. List all aliases at runtime:
+
+```bash
+python3 scripts/citation_render.py list-styles
+```
+
+If the agent is offline or downloads are disabled, the script will
+refuse to fetch a CSL file unless `--no-download` is omitted; in fully
+offline mode the script can still emit the BibTeX-as-prose default
+format (see `--style default`).
+
+For a fully manual pandoc invocation (pre-existing CSL file on disk):
+
+```bash
 pandoc references.md \
-  --citeproc \
-  --bibliography citations.bib \
-  --csl apa.csl \
+  --citeproc --bibliography citations.bib --csl apa.csl \
   -o references_formatted.md
 ```
 
@@ -260,11 +283,11 @@ Follow this sequence for citation management:
      --file evidence.csv --format bibtex --out citations.bib
    ```
 
-5. **Generate formatted list (optional)**: convert BibTeX to APA/MLA/IEEE/etc. with pandoc + a CSL style
+5. **Generate formatted list (optional)**: convert BibTeX to APA/MLA/IEEE/etc. with the bundled renderer (or `pandoc` directly if you prefer)
    ```bash
-   pandoc references.md \
-     --citeproc --bibliography citations.bib --csl apa.csl \
-     -o references_formatted.md
+   python3 scripts/citation_render.py render \
+     --bib citations.bib --style apa \
+     --format markdown --out references_formatted.md
    ```
 
 ## Quality Checks

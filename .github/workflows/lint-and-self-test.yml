@@ -1,0 +1,97 @@
+name: lint-and-self-test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/lint-and-self-test.yml"
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/lint-and-self-test.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  python-lint:
+    name: ruff (scripts/)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install --upgrade "ruff==0.15.13"
+
+      - name: Run ruff check
+        run: ruff check scripts/
+
+  node-syntax:
+    name: node --check (scripts/*.mjs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Syntax-check every .mjs script
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mjs=(scripts/*.mjs)
+          if [ ${#mjs[@]} -eq 0 ]; then
+            echo "no .mjs scripts found"
+            exit 0
+          fi
+          for f in "${mjs[@]}"; do
+            echo "node --check $f"
+            node --check "$f"
+          done
+
+  self-tests:
+    name: all self-tests (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pandoc (for citation_render self-test)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
+      - name: Install Node dependencies (Playwright)
+        run: npm ci --no-audit --no-fund
+
+      - name: Run every self-test
+        env:
+          # The HMAC self-test sets this internally, but export an empty
+          # default so the parent shell does not leak a real key.
+          D_RESEARCH_LEDGER_KEY: ""
+        run: npm run self-test

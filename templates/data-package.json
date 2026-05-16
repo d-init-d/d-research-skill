@@ -1,0 +1,98 @@
+{
+  "$comment": "Frictionless Data Package descriptor. Populate per dataset produced by this skill. Spec: https://specs.frictionlessdata.io/data-package/. Validate with `frictionless validate datapackage.json` (Python package `frictionless`, optional external dep).",
+  "profile": "tabular-data-package",
+  "name": "example-research-dataset",
+  "title": "Example research dataset assembled by d-research-skill",
+  "description": "Replace this with a one-paragraph description of what the dataset contains, how it was collected, and what it is suitable for.",
+  "version": "0.1.0",
+  "homepage": "https://example.org/example-dataset",
+  "created": "2026-05-15T00:00:00Z",
+  "licenses": [
+    {
+      "name": "CC-BY-4.0",
+      "title": "Creative Commons Attribution 4.0 International",
+      "path": "https://creativecommons.org/licenses/by/4.0/"
+    }
+  ],
+  "contributors": [
+    {
+      "title": "Researcher Name",
+      "role": "author",
+      "organization": "Example University"
+    }
+  ],
+  "keywords": ["example", "replace-me"],
+  "sources": [
+    {
+      "title": "OpenAlex works endpoint",
+      "path": "https://api.openalex.org/works",
+      "email": null
+    }
+  ],
+  "resources": [
+    {
+      "name": "evidence-ledger",
+      "title": "Evidence ledger backing every claim in the report",
+      "path": "evidence-ledger.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8",
+      "schema": {
+        "primaryKey": ["claim_id"],
+        "fields": [
+          {"name": "claim_id", "type": "string", "constraints": {"required": true}},
+          {"name": "claim", "type": "string", "constraints": {"required": true}},
+          {"name": "sub_question", "type": "string"},
+          {"name": "source_title", "type": "string"},
+          {"name": "source_url", "type": "string", "format": "uri", "constraints": {"required": true}},
+          {"name": "source_type", "type": "string", "constraints": {"enum": ["primary","official","dataset","code","paper","filing","secondary","community","unknown"]}},
+          {"name": "date_published", "type": "date"},
+          {"name": "date_accessed", "type": "date"},
+          {"name": "access_method", "type": "string"},
+          {"name": "evidence", "type": "string"},
+          {"name": "quote_or_anchor", "type": "string"},
+          {"name": "contradiction", "type": "string", "constraints": {"enum": ["none","possible","direct","unresolved",""]}},
+          {"name": "confidence", "type": "string", "constraints": {"enum": ["high","medium","low",""]}},
+          {"name": "notes", "type": "string"}
+        ]
+      }
+    },
+    {
+      "name": "search-log",
+      "title": "Search queries executed across databases",
+      "path": "search-log.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8"
+    },
+    {
+      "name": "screening-log",
+      "title": "Per-record screening decisions",
+      "path": "screening-log.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8"
+    },
+    {
+      "name": "api-request-log",
+      "title": "Every outbound API call made to assemble the dataset",
+      "path": "api-request-log.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8"
+    },
+    {
+      "name": "citation-library",
+      "title": "BibTeX export of all included references",
+      "path": "citation-library.bib",
+      "format": "bibtex",
+      "mediatype": "application/x-bibtex"
+    }
+  ],
+  "integrity": {
+    "ledger_hmac_path": "evidence-ledger.csv.hmac",
+    "ledger_hmac_algorithm": "HMAC-SHA256",
+    "ledger_hmac_envelope": "d-research-skill/hmac-sha256/v1",
+    "key_provisioning": "The HMAC key is held by the dataset author and is not distributed with this package. Receivers who need to verify the sidecar can request the key out-of-band; see scripts/evidence_ledger.py verify --help."
+  }
+}

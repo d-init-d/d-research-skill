@@ -16,11 +16,11 @@ Concretely, the repo contains:
 
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 22 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, …).
+- `references/` — 26 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, …).
 - `adapters/` — 6 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, database read-only, GraphQL).
-- `examples/` — 7 worked examples spanning academic review, dataset collection, large-scale crawl, technical research.
-- `templates/` — CSV/BibTeX header templates for evidence ledger, screening log, search log, data dictionary, API request log, citation library.
-- `scripts/` — 7 small, self-contained helper scripts (3 Playwright Node scripts + 4 Python utilities). Each ships with an offline `--self-test`.
+- `examples/` — 8 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, and a full PRISMA 2020 systematic review.
+- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**.
+- `scripts/` — 11 small, self-contained helper scripts (3 Playwright Node scripts + 8 Python utilities). Each ships with an offline `--self-test`. CI runs all of them on every PR.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -43,12 +43,16 @@ Repo là tài liệu + một số script phụ trợ, **không phải Python app
 3. **Public API workflow** for REST / GraphQL / SPARQL endpoints, with pagination patterns, rate-limit handling, and retry/backoff guidance. See `references/api-access-workflow.md` and `adapters/graphql.md`.
 4. **Academic database access** via free APIs (OpenAlex, CrossRef, PubMed E-utilities, Semantic Scholar, arXiv, CORE). See `references/academic-databases.md`.
 5. **Read-only database access** for SQL/NoSQL when the user provides credentials. See `adapters/database-readonly.md`.
-6. **Evidence ledger** — atomic claims with source, type, date, access method, evidence, contradiction status, confidence. See `references/evidence-ledger.md` and `templates/evidence-ledger.csv`.
-7. **Citation management** — BibTeX and RIS export from an evidence-ledger CSV, with optional CrossRef DOI enrichment. See `references/citation-management.md`.
+6. **Evidence ledger** — atomic claims with source, type, date, access method, evidence, contradiction status, confidence. **Tamper-evident via HMAC-SHA256** (`scripts/evidence_ledger.py sign / verify`). See `references/evidence-ledger.md` and `templates/evidence-ledger.csv`.
+7. **Citation management** — BibTeX/RIS export from an evidence-ledger CSV plus **multi-style rendering** (APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA, …) via `scripts/citation_render.py` (pandoc + CSL). See `references/citation-management.md`.
 8. **Data processing pipeline** — audit, clean, dedup, validate, merge. See `references/data-processing-pipeline.md`.
-9. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
-10. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
-11. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
+9. **Data extraction toolbox** — recipe-style playbooks for HTML tables (with `scripts/extract_tables.py`), JSON-LD, embedded JSON, dataLayer, sitemaps, RSS, OAI-PMH, REST/GraphQL, PDFs, web archives. See `references/data-extraction-toolbox.md`.
+10. **PRISMA 2020 systematic reviews** — full protocol, flow diagram template (`templates/prisma-flow.json`), synthesis-pattern decision tree, worked example (`examples/systematic-review-prisma.md`). See `references/systematic-review-protocol.md` and `references/synthesis-patterns.md`.
+11. **Source quality rubric** — 5-axis deterministic scoring (type, authority, recency, methodology, independence) applied automatically by `scripts/score_source.py`. See `references/source-quality-rubric.md`.
+12. **Reproducibility checklist** — every deliverable can be audited against `references/reproducibility-checklist.md` before declaring "done".
+13. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
+14. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
+15. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
 
 ---
 
@@ -91,13 +95,14 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── database-readonly.md              # SQL/NoSQL read-only access
 │   └── graphql.md                        # GraphQL endpoints
 │
-├── references/                           # 22 deep-dive guides
+├── references/                           # 26 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── api-access-workflow.md
 │   ├── blocker-report.md
 │   ├── browser-first-crawl.md
 │   ├── citation-management.md
+│   ├── data-extraction-toolbox.md        # new — extraction recipes
 │   ├── data-processing-pipeline.md
 │   ├── data-visualization.md
 │   ├── evidence-ledger.md
@@ -107,11 +112,14 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── monitoring-change-detection.md
 │   ├── multilingual-research.md
 │   ├── query-patterns.md
+│   ├── reproducibility-checklist.md      # new — pre-release audit
 │   ├── research-bibliography.md
 │   ├── safety-and-access-policy.md
 │   ├── source-discovery.md
 │   ├── source-quality-rubric.md
 │   ├── specialized-domains.md
+│   ├── synthesis-patterns.md             # new — review-type decision tree
+│   ├── systematic-review-protocol.md     # new — PRISMA 2020
 │   ├── tool-adapter-policy.md
 │   └── topic-decomposition.md
 │
@@ -122,13 +130,16 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── dataset-collection.md
 │   ├── large-scale-crawl.md
 │   ├── scientific-literature-review.md
+│   ├── systematic-review-prisma.md       # new — full PRISMA walkthrough
 │   └── technical-research.md
 │
-├── templates/                            # CSV / BibTeX templates
+├── templates/                            # CSV / BibTeX / JSON templates
 │   ├── api-request-log.csv
 │   ├── citation-library.bib
 │   ├── data-dictionary.csv
+│   ├── data-package.json                 # new — Frictionless Data Package
 │   ├── evidence-ledger.csv
+│   ├── prisma-flow.json                  # new — PRISMA 2020 flow diagram
 │   ├── screening-log.csv
 │   └── search-log.csv
 │
@@ -137,9 +148,13 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── playwright_extract.mjs            # extract text/tables/links/files
 │   ├── playwright_crawl.mjs              # bounded same-domain crawl
 │   ├── api_fetch.mjs                     # paginated API fetch w/ rate limit
-│   ├── evidence_ledger.py                # init/validate CSV evidence ledger
+│   ├── evidence_ledger.py                # init/validate/sign/verify ledger
 │   ├── data_clean.py                     # clean/dedup/validate/merge/stats
 │   ├── citation_export.py                # BibTeX/RIS export + CrossRef enrich
+│   ├── citation_render.py                # new — APA/MLA/IEEE/… via pandoc+CSL
+│   ├── extract_tables.py                 # new — HTML tables → CSV
+│   ├── score_source.py                   # new — rubric-based source scoring
+│   ├── check_internal_refs.py            # CI guard for path-style references
 │   └── run_python.mjs                    # tiny wrapper to invoke Python
 │
 ├── agents/
@@ -148,6 +163,12 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 ├── docs/
 │   └── UPGRADE-PLAN.md                   # internal upgrade plan (VN)
 │
+├── .github/
+│   └── workflows/
+│       ├── link-check.yml                # internal-refs + lychee on every PR
+│       └── lint-and-self-test.yml        # ruff + node --check + all self-tests
+│
+├── CONTRIBUTING.md                       # how to add references/adapters/examples/scripts
 └── .agents/
     └── skills/
         └── testing-scripts/
@@ -207,9 +228,13 @@ node scripts/api_fetch.mjs --self-test
 python3 scripts/evidence_ledger.py self-test
 python3 scripts/data_clean.py self-test
 python3 scripts/citation_export.py self-test
+python3 scripts/citation_render.py self-test
+python3 scripts/extract_tables.py self-test
+python3 scripts/score_source.py self-test
+python3 scripts/check_internal_refs.py
 ```
 
-All seven exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
+All eleven exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
 
 ### npm scripts
 
@@ -229,7 +254,15 @@ npm run data:validate -- --file cleaned.csv
 npm run data:merge -- --left a.csv --right b.csv --on id --out merged.csv
 npm run citation:export -- --file evidence.csv --format bibtex --out refs.bib
 npm run citation:enrich -- --doi 10.1234/example
+npm run citation:render -- --bib refs.bib --style apa --format markdown --out refs.apa.md
+npm run extract:tables -- --in page.html --out-dir out/
+npm run score:source -- --file evidence.csv --out scored.csv
+npm run ledger:sign -- --file evidence.csv --key-env D_RESEARCH_LEDGER_KEY
+npm run ledger:verify -- --file evidence.csv --key-env D_RESEARCH_LEDGER_KEY
+npm run refs:check                            # internal-refs CI guard, locally
 ```
+
+For the multi-style citation rendering, install `pandoc ≥ 2.11` so `--citeproc` is available.
 
 See each script's `--help` for the full argument list.
 
