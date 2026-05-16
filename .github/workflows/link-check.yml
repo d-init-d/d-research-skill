@@ -1,0 +1,83 @@
+name: link-check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - ".lycheeignore"
+      - ".github/workflows/link-check.yml"
+      - "scripts/check_internal_refs.py"
+  pull_request:
+    paths:
+      - "**/*.md"
+      - ".lycheeignore"
+      - ".github/workflows/link-check.yml"
+      - "scripts/check_internal_refs.py"
+  schedule:
+    # weekly catch-bit-rot run
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  internal-refs:
+    name: backticked internal refs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate backticked internal references
+        # Covers the common pattern in this repo where cross-references are
+        # written as inline code, e.g. `references/foo.md`, which Markdown
+        # link checkers (including lychee) do NOT inspect.
+        run: python3 scripts/check_internal_refs.py
+
+  lychee:
+    name: lychee (markdown link integrity)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Scan every markdown file in the repo.
+          # --no-progress: cleaner CI logs
+          # --offline:     only check that relative-path links resolve on disk.
+          #                External URLs are skipped here to keep the gate fast
+          #                and deterministic; the weekly scheduled run (below)
+          #                exercises external links separately.
+          args: --no-progress --offline --include-fragments "**/*.md"
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lychee-external:
+    name: lychee (external URLs, scheduled only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run lychee against external URLs
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # External-only sweep: lower throughput, retries, and a generous
+          # timeout to absorb transient flakes. This job is informational
+          # (fail: false) so a temporarily down third-party site does not
+          # block PRs.
+          args: --no-progress --include-fragments --max-concurrency 4 --max-retries 2 --timeout 30 "**/*.md"
+          fail: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
