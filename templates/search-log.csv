@@ -1,1 +1,4 @@
 sub_question,query,tool,date,results_reviewed,candidate_sources,kept_sources,notes
+"Which browser automation libraries support React-heavy SPAs?","playwright vs puppeteer site:playwright.dev",web_search,2026-05-15,10,7,3,"Playwright docs returned 3 authoritative pages on SPA workflows."
+"What are documented rate limits for the OpenAlex API?","openalex rate limit policy",web_search,2026-05-15,8,4,2,"Two primary sources: OpenAlex docs page and the GitHub issue tracker."
+"Recent changes to CrossRef bulk download API","crossref bulk download API changelog after:2025",web_search,2026-05-15,12,5,1,"Single official changelog entry; older blogs were stale."

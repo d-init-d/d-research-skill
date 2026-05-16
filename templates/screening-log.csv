@@ -1,1 +1,4 @@
 id,title,authors_or_org,year_or_date,url_or_doi,source_type,included,exclusion_reason,relevance_score,quality_score,notes
+S001,"A Survey of Browser Automation Tools for Web Scraping","Nguyen, T. and Park, J.",2024,10.1109/ACCESS.2024.123456,journal_article,true,,5,4,"Peer-reviewed; covers Playwright, Puppeteer, Selenium."
+S002,"Top 10 Best Scraping Tools (Sponsored Listicle)","BrandX Marketing",2025-04-12,https://example.com/scraping-tools,blog,false,"non-peer-reviewed; sponsored content",2,1,"Marketing material; excluded per inclusion criteria."
+S003,"Playwright vs Selenium: A Reproducible Benchmark","Open Source Contributors",2025-09,https://github.com/example/scraper-bench,repository,true,,4,4,"Benchmark methodology disclosed; code reproducible."

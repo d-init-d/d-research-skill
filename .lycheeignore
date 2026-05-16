@@ -1,0 +1,9 @@
+# Placeholder/example URLs used in templates and references. These are
+# intentionally not real and must be ignored by the link checker.
+^https?://example\.com
+^https?://www\.example\.com
+^https?://example\.org
+
+# Local config/file references used as inline examples (not real URLs).
+^research\.config\.json$
+^research\.config\.example\.json$

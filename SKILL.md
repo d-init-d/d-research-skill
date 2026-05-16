@@ -1,6 +1,6 @@
 ---
 name: d-research
-description: browser-first deep research and lawful public data collection for ai agents. use for web research, source discovery, scraping or crawling accessible public data, academic and literature reviews, market research, technical investigation, evidence ledgers, contradiction checks, and blocker reports. default to playwright when a browser tool is available; support configurable browser, fetch, and web-search-only adapters. never bypass login, paywalls, captchas, rate limits, robots restrictions, or access controls.
+description: Browser-first deep research and lawful public-data collection for AI agents. Triggers: web research, source discovery, scraping public data, literature reviews, market or technical research, evidence ledgers, blocker reports. Read-only; never bypasses logins, paywalls, captchas, or rate limits.
 ---
 
 # D Research
@@ -56,6 +56,8 @@ Use the best available tool stack in this order:
 
 If a tool is unavailable, continue with the next-best method and record the limitation.
 
+For the full decision rules on choosing between adapters (e.g. when to demote Playwright to fetch-only, when web search alone is acceptable), see `references/tool-adapter-policy.md`.
+
 ## Data access layers
 
 Access data in order of preference:
@@ -94,6 +96,8 @@ Not allowed:
 - ignore robots or explicit site restrictions when acting as a crawler
 
 When blocked, do not force access. Produce a blocker report.
+
+The full safety and access policy (legal/ethical framing, what counts as a public source, escalation steps) is in `references/safety-and-access-policy.md`. Read it before doing anything that touches authenticated or rate-limited surfaces.
 
 ## Workflow decision tree
 
@@ -144,6 +148,10 @@ Use `references/data-visualization.md`. Generate matplotlib/plotly charts as par
 ### If the user wants to monitor changes over time
 
 Use `references/monitoring-change-detection.md`. Take baseline snapshots, detect changes, report diffs.
+
+### If the user needs research across multiple languages
+
+Use `references/multilingual-research.md`. Translate queries per language, search local-language sources, extract in original language, and cross-validate findings across languages.
 
 ## Standard deep research workflow
 
@@ -238,6 +246,8 @@ Use the least invasive reliable method:
 
 Always record the extraction method.
 
+For the detailed playbooks per content type (HTML tables, JSON-LD, PDFs, embedded JSON in `<script>` tags, datalayer objects, GraphQL responses, etc.), see `references/extraction-methods.md`.
+
 ### 7. Crawl and expand
 
 For accessible sources:
@@ -282,6 +292,8 @@ Before final output:
 - check whether secondary sources cite primary sources
 - downgrade confidence when evidence is weak or conflicting
 - state unresolved contradictions clearly
+
+Score every source on the rubric in `references/source-quality-rubric.md` (primary vs. secondary, authority, recency, methodology, independence). Use the rubric scores to set the `confidence` column in the evidence ledger and to break ties between contradicting sources.
 
 ### 10. Report blockers
 
@@ -379,3 +391,7 @@ Always include:
 - confidence level
 
 Use concise outputs for simple tasks. Use full evidence-ledger reports for high-stakes, academic, or dataset-building tasks.
+
+## Further reading
+
+The research methodology and source taxonomy behind this skill are written up in `references/research-bibliography.md`. Read it when adapting the skill to a new domain or when explaining the methodology to a stakeholder.

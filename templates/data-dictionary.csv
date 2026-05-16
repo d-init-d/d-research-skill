@@ -1,1 +1,5 @@
 field,original_name,type,description,example,source,cleaning_notes,missingness_pct
+tool_name,Name,string,"Canonical name of the browser automation tool.",Playwright,"https://playwright.dev","Title-cased; collapsed multiple spaces.",0.0
+license,License,string,"SPDX-style license identifier.",Apache-2.0,"GitHub repo LICENSE file","Mapped variants like 'Apache 2' -> 'Apache-2.0'.",2.1
+github_stars,stars,integer,"Star count at time of access.",58000,"GitHub REST API /repos/{owner}/{repo}","Snapshot; record date_accessed in the ledger.",0.0
+supports_headless,Headless,boolean,"Whether the tool runs without a visible browser window.",true,"Project documentation","Normalized 'yes/no/true/false/1/0' to boolean.",5.4
