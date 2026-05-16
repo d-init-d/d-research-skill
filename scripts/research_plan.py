@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -93,6 +94,18 @@ EVIDENCE_LEDGER_HEADER = (
     "contradiction,confidence,notes\n"
 )
 
+DEFAULT_CONFIG: dict[str, Any] = {
+    "researchPlan": {
+        "subagents": {"enabled": True, "maxParallel": 4},
+        "workspace": {
+            "baseDir": ".",
+            "nameTemplate": "research-{slug}-{date}",
+            "fallbackToCwdOnError": True,
+        },
+        "finalResponse": {"reportWorkspacePath": True},
+    }
+}
+
 # Path resolution helpers operate relative to the plan file's parent
 # directory so plans can be moved around without breaking checks.
 
@@ -112,6 +125,115 @@ def _utc_now_iso() -> str:
 
 def _parse_iso_utc(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _find_config(explicit: str | None, cwd: Path) -> Path | None:
+    if explicit:
+        p = Path(explicit).expanduser()
+        return p if p.is_absolute() else (cwd / p).resolve()
+    for parent in [cwd, *cwd.parents]:
+        candidate = parent / "research.config.json"
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def _load_config(explicit: str | None, cwd: Path) -> tuple[dict[str, Any], Path | None]:
+    config_path = _find_config(explicit, cwd)
+    config = DEFAULT_CONFIG
+    if config_path is None:
+        return config, None
+    with config_path.open("r", encoding="utf-8") as fh:
+        loaded = json.load(fh)
+    if not isinstance(loaded, dict):
+        raise ValueError(f"config must be a JSON object: {config_path}")
+    return _deep_merge(config, loaded), config_path
+
+
+def _slugify(value: str) -> str:
+    value = value.lower().strip()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    value = value.strip("-")
+    return value or "research"
+
+
+def _render_workspace_name(template: str, slug: str) -> str:
+    now = datetime.now(timezone.utc)
+    try:
+        rendered = template.format(
+            slug=_slugify(slug),
+            date=now.strftime("%Y-%m-%d"),
+            datetime=now.strftime("%Y-%m-%d-%H%M%S"),
+        )
+    except (KeyError, ValueError):
+        rendered = f"research-{_slugify(slug)}-{now.strftime('%Y-%m-%d')}"
+    return _slugify(rendered)
+
+
+def _assert_writable_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    if not path.is_dir():
+        raise NotADirectoryError(str(path))
+    with tempfile.TemporaryDirectory(prefix=".research-write-test-", dir=str(path)):
+        pass
+
+
+def _unique_workspace(base_dir: Path, workspace_name: str) -> Path:
+    candidate = base_dir / workspace_name
+    if not candidate.exists():
+        return candidate
+    for idx in range(2, 1000):
+        candidate = base_dir / f"{workspace_name}-{idx:02d}"
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"could not find a free workspace name under {base_dir}")
+
+
+def _workspace_from_config(
+    config: dict[str, Any], config_path: Path | None, cwd: Path, slug: str
+) -> tuple[Path, str | None]:
+    rp = config.get("researchPlan", {})
+    workspace_obj = rp.get("workspace", {}) if isinstance(rp, dict) else {}
+    workspace_cfg = workspace_obj if isinstance(workspace_obj, dict) else {}
+    base_raw = workspace_cfg.get("baseDir", ".")
+    if not isinstance(base_raw, str) or not base_raw.strip():
+        base_raw = "."
+    base = Path(base_raw).expanduser()
+    if not base.is_absolute():
+        root = config_path.parent if config_path is not None else cwd
+        base = root / base
+    base = base.resolve()
+
+    fallback = bool(workspace_cfg.get("fallbackToCwdOnError", True))
+    warning: str | None = None
+    try:
+        _assert_writable_directory(base)
+    except OSError as exc:
+        if not fallback:
+            raise
+        warning = (
+            f"configured output folder {base} is not accessible ({exc}); "
+            f"falling back to current directory {cwd}"
+        )
+        base = cwd.resolve()
+        _assert_writable_directory(base)
+
+    template = workspace_cfg.get("nameTemplate", "research-{slug}-{date}")
+    if not isinstance(template, str) or not template.strip():
+        template = "research-{slug}-{date}"
+    workspace_name = _render_workspace_name(template, slug)
+    return _unique_workspace(base, workspace_name), warning
 
 
 def _is_safe_relative_path(raw: str) -> bool:
@@ -672,8 +794,22 @@ def cmd_init(args: argparse.Namespace) -> int:
         out_arg = Path(args.out) if args.out else Path("research-plan.json")
         out = out_arg if out_arg.is_absolute() else workspace / out_arg
         out = out.resolve()
+    elif args.out:
+        out = Path(args.out).resolve()
     else:
-        out = Path(args.out or "research-plan.json").resolve()
+        try:
+            config, config_path = _load_config(args.config, Path.cwd().resolve())
+            workspace, warning = _workspace_from_config(
+                config, config_path, Path.cwd().resolve(), args.slug
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(
+                f"FAIL: could not resolve workspace from config: {exc}", file=sys.stderr
+            )
+            return 1
+        if warning:
+            print(f"WARN: {warning}", file=sys.stderr)
+        out = (workspace / "research-plan.json").resolve()
     if out.exists() and not args.force:
         print(
             f"FAIL: {out} exists; pass --force to overwrite",
@@ -684,7 +820,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     out.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
     _scaffold_workspace(out.parent)
     print(f"wrote plan template to {out}")
-    print(f"scaffolded workspace at {out.parent}")
+    print(f"workspace: {out.parent}")
     return 0
 
 
@@ -1069,6 +1205,15 @@ def _self_test() -> int:
         ):
             return fn(ns)
 
+    @contextlib.contextmanager
+    def chdir(path: Path):
+        old = Path.cwd()
+        os.chdir(path)
+        try:
+            yield
+        finally:
+            os.chdir(old)
+
     failures: list[str] = []
 
     # Sub-test 1: schema validation passes on a clean plan.
@@ -1328,7 +1473,13 @@ def _self_test() -> int:
         workspace = Path(td) / "research-test"
         rc = call_silent(
             cmd_init,
-            argparse.Namespace(workspace=str(workspace), out=None, force=False),
+            argparse.Namespace(
+                workspace=str(workspace),
+                out=None,
+                force=False,
+                slug="research",
+                config=None,
+            ),
         )
         if rc != 0:
             failures.append("init --workspace should pass")
@@ -1341,7 +1492,64 @@ def _self_test() -> int:
             if not (workspace / rel).exists():
                 failures.append(f"init --workspace missing {rel}")
 
-    # Sub-test 24: real template parses cleanly.
+    # Sub-test 24: init without --workspace creates a unique workspace in cwd.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        with chdir(td_path):
+            rc = call_silent(
+                cmd_init,
+                argparse.Namespace(
+                    workspace=None, out=None, force=False, slug="topic", config=None
+                ),
+            )
+        workspaces = list(td_path.glob("research-topic-*"))
+        if rc != 0 or len(workspaces) != 1:
+            failures.append("init should create one auto workspace in cwd")
+        elif not (workspaces[0] / "research-plan.json").exists():
+            failures.append("auto workspace missing research-plan.json")
+
+    # Sub-test 25: config baseDir controls the workspace parent.
+    with tempfile.TemporaryDirectory() as td:
+        project = Path(td) / "project"
+        project.mkdir()
+        (project / "research.config.json").write_text(
+            json.dumps({"researchPlan": {"workspace": {"baseDir": "runs"}}}),
+            encoding="utf-8",
+        )
+        with chdir(project):
+            rc = call_silent(
+                cmd_init,
+                argparse.Namespace(
+                    workspace=None, out=None, force=False, slug="topic", config=None
+                ),
+            )
+        workspaces = list((project / "runs").glob("research-topic-*"))
+        if rc != 0 or len(workspaces) != 1:
+            failures.append(
+                "config baseDir should create workspace under configured dir"
+            )
+
+    # Sub-test 26: inaccessible config baseDir falls back to cwd.
+    with tempfile.TemporaryDirectory() as td:
+        project = Path(td) / "project"
+        project.mkdir()
+        (project / "blocked").write_text("not a directory", encoding="utf-8")
+        (project / "research.config.json").write_text(
+            json.dumps({"researchPlan": {"workspace": {"baseDir": "blocked"}}}),
+            encoding="utf-8",
+        )
+        with chdir(project):
+            rc = call_silent(
+                cmd_init,
+                argparse.Namespace(
+                    workspace=None, out=None, force=False, slug="topic", config=None
+                ),
+            )
+        fallback_workspaces = list(project.glob("research-topic-*"))
+        if rc != 0 or len(fallback_workspaces) != 1:
+            failures.append("inaccessible config baseDir should fall back to cwd")
+
+    # Sub-test 27: real template parses cleanly.
     template = (
         Path(__file__).resolve().parent.parent / "templates" / "research-plan.json"
     )
@@ -1360,7 +1568,7 @@ def _self_test() -> int:
         for f in failures:
             print(f"FAIL: {f}", file=sys.stderr)
         return 1
-    print("OK: research_plan self-test passed (24 sub-tests).")
+    print("OK: research_plan self-test passed (27 sub-tests).")
     return 0
 
 
@@ -1386,6 +1594,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--workspace",
         default=None,
         help="workspace directory to scaffold; plan defaults to <workspace>/research-plan.json",
+    )
+    sp.add_argument(
+        "--slug", default="research", help="slug used for auto workspace names"
+    )
+    sp.add_argument(
+        "--config",
+        default=None,
+        help="optional research.config.json path for auto workspace defaults",
     )
     sp.add_argument("--force", action="store_true")
     sp.set_defaults(func=cmd_init)

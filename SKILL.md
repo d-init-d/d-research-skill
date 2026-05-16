@@ -101,7 +101,7 @@ The full safety and access policy (legal/ethical framing, what counts as a publi
 
 ## Workflow decision tree
 
-**Before picking a branch:** if the task is long-horizon (more than 5 sub-questions, more than 50 sources, multi-context-window runtime, or audit-grade output), apply the **research plan protocol** from `references/research-plan-protocol.md` as an outer loop *around* whichever branch fits the topic. The agent creates one workspace directory, writes `research-plan.json` (from `templates/research-plan.json`), renders `PLAN.md`, gets approval with `scripts/research_plan.py approve`, dispatches parallel-safe tasks (optionally to sub-agents), gates the synthesize step, and only then composes the final report. See `examples/long-horizon-research-plan.md`. The branches below describe the *content* of the work; the protocol describes the *flow control* that keeps the work surviving across context resets.
+**Before picking a branch:** if the task is long-horizon (more than 5 sub-questions, more than 50 sources, multi-context-window runtime, or audit-grade output), apply the **research plan protocol** from `references/research-plan-protocol.md` as an outer loop *around* whichever branch fits the topic. The agent creates one workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writes `research-plan.json` (from `templates/research-plan.json`), renders `PLAN.md`, gets approval with `scripts/research_plan.py approve`, dispatches parallel-safe tasks (optionally to sub-agents if config allows), gates the synthesize step, and only then composes the final report. See `examples/long-horizon-research-plan.md`. The branches below describe the *content* of the work; the protocol describes the *flow control* that keeps the work surviving across context resets.
 
 ### If the user asks for a broad research answer
 
@@ -157,7 +157,7 @@ Sign the ledger with `scripts/evidence_ledger.py sign --file evidence-ledger.csv
 
 ### If the task is long-horizon, multi-source, or risks blowing context
 
-Use the **research plan protocol** in `references/research-plan-protocol.md`. The agent MUST start by creating a single workspace directory, writing `research-plan.json` (from `templates/research-plan.json`), validating it with `scripts/research_plan.py check`, rendering `PLAN.md`, running `gate --gate plan_ready`, and getting approval with `scripts/research_plan.py approve` before dispatch. Unattended runs fail by default unless the agent explicitly records `--allow-unattended`. After approval, dispatch parallel-safe tasks via `scripts/research_plan.py parallelizable`, mark task status as work progresses, gate the synthesize step with `scripts/research_plan.py gate --gate synthesize_ready`, and only then compose the final report. See `examples/long-horizon-research-plan.md` for the end-to-end walkthrough. This is the right default for any task with >5 sub-questions, >50 sources, or estimated runtime that does not fit in one context window.
+Use the **research plan protocol** in `references/research-plan-protocol.md`. The agent MUST start by creating a single workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writing `research-plan.json` (from `templates/research-plan.json`), validating it with `scripts/research_plan.py check`, rendering `PLAN.md`, running `gate --gate plan_ready`, and getting approval with `scripts/research_plan.py approve` before dispatch. `init` reads `research.config.json` when present; by default it creates a fresh run folder in the current working directory, or under `researchPlan.workspace.baseDir` if configured. If that configured folder is inaccessible, it falls back to the current directory and warns. Unattended runs fail by default unless the agent explicitly records `--allow-unattended`. After approval, dispatch parallel-safe tasks via `scripts/research_plan.py parallelizable` only when `researchPlan.subagents.enabled=true`, mark task status as work progresses, gate the synthesize step with `scripts/research_plan.py gate --gate synthesize_ready`, and only then compose the final report. Always include the final workspace path in the user-facing answer. See `examples/long-horizon-research-plan.md` for the end-to-end walkthrough. This is the right default for any task with >5 sub-questions, >50 sources, or estimated runtime that does not fit in one context window.
 
 ### If the user wants visualizations or charts
 
@@ -382,6 +382,12 @@ Important config fields:
 - crawl.respectRobots
 - research.requireEvidenceLedger
 - research.requireContradictionPass
+- researchPlan.subagents.enabled
+- researchPlan.subagents.maxParallel
+- researchPlan.workspace.baseDir
+- researchPlan.workspace.nameTemplate
+- researchPlan.workspace.fallbackToCwdOnError
+- researchPlan.finalResponse.reportWorkspacePath
 - access.allowLoginWithUserPermission
 - access.allowPaywalledSources
 - access.allowCaptchaSolving
@@ -402,6 +408,8 @@ Important config fields:
 - largeScale.adaptiveRateLimit
 
 Default access policy is conservative and read-only.
+
+For long-horizon research, `researchPlan.finalResponse.reportWorkspacePath` defaults to `true`; always tell the user the workspace path where the plan, ledger, notes, sections, report, and checklist were written.
 
 ## Output standards
 

@@ -17,10 +17,14 @@ resets and parallelisable where safe.
 ## Step 1 — Initialise the plan
 
 ```sh
-python3 scripts/research_plan.py init --workspace ./research-oai-review-2026-05-16
+python3 scripts/research_plan.py init --slug oai-review
 cd ./research-oai-review-2026-05-16
 python3 ../scripts/research_plan.py check --file research-plan.json
 ```
+
+The `init` command prints the actual `workspace:` path. Use that path in
+the `cd` command; if the same slug/date already exists, the folder may
+have a suffix such as `-02`.
 
 On Windows, use `python` instead of `python3` if `python3` is not on
 PATH, or use the matching `npm run plan:*` commands from the repo root.

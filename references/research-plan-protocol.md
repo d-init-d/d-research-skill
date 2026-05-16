@@ -74,14 +74,24 @@ Create a workspace with:
 
 ```sh
 python3 scripts/research_plan.py init \
-  --workspace research-oai-review-2026-05-16
+  --slug oai-review
 ```
 
 On Windows, use `python` instead of `python3` if `python3` is not on
 PATH, or call the same subcommands through `npm run plan:*`.
 
-This writes `research-plan.json`, creates the standard output folders,
-and initialises an empty `evidence-ledger.csv` header.
+By default this creates a fresh `research-<slug>-<YYYY-MM-DD>/` folder
+in the current working directory. If that folder already exists, the
+script appends a numeric suffix. This writes `research-plan.json`,
+creates the standard output folders, and initialises an empty
+`evidence-ledger.csv` header.
+
+If `research.config.json` contains `researchPlan.workspace.baseDir`, the
+new run folder is created under that configured output root instead. If
+the configured output folder is not accessible and
+`fallbackToCwdOnError=true`, the script falls back to the current working
+directory and prints a warning. The agent must report the final workspace
+path to the user in the final answer.
 
 ### 1. Plan
 

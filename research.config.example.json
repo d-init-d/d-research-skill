@@ -21,6 +21,24 @@
     "minSourcesForStrongClaim": 2,
     "searchLogRequired": true
   },
+  "researchPlan": {
+    "subagents": {
+      "enabled": true,
+      "maxParallel": 4
+    },
+    "workspace": {
+      "baseDir": ".",
+      "nameTemplate": "research-{slug}-{date}",
+      "fallbackToCwdOnError": true
+    },
+    "approval": {
+      "requireHuman": true,
+      "allowUnattended": false
+    },
+    "finalResponse": {
+      "reportWorkspacePath": true
+    }
+  },
   "access": {
     "allowLoginWithUserPermission": false,
     "allowPaywalledSources": false,

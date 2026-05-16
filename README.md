@@ -287,7 +287,7 @@ directory containing the plan, human-readable review, evidence ledger,
 notes, sections, final report, and reproducibility checklist:
 
 ```bash
-python3 scripts/research_plan.py init --workspace research-topic-2026-05-16
+python3 scripts/research_plan.py init --slug topic
 cd research-topic-2026-05-16
 python3 ../scripts/research_plan.py render --file research-plan.json
 python3 ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
@@ -297,6 +297,10 @@ python3 ../scripts/research_plan.py gate --file research-plan.json --gate execut
 
 On Windows, use `python` instead of `python3` if `python3` is not on
 PATH, or use the matching `npm run plan:*` commands.
+
+The `init` command prints the actual `workspace:` path. Agents must
+include that path in the final answer so users know where the plan,
+ledger, notes, report, and checklist were written.
 
 Execution is blocked until the plan is rendered and approved. If no
 human reviewer is reachable, the agent must explicitly pass
@@ -312,6 +316,10 @@ The skill respects a project-local `research.config.json` when present. `researc
 - `crawl.maxDepth` / `crawl.maxPagesPerDomain` / `crawl.maxTotalPages` / `crawl.delayMs`
 - `crawl.respectRobots` — default `true`
 - `research.requireEvidenceLedger`, `research.requireContradictionPass` — default `true`
+- `researchPlan.workspace.baseDir` — default `.`; each run creates a fresh `research-<slug>-<date>` folder under this parent
+- `researchPlan.workspace.fallbackToCwdOnError` — default `true`; if the configured output root is inaccessible, create the run folder in the current working directory and warn the user
+- `researchPlan.subagents.enabled` / `researchPlan.subagents.maxParallel` — control whether the agent dispatches parallel-safe plan tasks to sub-agents
+- `researchPlan.finalResponse.reportWorkspacePath` — default `true`; final answers must state the workspace path
 - `access.allowLoginWithUserPermission`, `access.allowPaywalledSources`, `access.allowCaptchaSolving`, `access.allowStealthEvasion` — default **`false`** for all four; only flip these with explicit, lawful user authorization
 - `api.defaultDelayMs`, `api.maxRetries`, `api.respectRateLimitHeaders`
 - `database.readOnly` — default `true`
