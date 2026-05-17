@@ -25,6 +25,22 @@ The evidence ledger prevents unsupported claims, weak synthesis, and source conf
 | confidence | high, medium, low |
 | notes | caveats and extraction notes |
 
+## CSV quoting (RFC 4180)
+
+When the ledger is written as a CSV file, embedded quotes inside a quoted field MUST be **doubled** (`""`), not backslash-escaped (`\"`). Python's `csv.DictReader`, Excel, and `scripts/run_dogfood.py score` all follow RFC 4180 and will split the row at the wrong column otherwise — silently corrupting `source_url`, `evidence`, and downstream recall/accuracy scores.
+
+Bad (`\"` — breaks the parser):
+```csv
+C002,"API rejected with body {\"error\":\"Pagination error.\"}",https://api.example.org/works?per-page=201,...
+```
+
+Good (`""` — RFC 4180 compliant):
+```csv
+C002,"API rejected with body {""error"":""Pagination error.""}",https://api.example.org/works?per-page=201,...
+```
+
+When in doubt, write the ledger through Python's `csv.DictWriter(..., quoting=csv.QUOTE_MINIMAL)` rather than hand-formatting the rows. The harness validates this when scoring — a row that mis-quotes will show up as a recall miss or an accuracy miss, not as a CSV syntax error.
+
 ## Atomic claims
 
 Keep each claim small.
