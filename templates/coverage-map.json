@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "generated_at": "2026-05-15",
+  "research_question": "How should an agent paginate OpenAlex and how does Playwright auto-wait?",
+  "sub_questions": [
+    {
+      "id": "SQ1",
+      "question": "What pagination limits do open academic APIs (OpenAlex) enforce?",
+      "required_evidence": [
+        "primary_source",
+        "explicit_per_page_limit",
+        "rate_limit_note"
+      ],
+      "found_claim_ids": ["C001"],
+      "missing": [],
+      "confidence": "high",
+      "next_frontier_actions": []
+    },
+    {
+      "id": "SQ2",
+      "question": "Does Playwright require explicit waits before click?",
+      "required_evidence": [
+        "primary_source",
+        "list_of_actionability_checks"
+      ],
+      "found_claim_ids": ["C002"],
+      "missing": [],
+      "confidence": "high",
+      "next_frontier_actions": []
+    },
+    {
+      "id": "SQ3",
+      "question": "Have OpenAlex pagination limits changed since 2023?",
+      "required_evidence": [
+        "changelog_entry",
+        "archived_doc_comparison"
+      ],
+      "found_claim_ids": [],
+      "missing": [
+        "changelog_entry",
+        "archived_doc_comparison"
+      ],
+      "confidence": "low",
+      "next_frontier_actions": [
+        "search OpenAlex changelog",
+        "check Wayback Machine snapshots before 2024-03"
+      ]
+    }
+  ]
+}

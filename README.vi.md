@@ -15,6 +15,7 @@ D Research là một skill dạng markdown cho AI agent. Nó dạy agent cách l
 - PRISMA 2020 systematic review và template flow diagram.
 - Data extraction toolbox: HTML tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH, REST/GraphQL, PDFs.
 - Long-horizon research protocol: tạo workspace riêng, `research-plan.json`, `PLAN.md`, approval gate, notes, sections, report, checklist.
+- Frontier search cho follow-up theo evidence gap: khi pass đầu để lại sub-question chưa đủ chứng cứ hoặc thông tin obscure/long-tail, agent dựng một priority queue nhỏ trên các node ứng viên (query, URL, file, API, citation, repo, alias, archive), chấm điểm theo gap còn lại, đào nhánh ưu tiên cao trước, và dừng khi evidence saturation. Không phải pathfinding theo nghĩa CS (không A*/Dijkstra); chỉ là best-first search có ràng buộc. Có `frontier-ledger.csv` và `coverage-map.json` đi kèm `evidence-ledger.csv`. Vẫn không bypass access control. Xem `references/frontier-search.md`.
 - Lập kế hoạch subagent portable: slot, context length, max parallel, task budget, không khóa cứng vào CLI/IDE cụ thể.
 - Chống tràn context: task phải fit `execution.context_budget`, findings phải ghi ra file ngay.
 

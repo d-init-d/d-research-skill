@@ -1,0 +1,6 @@
+node_id,parent_id,node_type,value,gap_id,expansion_method,priority,status,access_status,blocked_reason,claim_ids,date_visited,notes
+N001,,query,"OpenAlex per-page pagination limit",SQ1,query_fanout,9,extracted,accessible,,C001,2026-05-15,"Broad query led directly to docs.openalex.org paging page."
+N002,N001,url,https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging,SQ1,follow_top_result,10,extracted,accessible,,C001,2026-05-15,"Primary source; closes SQ1 missing=primary_source."
+N003,,citation,"Playwright auto-waiting docs",SQ2,topic_decomposition,8,extracted,accessible,,C002,2026-05-15,"Followed canonical docs link rather than third-party blog."
+N004,N002,api,https://api.openalex.org/works?per-page=200&search=test,SQ1,verify_primary,7,visited,accessible,,,2026-05-15,"Spot-check that per-page=200 actually returns 200 rows; matched the doc claim, no new claim filed."
+N005,,archive,"Wayback snapshot of OpenAlex paging docs 2024-03",SQ1,archive_path,4,deferred,,,,,"Lower priority because the live doc was already extracted; revisit only if a future contradiction arises."

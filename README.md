@@ -19,10 +19,10 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 27 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, …).
+- `references/` — 28 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, …).
 - `adapters/` — 6 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, database read-only, GraphQL).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
-- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**.
+- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
 - `scripts/` — 12 small, self-contained helper scripts (3 Playwright Node scripts + 9 Python utilities). Each ships with an offline `--self-test`. CI runs all of them on every PR.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
@@ -52,6 +52,7 @@ For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays
 11. **Source quality rubric** — 5-axis deterministic scoring (type, authority, recency, methodology, independence) applied automatically by `scripts/score_source.py`. See `references/source-quality-rubric.md`.
 12. **Reproducibility checklist** — every deliverable can be audited against `references/reproducibility-checklist.md` before declaring "done".
 12a. **Context-safe long-horizon protocol** — for tasks bigger than one model context window: create one workspace directory, write `research-plan.json`, annotate subagent slots/context budgets, render `PLAN.md` for review, require approval before dispatch, gate execution/synthesis, and write findings to disk immediately to avoid context loss. See `references/research-plan-protocol.md` and `examples/long-horizon-research-plan.md`.
+12b. **Frontier search for gap-driven follow-up** — when the first pass leaves evidence gaps, obscure facts, or contested claims, build a small best-first priority queue over candidate queries / URLs / files / APIs / citations / repos / aliases / archives, score each node against the unresolved sub-question, and stop on evidence saturation. Not a literal pathfinding algorithm; no A* / Dijkstra. Maintains a `frontier-ledger.csv` and `coverage-map.json` alongside the evidence ledger. Never bypasses access controls. See `references/frontier-search.md`, `templates/frontier-ledger.csv`, and `templates/coverage-map.json`.
 13. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 14. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
 15. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
@@ -120,7 +121,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── database-readonly.md              # SQL/NoSQL read-only access
 │   └── graphql.md                        # GraphQL endpoints
 │
-├── references/                           # 27 deep-dive guides
+├── references/                           # 28 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── api-access-workflow.md
@@ -133,6 +134,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── evidence-ledger.md
 │   ├── extraction-methods.md
 │   ├── final-report-template.md
+│   ├── frontier-search.md                # new — gap-driven follow-up controller
 │   ├── large-scale-collection.md
 │   ├── monitoring-change-detection.md
 │   ├── multilingual-research.md
@@ -163,9 +165,11 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 ├── templates/                            # CSV / BibTeX / JSON templates
 │   ├── api-request-log.csv
 │   ├── citation-library.bib
+│   ├── coverage-map.json                 # new — evidence-gap map
 │   ├── data-dictionary.csv
 │   ├── data-package.json                 # new — Frictionless Data Package
 │   ├── evidence-ledger.csv
+│   ├── frontier-ledger.csv               # new — frontier-search trace
 │   ├── prisma-flow.json                  # new — PRISMA 2020 flow diagram
 │   ├── research-plan.json                # new — research-plan schema
 │   ├── screening-log.csv

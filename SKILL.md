@@ -171,6 +171,10 @@ Use `references/monitoring-change-detection.md`. Take baseline snapshots, detect
 
 Use `references/multilingual-research.md`. Translate queries per language, search local-language sources, extract in original language, and cross-validate findings across languages.
 
+### If the first pass leaves evidence gaps, obscure / long-tail facts, or contested claims
+
+Escalate to `references/frontier-search.md`. Build a small best-first frontier over candidate queries, URLs, files, APIs, citations, repos, aliases, and archives; score each node against the unresolved sub-question; expand the highest-priority node; and stop on evidence saturation rather than node count. Maintain `templates/frontier-ledger.csv` and `templates/coverage-map.json` alongside `templates/evidence-ledger.csv`. Never use this as a way to bypass access controls — blocked nodes still go to `references/blocker-report.md`.
+
 ## Standard deep research workflow
 
 ### 1. Restate the task
@@ -331,6 +335,8 @@ If a likely useful source cannot be extracted, report:
 - alternative sources found
 
 ### 11. Synthesize
+
+Before composing the final answer, scan the evidence ledger and (if maintained) `templates/coverage-map.json` for unresolved gaps. If a key sub-question still has `missing` entries or only low-confidence non-primary sources, escalate one pass with `references/frontier-search.md` instead of synthesising over thin evidence.
 
 Use `references/final-report-template.md`.
 

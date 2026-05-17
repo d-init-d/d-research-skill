@@ -17,6 +17,7 @@ Core workflow:
 9. Process and clean extracted data when building datasets (see `references/data-processing-pipeline.md`).
 10. Maintain an evidence ledger for important claims.
 11. Search for contradictions before final synthesis.
+11a. If the first pass leaves evidence gaps, obscure facts, or contested claims, escalate to `references/frontier-search.md`. Maintain `templates/frontier-ledger.csv` and `templates/coverage-map.json` alongside the evidence ledger, score candidate nodes against open gaps, expand the highest-priority node, and stop on evidence saturation. Never use this as a way around access controls.
 12. Export citations in BibTeX/RIS format for academic work, and render to APA/MLA/IEEE/Chicago/Vancouver/Harvard/Nature with `scripts/citation_render.py` when needed (see `references/citation-management.md`).
 13. For PRISMA-grade systematic reviews, follow `references/systematic-review-protocol.md` and populate `templates/prisma-flow.json`.
 14. For structured data extraction (HTML tables, JSON-LD, sitemaps, RSS, OAI-PMH, embedded JSON), use the recipes in `references/data-extraction-toolbox.md` and `scripts/extract_tables.py`.
