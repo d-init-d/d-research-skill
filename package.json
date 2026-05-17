@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Browser-first deep research, data collection, and academic research skill for AI agents.",
   "type": "module",
-  "license": "MIT",
+  "license": "CC-BY-NC-4.0",
   "private": true,
   "scripts": {
     "probe": "node scripts/playwright_probe.mjs",

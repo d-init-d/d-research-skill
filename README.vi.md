@@ -94,3 +94,17 @@ Trên Windows, dùng `python` thay cho `python3` nếu cần.
 ## An toàn
 
 Mặc định read-only. Không bypass login, paywall, captcha, rate limit, robots restriction hoặc access control. Nếu nguồn bị chặn, agent phải dừng và tạo blocker report thay vì cố truy cập.
+
+## License
+
+D Research là source-available cho mục đích phi thương mại theo giấy
+phép **Creative Commons Attribution-NonCommercial 4.0 International**
+(`CC-BY-NC-4.0`). Xem `LICENSE`.
+
+Bạn có thể dùng, sao chép, chia sẻ và chỉnh sửa cho mục đích phi
+thương mại nếu ghi attribution phù hợp. Không được dùng thương mại nếu
+chưa có sự cho phép bằng văn bản từ chủ sở hữu bản quyền.
+
+Commercial use bao gồm nhưng không giới hạn ở: bán lại, phân phối trả
+phí, đóng gói thành SaaS, đưa lên marketplace, bán kèm agent bundle,
+hoặc nhúng skill này vào sản phẩm/dịch vụ trả phí.

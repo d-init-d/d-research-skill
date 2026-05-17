@@ -149,4 +149,6 @@ moved to `docs/.archive/` once their content is realised.
 ## License
 
 By contributing, you agree that your contributions are licensed under
-the same license as the repository (see `LICENSE`).
+the same license as the repository (`CC-BY-NC-4.0`; see `LICENSE`).
+Commercial relicensing of third-party contributions may require the
+contributor's separate written permission.

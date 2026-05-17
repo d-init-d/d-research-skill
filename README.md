@@ -2,7 +2,7 @@
 
 **Browser-First Deep Research & Public Data Collection Skill for AI Agents**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
 Vietnamese docs: [README.vi.md](README.vi.md)
 
@@ -113,7 +113,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 ├── AGENTS.md                             # short root-level instructions
 ├── README.md                             # this file
 ├── README.vi.md                          # Vietnamese overview
-├── LICENSE                               # MIT
+├── LICENSE                               # CC BY-NC 4.0
 ├── research.config.example.json          # default config values
 ├── package.json                          # npm scripts for the helper scripts
 ├── package-lock.json
@@ -512,4 +512,16 @@ The optional scripts need Node.js 18+ (for `api_fetch.mjs` and the Playwright sc
 
 ## License
 
-MIT — see `LICENSE`.
+This project is source-available for non-commercial use under the
+**Creative Commons Attribution-NonCommercial 4.0 International**
+license (`CC-BY-NC-4.0`). See `LICENSE`.
+
+You may use, copy, share, and adapt the material for non-commercial
+purposes with attribution. Commercial use is not permitted without
+written permission from the copyright holder.
+
+Commercial use includes, but is not limited to, resale, paid
+redistribution, SaaS packaging, marketplace distribution, paid agent
+bundles, or embedding this skill in a paid product or service.
+
+The copyright holder may offer separate commercial licenses on request.
