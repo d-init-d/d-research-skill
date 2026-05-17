@@ -19,11 +19,12 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 29 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, …).
+- `references/` — 30 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, …).
 - `adapters/` — 6 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, database read-only, GraphQL).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
-- `scripts/` — 12 small, self-contained helper scripts (3 Playwright Node scripts + 9 Python utilities). Each ships with an offline `--self-test`. CI runs all of them on every PR.
+- `scripts/` — 13 small, self-contained helper scripts (3 Playwright Node scripts + 10 Python utilities). Each ships with an offline `--self-test`. CI runs all of them on every PR.
+- `examples/evals/dogfood-bench.json` and `docs/eval.md` — the offline regression-detector bench (12 ground-truth tasks, 4 classes) plus the harness usage guide. See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -54,6 +55,8 @@ For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays
 12a. **Context-safe long-horizon protocol** — for tasks bigger than one model context window: create one workspace directory, write `research-plan.json`, annotate subagent slots/context budgets, render `PLAN.md` for review, require approval before dispatch, gate execution/synthesis, and write findings to disk immediately to avoid context loss. See `references/research-plan-protocol.md` and `examples/long-horizon-research-plan.md`.
 12b. **Frontier search for gap-driven follow-up** — when the first pass leaves evidence gaps, obscure facts, or contested claims, build a small best-first priority queue over candidate queries / URLs / files / APIs / citations / repos / aliases / archives, score each node against the unresolved sub-question, and stop on evidence saturation. Not a literal pathfinding algorithm; no A* / Dijkstra. Maintains a `frontier-ledger.csv` and `coverage-map.json` alongside the evidence ledger. Never bypasses access controls. See `references/frontier-search.md`, `templates/frontier-ledger.csv`, and `templates/coverage-map.json`.
 12c. **Fact-verification fast path** — for one-entity / one-attribute / deterministic-primary-source questions (commit SHA, package version, API limit, license clause). Skips decompose, source map, query fanout, and crawl. Hits the primary source once, quotes verbatim, files one ledger row with a one-shot independent re-check, and reports. Bails to the broad workflow on any anomaly. See `references/fact-verification.md`.
+12d. **Person aggregation with a privacy boundary** — a dedicated branch for cross-source public-role lookups about a named person (maintainer, author, speaker, journalist, public figure). Anchors on one canonical source (GitHub profile, ORCID, package author, faculty page, verified byline), aggregates verified public-role claims, and **enforces an explicit privacy boundary**: home address, family, private accounts, personal contact, photos, medical / financial / legal / orientation / whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuses on minors, private individuals, and harassment / stalking / doxxing framings. Saturates at 25 ledger rows or three sources adding no new verified claims. See `references/person-aggregation.md`.
+12e. **Offline eval harness** — a small ground-truth bench (`examples/evals/dogfood-bench.json`, 12 tasks across 4 classes) and a stdlib-only harness (`scripts/run_dogfood.py`) that validates the bench in CI and scores an agent's evidence ledger against ground-truth sources after a run. Designed as a regression detector, not a leaderboard. See `docs/eval.md`.
 13. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 14. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
 15. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
@@ -122,7 +125,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── database-readonly.md              # SQL/NoSQL read-only access
 │   └── graphql.md                        # GraphQL endpoints
 │
-├── references/                           # 29 deep-dive guides
+├── references/                           # 30 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── api-access-workflow.md
@@ -140,6 +143,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── large-scale-collection.md
 │   ├── monitoring-change-detection.md
 │   ├── multilingual-research.md
+│   ├── person-aggregation.md              # new — public-role aggregation w/ privacy boundary
 │   ├── query-patterns.md
 │   ├── reproducibility-checklist.md      # new — pre-release audit
 │   ├── research-bibliography.md
@@ -158,6 +162,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── api-dataset-collection.md
 │   ├── blocked-source-report.md
 │   ├── dataset-collection.md
+│   ├── evals/
+│   │   └── dogfood-bench.json            # new — 12-task ground-truth eval set
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
 │   ├── scientific-literature-review.md
@@ -189,6 +195,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── extract_tables.py                 # new — HTML tables → CSV
 │   ├── score_source.py                   # new — rubric-based source scoring
 │   ├── research_plan.py                  # new — workspace, approval, context budget, and plan manager
+│   ├── run_dogfood.py                    # new — offline eval-bench harness
 │   ├── check_internal_refs.py            # CI guard for path-style references
 │   └── run_python.mjs                    # tiny wrapper to invoke Python
 │
@@ -196,7 +203,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   └── openai.yaml                       # display metadata for hosts
 │
 ├── docs/
-│   └── UPGRADE-PLAN.md                   # internal upgrade plan (VN)
+│   ├── UPGRADE-PLAN.md                   # internal upgrade plan (VN)
+│   └── eval.md                           # new — eval-harness usage guide
 │
 ├── .github/
 │   └── workflows/

@@ -107,6 +107,10 @@ The full safety and access policy (legal/ethical framing, what counts as a publi
 
 Use `references/fact-verification.md`. Applies when the question targets one named entity, one named attribute, has a deterministic primary source (API, registry, canonical text), and a one-sentence-or-quote answer. Skip decompose, source map, query fanout, and crawl. Hit the primary source once, quote the value verbatim, file one ledger row with a one-shot independent re-check, and report. If anything looks off — non-2xx status, contradicting mirrors, the user follows up with "why" — escalate to the broad research workflow below. Never reach for `references/frontier-search.md` from this branch; atomic facts either fetch cleanly or fail loudly.
 
+### If the user asks for public-role information about a specific named person
+
+Use `references/person-aggregation.md`. Applies when the user wants scattered public-role information about one named person (maintainer, author, speaker, journalist, public figure) and there is a canonical anchor (GitHub profile, ORCID, package author field, faculty page, verified byline). The value is in cross-source aggregation and homonym disambiguation, not in any one source. **Apply the privacy boundary in that file before doing anything else** — it is a hard stop, not abstract guidance; home address, family, private accounts, personal contact, photos, medical/financial/legal/orientation/whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuse on minors, private individuals, and harassment/stalking/doxxing framings. Saturate at 25 ledger rows or three sources adding no new verified claims, and never escalate to `references/frontier-search.md` to chase one more piece of personal info.
+
 ### If the user asks for a broad research answer
 
 Use the full deep research workflow. Produce a source-backed synthesis with evidence, confidence, caveats, and next steps.
