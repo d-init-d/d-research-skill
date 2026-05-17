@@ -8,7 +8,7 @@ D Research là một skill dạng markdown cho AI agent. Nó dạy agent cách l
 
 ## Tính năng chính
 
-- Workflow nghiên cứu 12 bước: hiểu mục tiêu, chia câu hỏi, tìm nguồn, trích xuất, ledger chứng cứ, kiểm tra mâu thuẫn, tổng hợp.
+- Workflow nghiên cứu cốt lõi: hiểu mục tiêu, chia câu hỏi, tìm nguồn, trích xuất, ledger chứng cứ, kiểm tra mâu thuẫn, tổng hợp.
 - Browser-first research với Playwright mặc định, nhưng vẫn có adapter generic browser/fetch/search.
 - Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
 - Citation export/render: BibTeX, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
