@@ -41,6 +41,10 @@ C002,"API rejected with body {""error"":""Pagination error.""}",https://api.exam
 
 When in doubt, write the ledger through Python's `csv.DictWriter(..., quoting=csv.QUOTE_MINIMAL)` rather than hand-formatting the rows. The harness validates this when scoring — a row that mis-quotes will show up as a recall miss or an accuracy miss, not as a CSV syntax error.
 
+## Failed fallback attempts
+
+For blocked public tier-1 sources, follow `references/anti-bot-fallback.md`. If a fallback attempt fails, record it as a low-confidence process row using the existing schema rather than adding ad-hoc columns. These rows prove search coverage; they are not positive evidence for the final claim. Put `fallback_result=blocked`, `fallback_result=not-found`, or `fallback_result=refused` in `notes`.
+
 ## Atomic claims
 
 Keep each claim small.

@@ -26,7 +26,7 @@ Core workflow:
 15. For tamper-evidence on the evidence ledger, sign it with `scripts/evidence_ledger.py sign` (HMAC-SHA256). Verify with the same script's `verify` subcommand.
 16. Apply the source-quality rubric with `scripts/score_source.py score` to get deterministic per-row scores.
 17. Before declaring an output "done", walk through `references/reproducibility-checklist.md`.
-18. If a source is blocked, produce a blocker report instead of trying to bypass access controls.
+18. If a relevant public tier-1 source is blocked by anti-bot, JavaScript challenge, captcha, 403, or 429, run the bounded fallback chain in `references/anti-bot-fallback.md` once: canonical API/static form -> public web archive -> cache/snippet if available -> fetch-only/no-JS retrieval -> blocker report. Record failed attempts as low-confidence process rows. Do not bypass access controls.
 
 Data access layers (in order):
 - Web pages and files (browser/fetch)
@@ -48,7 +48,7 @@ Safety rules:
 - do not bypass login, paywalls, captchas, rate limits, robots restrictions, or access controls
 - do not use stealth plugins by default
 - do not access private or personal data without authorization
-- stop on repeated 403, 429, captcha, or login walls
+- stop on repeated 403, 429, captcha, or login walls after the bounded fallback chain has failed
 - respect API rate limits and log all requests
 
 For large-scale collection (100+ records), use checkpointing and adaptive rate limiting (see `references/large-scale-collection.md`).

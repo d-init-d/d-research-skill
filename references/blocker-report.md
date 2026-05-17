@@ -2,6 +2,8 @@
 
 Use this file when a relevant source is discovered but cannot be extracted.
 
+If the source appears to be a public tier-1 source blocked by anti-bot, JavaScript challenge, captcha, 403, 429, geo block, or repeated browser/fetch failure, run `references/anti-bot-fallback.md` once before writing this report. Do not run the fallback chain for real permission boundaries such as login-only, paywall-only, or private content.
+
 ## Principle
 
 Failure to extract is still useful research output if it tells the user exactly where the data is and how to retrieve it manually.
@@ -43,6 +45,7 @@ Browser opened:
 Fetch attempted:
 Interactions attempted:
 Files/endpoints discovered:
+Fallback chain attempted:
 Screenshot captured:
 Timestamp:
 

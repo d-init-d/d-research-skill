@@ -56,6 +56,8 @@ Use the best available tool stack in this order:
 
 If a tool is unavailable, continue with the next-best method and record the limitation.
 
+If a relevant public tier-1 source is blocked by an anti-bot layer, JavaScript challenge, captcha, 403, 429, or repeated browser/fetch failure, run the bounded fallback chain in `references/anti-bot-fallback.md` before writing the final blocker report. The chain is API/static form -> public web archive -> cache/snippet if available -> fetch-only/no-JS retrieval -> blocker report. Never use it to bypass access controls.
+
 For the full decision rules on choosing between adapters (e.g. when to demote Playwright to fetch-only, when web search alone is acceptable), see `references/tool-adapter-policy.md`.
 
 ## Data access layers
@@ -130,6 +132,8 @@ Use `references/systematic-review-protocol.md` (PRISMA 2020). Pick the right rev
 ### If the user gives a specific URL
 
 Probe the URL first with the browser. Classify access status, extract available data, discover linked files/endpoints/pages, and report blockers.
+
+If the URL appears relevant but is blocked by Cloudflare, bot challenge, captcha, 403, 429, or a JavaScript challenge, follow `references/anti-bot-fallback.md` once before declaring it blocked. Record failed fallback attempts as low-confidence process rows in the evidence ledger, then produce `references/blocker-report.md` if no lawful public fallback works.
 
 ### If only web search exists
 

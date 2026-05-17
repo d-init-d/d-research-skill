@@ -19,7 +19,7 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 30 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, …).
+- `references/` — 31 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, …).
 - `adapters/` — 6 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, database read-only, GraphQL).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
@@ -57,6 +57,7 @@ For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays
 12c. **Fact-verification fast path** — for one-entity / one-attribute / deterministic-primary-source questions (commit SHA, package version, API limit, license clause). Skips decompose, source map, query fanout, and crawl. Hits the primary source once, quotes verbatim, files one ledger row with a one-shot independent re-check, and reports. Bails to the broad workflow on any anomaly. See `references/fact-verification.md`.
 12d. **Person aggregation with a privacy boundary** — a dedicated branch for cross-source public-role lookups about a named person (maintainer, author, speaker, journalist, public figure). Anchors on one canonical source (GitHub profile, ORCID, package author, faculty page, verified byline), aggregates verified public-role claims, and **enforces an explicit privacy boundary**: home address, family, private accounts, personal contact, photos, medical / financial / legal / orientation / whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuses on minors, private individuals, and harassment / stalking / doxxing framings. Saturates at 25 ledger rows or three sources adding no new verified claims. See `references/person-aggregation.md`.
 12e. **Offline eval harness** — a small ground-truth bench (`examples/evals/dogfood-bench.json`, 12 tasks across 4 classes) and a stdlib-only harness (`scripts/run_dogfood.py`) that validates the bench in CI and scores an agent's evidence ledger against ground-truth sources after a run. Designed as a regression detector, not a leaderboard. See `docs/eval.md`.
+12f. **Anti-bot fallback chain** — when a relevant public tier-1 source is blocked by Cloudflare, JavaScript challenge, captcha, 403, 429, or repeated browser/fetch failure, try exactly one lawful fallback chain: canonical API/static form, public web archive, cache/snippet if available, fetch-only/no-JS retrieval, then blocker report. Failed attempts are recorded as low-confidence process rows, not positive evidence. See `references/anti-bot-fallback.md`.
 13. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 14. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
 15. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
@@ -81,6 +82,7 @@ For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays
 | Approval gate | Human-readable `PLAN.md` must be approved before execution | `plan:render`, `plan:approve`, `plan:gate` |
 | Subagent planning | Portable execution contract: slots, max parallel, context budgets, task assignment | `plan:configure-execution`, `plan:set-execution` |
 | Context safety | Split work before context overflow; checkpoint findings to files immediately | `references/research-plan-protocol.md` |
+| Anti-bot fallback | Lawful fallback chain for blocked public tier-1 sources before blocker reports | `references/anti-bot-fallback.md`, `references/blocker-report.md` |
 | Compatibility | Works as a markdown skill; runtime-specific models/API keys stay in the CLI/IDE | `research.config.example.json` |
 
 ---
@@ -125,9 +127,10 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── database-readonly.md              # SQL/NoSQL read-only access
 │   └── graphql.md                        # GraphQL endpoints
 │
-├── references/                           # 30 deep-dive guides
+├── references/                           # 31 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
+│   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources
 │   ├── api-access-workflow.md
 │   ├── blocker-report.md
 │   ├── browser-first-crawl.md
