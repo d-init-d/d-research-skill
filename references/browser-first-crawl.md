@@ -47,6 +47,8 @@ For each promising URL, record:
 - blocker indicators
 - screenshot path when captured
 
+If a relevant public URL hits Cloudflare, anti-bot challenge, captcha, 403, 429, geo block, or repeated browser/fetch failure, run `references/anti-bot-fallback.md` once before declaring the source blocked.
+
 ## Crawl expansion
 
 Use this priority:
@@ -123,3 +125,5 @@ Unless configured otherwise:
 - delay: 1000 ms
 - respect robots: true
 - stop on repeated 403, 429, captcha, or login walls
+
+Repeated blocking after the bounded chain in `references/anti-bot-fallback.md` means stop and produce `references/blocker-report.md`.

@@ -55,6 +55,7 @@ If the two sources agree → confidence: `high`. If they disagree → escalate t
 Bail to the broad research workflow if any of these is true after step 2 or 3:
 
 - Primary source returned a non-2xx status, a stale value, or a redirect chain you don't fully understand.
+- Primary source returned 403, 429, captcha, or a JavaScript challenge: run `references/anti-bot-fallback.md` once before producing `references/blocker-report.md`.
 - Two independent primary sources contradict.
 - The user follows up with a "why" or "how" question — those are no longer atomic.
 - The answer requires interpretation, not just transcription (e.g., "does this license grant a patent right" — quoting the text is atomic, *concluding* the legal implication is not).
@@ -82,6 +83,7 @@ Never escalate to `references/frontier-search.md` from this branch. Frontier sea
 - `references/source-discovery.md` — how to identify the canonical primary source for a fact class.
 - `references/source-quality-rubric.md` — scoring rubric still applies to the single source.
 - `references/api-access-workflow.md` — pagination, rate-limit, and retry patterns for API-backed primary sources.
+- `references/anti-bot-fallback.md` — lawful fallback chain when the deterministic primary source is blocked by anti-bot, 403, 429, captcha, or JavaScript challenge.
 - `references/evidence-ledger.md` — schema for the 1–3 ledger rows this branch produces.
 - `references/blocker-report.md` — what to record when the primary source itself is unreachable.
 - `references/frontier-search.md` — what to use *instead* when the task is broad research with gaps, not a single fact.

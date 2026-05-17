@@ -16,6 +16,8 @@ Use REST API access when:
 
 **Prefer alternatives** when APIs are rate-limited too severely, data is static and easily downloadable, or terms of service prohibit automated access.
 
+If an otherwise public API or canonical API-form source returns 403, 429, anti-bot HTML, captcha, or a JavaScript challenge, run `references/anti-bot-fallback.md` once before producing a blocker report. Do not use the fallback chain for authenticated or paid APIs unless the user has explicitly provided authorization.
+
 ---
 
 ## API Discovery
@@ -762,6 +764,7 @@ def safety_check(passed):
 ### Key Files Referenced
 
 - `adapters/graphql.md` - Detailed GraphQL patterns
+- `references/anti-bot-fallback.md` - Bounded fallback chain for blocked public API/static sources
 - `references/data-processing-pipeline.md` - Data cleaning, validation, and transformation
 - `templates/api-request-log.csv` - Header for the per-request log this workflow refers to
 - `references/large-scale-collection.md` - Checkpointing and adaptive rate limiting for >100 records
