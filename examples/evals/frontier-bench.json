@@ -24,7 +24,8 @@
     "citation-resolution",
     "report-generation",
     "ocr-extraction",
-    "translation-workflow"
+    "translation-workflow",
+    "semantic-retrieval"
   ],
   "scoring": {
     "tier": "frontier",
@@ -997,6 +998,54 @@
         "Answering with text or instances misses the language detection subcommand."
       ],
       "notes": "current_version_status: FAIL - current agents may not know about the offline language detection capability."
+    },
+    {
+      "task_id": "FB-041",
+      "class": "semantic-retrieval",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "What similarity metric does embed_corpus.py query use to rank documents against a query?",
+      "expected_answer": {
+        "value": "cosine",
+        "format": "metric-name",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/embed_corpus.py",
+          "function": "cosine_similarity"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/embed_corpus.py",
+        "references/semantic-retrieval.md"
+      ],
+      "negative_signals": [
+        "Answering with euclidean distance, dot product alone, or Jaccard misses the cosine implementation."
+      ],
+      "notes": "current_version_status: FAIL - current agents may assume a different similarity metric."
+    },
+    {
+      "task_id": "FB-042",
+      "class": "semantic-retrieval",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "Which env var enables Cohere as a remote embedding backend in embed_corpus.py?",
+      "expected_answer": {
+        "value": "COHERE_API_KEY",
+        "format": "env-var",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/embed_corpus.py",
+          "also_requires": "--allow-remote or D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS=1"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/embed_corpus.py",
+        "references/semantic-retrieval.md"
+      ],
+      "negative_signals": [
+        "Answering with D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS alone misses the API key requirement."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know the specific env var for Cohere embeddings."
     }
   ]
 }

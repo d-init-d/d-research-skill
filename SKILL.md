@@ -118,6 +118,10 @@ Use `references/social-media-archival.md`. Capture public posts from 12 supporte
 
 Use `references/person-aggregation.md`. Applies when the user wants scattered public-role information about one named person (maintainer, author, speaker, journalist, public figure) and there is a canonical anchor (GitHub profile, ORCID, package author field, faculty page, verified byline). The value is in cross-source aggregation and homonym disambiguation, not in any one source. **Apply the privacy boundary in that file before doing anything else** — it is a hard stop, not abstract guidance; home address, family, private accounts, personal contact, photos, medical/financial/legal/orientation/whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuse on minors, private individuals, and harassment/stalking/doxxing framings. Saturate at 25 ledger rows or three sources adding no new verified claims, and never escalate to `references/frontier-search.md` to chase one more piece of personal info.
 
+### If the user has a large corpus or many ledger rows and asks a semantic question
+
+Use `references/semantic-retrieval.md` when a corpus is large enough that keyword search is brittle (roughly >30 documents or many evidence-ledger rows) and the task asks for conceptually related material, near-duplicates, or "find claims like X". Build or query an index with `scripts/embed_corpus.py`; prefer local backends for private data, and require explicit remote opt-in for Cohere.
+
 ### If the user asks for a broad research answer
 
 Use the full deep research workflow. Produce a source-backed synthesis with evidence, confidence, caveats, and next steps.
@@ -395,6 +399,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/report_render.py`: init / render / to-pdf / to-docx / to-html / list-styles / lint / self-test — final report generator from research workspace (plan + ledger + screening log); see `references/report-generation.md`
 - `scripts/ocr.py`: text / pdf / to-ledger / langs / self-test — OCR via tesseract (optional system binary, soft-fail if missing); see `references/ocr.md`
 - `scripts/translate.py`: text / detect / instances / self-test — translation adapter with stdlib trigram language detection and LibreTranslate/DeepL/Google/Argos backends; see `adapters/translation.md`
+- `scripts/embed_corpus.py`: index / query / query-ledger / dedupe / self-test — semantic retrieval over text corpora using cosine similarity with stub/sentence-transformers/cohere/llama-cli backends; see `references/semantic-retrieval.md`
 - `scripts/bench_harness_check.py`: check / check-all / orphans / self-test — bench/fixture/harness consistency check. **NOT an agent benchmark** — only catches bench data regressions
 - `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE); see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)

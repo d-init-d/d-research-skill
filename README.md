@@ -19,12 +19,12 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 36 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, …).
+- `references/` — 37 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, …).
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
-- `scripts/` — 23 small, self-contained helper scripts (5 Node scripts + 18 Python utilities; `run_python.mjs` is only a wrapper). Each ships with an offline `--self-test`. CI runs all of them on every PR.
-- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 40-task frontier probe (bench 2.1, 20 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `scripts/` — 24 small, self-contained helper scripts (5 Node scripts + 19 Python utilities; `run_python.mjs` is only a wrapper). Each ships with an offline `--self-test`. CI runs all of them on every PR.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 42-task frontier probe (bench 2.1, 21 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -128,9 +128,10 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── wikidata.md                       # Wikidata entity lookup and SPARQL
 │   ├── database-readonly.md              # SQL/NoSQL read-only access
 │   ├── graphql.md                        # GraphQL endpoints
-│   └── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
+│   ├── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
+│   └── translation.md                    # new — machine-translation adapter
 │
-├── references/                           # 36 deep-dive guides
+├── references/                           # 37 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources
@@ -149,13 +150,16 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── large-scale-collection.md
 │   ├── monitoring-change-detection.md
 │   ├── multilingual-research.md
+│   ├── ocr.md                            # new — OCR / image-to-text extraction
 │   ├── pdf-extraction.md                 # new — PDF extraction reference
 │   ├── person-aggregation.md              # new — public-role aggregation w/ privacy boundary
 │   ├── query-patterns.md
+│   ├── report-generation.md              # new — final report generation
 │   ├── reproducibility-checklist.md      # new — pre-release audit
 │   ├── research-bibliography.md
 │   ├── research-plan-protocol.md         # new — context-safe long-horizon protocol
 │   ├── safety-and-access-policy.md
+│   ├── semantic-retrieval.md             # new — embedding-based corpus retrieval
 │   ├── source-discovery.md
 │   ├── source-quality-rubric.md
 │   ├── specialized-domains.md
@@ -173,7 +177,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── dataset-collection.md
 │   ├── evals/
 │   │   ├── dogfood-bench.json            # 12-task regression eval set
-│   │   ├── frontier-bench.json           # 40-task frontier eval set (bench 2.1, 20 classes)
+│   │   ├── frontier-bench.json           # 42-task frontier eval set (bench 2.1, 21 classes)
 │   │   └── fixtures/                     # deterministic empty-score fixtures
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
@@ -358,11 +362,12 @@ python3 scripts/citation_resolver.py self-test
 python3 scripts/report_render.py self-test
 python3 scripts/ocr.py self-test
 python3 scripts/translate.py self-test
+python3 scripts/embed_corpus.py self-test
 python3 scripts/bench_harness_check.py self-test
 python3 scripts/check_internal_refs.py
 ```
 
-All twenty-three commands exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
+All twenty-four commands exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
 
 ### npm scripts
 

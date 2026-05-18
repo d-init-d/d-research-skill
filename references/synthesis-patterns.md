@@ -84,6 +84,16 @@ python scripts/report_render.py lint --workspace <dir>
 
 This generates a structured Markdown report from the workspace's plan, evidence ledger, and screening log. See `references/report-generation.md` for full details.
 
+## Pre-synthesis retrieval
+
+Before composing each section, retrieve the top-k semantically related claims from the evidence ledger:
+
+```bash
+python scripts/embed_corpus.py query-ledger --ledger evidence-ledger.csv --q "sub-question text" --k 10
+```
+
+This surfaces relevant evidence even when keyword overlap is low. See `references/semantic-retrieval.md`.
+
 ## See also
 
 - `references/systematic-review-protocol.md` — full PRISMA 2020 protocol

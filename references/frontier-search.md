@@ -41,6 +41,7 @@ A frontier node is anything that can be opened, searched, or fetched. Use one of
 - `repo` — a code repository, release, changelog, issue, or discussion thread.
 - `alias` — a renaming/alias/old-name/local-language form of an entity to re-search.
 - `archive` — an archived or historical copy (see `references/monitoring-change-detection.md`).
+- `semantic_neighbor` — a document or claim found via embedding similarity to an unresolved sub-question (see `references/semantic-retrieval.md`). Use `scripts/embed_corpus.py query` to find candidates from an indexed corpus.
 
 ## Priority score
 

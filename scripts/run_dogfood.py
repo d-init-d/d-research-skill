@@ -123,6 +123,7 @@ FRONTIER_CLASSES = {
     "report-generation",
     "ocr-extraction",
     "translation-workflow",
+    "semantic-retrieval",
 }
 
 LEAK_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
@@ -431,6 +432,12 @@ def validate_frontier_task(task: dict[str, Any], prefix: str) -> list[str]:
         answer = task.get("expected_answer")
         if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
             errors.append(f"{prefix}: translation-workflow requires expected_answer.value")
+    elif cls == "semantic-retrieval":
+        if source_count < 1:
+            errors.append(f"{prefix}: semantic-retrieval requires at least 1 source")
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(f"{prefix}: semantic-retrieval requires expected_answer.value")
     return errors
 
 
