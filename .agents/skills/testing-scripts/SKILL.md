@@ -1,83 +1,153 @@
 ---
 name: testing-d-research-scripts
-description: Test the d-research-skill executable scripts (api_fetch.mjs, data_clean.py, citation_export.py). Use when verifying script changes, after code generation, or when upgrading the research skill.
+description: Verify the d-research-skill helper scripts (Node + Python). Use after editing any file under `scripts/`, after regenerating a script, or before publishing a new version of the skill.
 ---
 
 # Testing D Research Skill Scripts
 
+## When to use this sub-skill
+
+Run these checks whenever you have:
+
+- edited a file under `scripts/`
+- regenerated or replaced a helper script
+- bumped a dependency in `package.json`
+- prepared a release of `d-research-skill`
+
+The same checks run automatically in CI on every pull request (see "CI" below), so local runs are mainly to fail fast before pushing.
+
 ## Prerequisites
 
-- Node.js (for `api_fetch.mjs`)
-- Python 3 (for `data_clean.py` and `citation_export.py`)
-- No external API keys needed — self-tests are offline, real-world tests use free APIs (OpenAlex)
+- Node.js 18+ (for `*.mjs` scripts and `npm run`)
+- Python 3.9+ (for `*.py` scripts; stdlib only — no `pip install` needed)
+- `pandoc >= 2.11` (only for the `citation_render.py` self-test; the script degrades cleanly when pandoc is missing)
+- Optional: `npx playwright install` — only needed for real-world browser runs, not for any self-test
 
-## Quick Validation (Self-Tests)
+No external API keys are required. Every self-test runs offline.
 
-All 3 scripts have built-in self-test commands. Run from the repo root:
+## Quick validation: one command
+
+From the repo root:
 
 ```bash
-# All 3 can run in parallel — they are independent
-python3 scripts/data_clean.py self-test
-python3 scripts/citation_export.py self-test
-node scripts/api_fetch.mjs --self-test
+npm run self-test
 ```
 
-### Pass criteria
-- Exit code 0 for all three
-- `data_clean.py`: Output contains "ALL TESTS PASSED" with 5 subtests (clean, stats, dedup, validate, merge)
-- `citation_export.py`: Output contains "All self-tests passed!" with 6 subtests (CSV read, source extraction, BibTeX, RIS, format, citation key)
-- `api_fetch.mjs`: Output contains 4x "✓ PASS" (parseArgs, Link header, cursor, offset pagination)
-- No Python tracebacks or "✗ FAIL" strings
+This is the same chain CI runs. It executes every script's offline self-test in sequence and exits non-zero on the first failure. Pass criteria: exit code `0` and the final command (`check_internal_refs.py`) prints `OK: all backticked internal refs resolve.`
 
-## Real-World Tests
+## Quick validation: individual scripts
 
-### api_fetch.mjs — OpenAlex API
+If you want to isolate a failure, run scripts one at a time. There are **13 helper scripts** with self-tests (4 Node + 9 Python). `run_python.mjs` is a thin wrapper and has no self-test of its own.
+
+### Node scripts (4)
+
+```bash
+node scripts/playwright_probe.mjs   --self-test   # → "playwright_probe self-test ok"
+node scripts/playwright_extract.mjs --self-test   # → "playwright_extract self-test ok"
+node scripts/playwright_crawl.mjs   --self-test   # → "playwright_crawl self-test ok"
+node scripts/api_fetch.mjs          --self-test   # → 4× "✓ PASS" (parseArgs, Link header, cursor, offset)
+```
+
+### Python scripts (9)
+
+```bash
+python3 scripts/evidence_ledger.py    self-test   # → "evidence_ledger self-test ok" (incl. tamper detection)
+python3 scripts/data_clean.py         self-test   # → "ALL TESTS PASSED" (5 subtests: clean/stats/dedup/validate/merge)
+python3 scripts/citation_export.py    self-test   # → "All self-tests passed!" (6 subtests)
+python3 scripts/citation_render.py    self-test   # → "All self-tests passed!" (incl. pandoc integration)
+python3 scripts/extract_tables.py     self-test   # → "All self-tests passed!" (5 subtests)
+python3 scripts/score_source.py       self-test   # → "All self-tests passed!" (4 subtests)
+python3 scripts/research_plan.py      self-test   # → "OK: research_plan self-test passed (NN sub-tests)."
+python3 scripts/run_dogfood.py        self-test   # → "OK: dogfood-bench.json is valid; 12 tasks, 4 classes."
+python3 scripts/check_internal_refs.py            # → "OK: all backticked internal refs resolve."
+```
+
+On Windows, use `python` if `python3` is not on PATH.
+
+### Pass criteria (universal)
+
+- Exit code `0` for every command
+- Output contains a positive marker: `ok`, `PASS`, `ALL TESTS PASSED`, `All self-tests passed!`, or `OK: …`
+- No Python tracebacks, no `FAIL`, no unhandled-promise warnings from Node
+
+The `evidence_ledger.py` self-test intentionally exercises the tamper-detection path; a `TAMPER DETECTED` line in the middle of its output is expected and is followed by the success marker.
+
+## Real-world smoke tests (optional)
+
+These hit live public APIs. Use them to verify network paths after a script change, not as gates for CI.
+
+### `api_fetch.mjs` — OpenAlex
+
 ```bash
 node scripts/api_fetch.mjs \
   --url "https://api.openalex.org/works?search=machine+learning&per_page=5" \
   --max-pages 1 \
-  --out /tmp/test_openalex.json
+  --out openalex.json
 ```
-Verify: Output JSON is a valid array with items containing `id`, `title`, `doi` fields.
 
-### data_clean.py — CSV dedup
+Expected: `openalex.json` is a JSON array; each item has `id`, `title`, and (usually) `doi`.
+
+### `data_clean.py` — CSV dedup
+
 ```bash
-# Create test CSV with known duplicates
-cat > /tmp/test_input.csv << 'EOF'
-id,name,email
-1,Alice,alice@example.com
-2,Bob,bob@example.com
-3,Charlie,charlie@example.com
-2,Bob,bob@example.com
-4,Diana,diana@example.com
-1,Alice,alice@example.com
-EOF
-
-python3 scripts/data_clean.py clean --file /tmp/test_input.csv --out /tmp/test_cleaned.csv
+python3 scripts/data_clean.py clean --file input.csv --out cleaned.csv
 ```
-Verify: Output has 4 rows (header + 4 unique), duplicates for Alice and Bob removed.
 
-### citation_export.py — BibTeX export
+Expected: duplicates collapsed, whitespace normalized, ISO 8601 dates.
+
+### `citation_export.py` — BibTeX export
+
 ```bash
-cat > /tmp/test_ledger.csv << 'EOF'
-claim,source_url,source_title,confidence,date_collected
-"ML improves diagnosis","https://pubmed.ncbi.nlm.nih.gov/12345","ML in Healthcare",high,2024-01-15
-"DL outperforms traditional","https://arxiv.org/abs/2401.00001","DL Survey",medium,2024-02-20
-EOF
-
-python3 scripts/citation_export.py export --file /tmp/test_ledger.csv --format bibtex --out /tmp/test.bib
+python3 scripts/citation_export.py export \
+  --file evidence.csv --format bibtex --out refs.bib
 ```
-Verify: Output `.bib` file contains `@misc{` entries with `title = {` and `url = {` fields.
 
-## Known Pitfalls (MiniMax Code Generation)
+Expected: `refs.bib` contains `@misc{` (or `@article{`) entries with `title = {…}` and `url = {…}` fields.
 
-When scripts are generated or regenerated via MiniMax M2.7:
+For the full list of npm shortcuts (`npm run probe`, `npm run plan:render`, `npm run citation:render`, …) see the "npm scripts" section of `README.md`.
 
-1. **Markdown code fences** — Output might be wrapped in ` ```python ` / ` ``` `. Remove with `sed -i '1d;$d' <file>`.
-2. **Thinking text preamble** — MiniMax may prepend reasoning text before actual code. Inspect first ~30 lines and extract only the code portion.
-3. **Missing imports** — Generated code may use modules (e.g., `tempfile`) without importing them at the top. Run a syntax check first: `python3 -c "import py_compile; py_compile.compile('<file>', doraise=True)"`.
-4. **Wrong self-test assertions** — Test data row counts or expected values may be off. Trace through the test data manually to verify expected values before trusting assertions.
+## CI
 
-## No CI Configured
+Two GitHub Actions workflows replicate these checks on every pull request:
 
-This repo has no CI checks. All validation must be done locally via the commands above.
+- `.github/workflows/lint-and-self-test.yml`
+  - `ruff check scripts/` — Python lint
+  - `node --check` on every `scripts/*.mjs` — JS syntax
+  - `npm run self-test` — every offline self-test (with pandoc installed for `citation_render`)
+- `.github/workflows/link-check.yml`
+  - `scripts/check_internal_refs.py` — backticked in-repo path references
+  - `lychee --offline` on all markdown — standard `[text](url)` link integrity
+  - A weekly `lychee-external` job (non-blocking) validates external URLs
+
+If any of the 13 self-tests fail locally, the same failure will block the PR. Fix locally before pushing.
+
+## Common failure modes
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `ImportError` or `ModuleNotFoundError` | Generated script missing a stdlib import | Add the import; re-run `python3 -c "import py_compile; py_compile.compile('scripts/<name>.py', doraise=True)"` |
+| `ERR_UNKNOWN_FILE_EXTENSION ".py"` | Tried to invoke `.py` with `node` directly | Use `python3` (or `node scripts/run_python.mjs scripts/<name>.py …`) |
+| Pandoc-related FAIL in `citation_render` | Pandoc not installed or `< 2.11` | Install pandoc; the self-test will skip the pandoc-dependent subtest if pandoc is genuinely missing |
+| `playwright_*` self-test hangs | Real browser launch attempted | Self-tests must not require a browser; check the script wasn't edited to drop the offline branch |
+| `check_internal_refs.py` reports a missing path | A markdown file backticks an in-repo path (e.g. a reference, adapter, template, or script) that no longer exists | Update the reference, restore the file, or remove the link |
+| `dogfood-bench.json` schema error | New task missing required keys | Compare against an existing task; required keys are listed in `docs/eval.md` |
+
+## Adding a new script
+
+When you add a new helper to `scripts/`:
+
+1. Implement an offline `self-test` (Python) or `--self-test` (Node) subcommand. CI runs offline, so any network dependency must degrade cleanly.
+2. Append the new self-test to the chained `self-test` script in `package.json` so it runs in CI.
+3. Add the script to `SKILL.md`'s "Optional bundled scripts" list and link it from a reference doc.
+4. Update the script-count notes in `README.md` if the total changes.
+5. Re-run `npm run self-test` locally before opening a PR.
+
+See `CONTRIBUTING.md` for the full conventions (argparse, shebangs, error formatting, etc.).
+
+## See also
+
+- `SKILL.md` — main entry point of d-research-skill (decision tree)
+- `package.json` — full list of `npm run` shortcuts and the chained `self-test` definition
+- `CONTRIBUTING.md` — conventions for adding references, adapters, examples, scripts, and templates
+- `docs/eval.md` — eval-harness usage guide for `run_dogfood.py`
+- `.github/workflows/` — the two CI workflows that mirror these checks
