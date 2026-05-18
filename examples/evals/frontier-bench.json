@@ -22,7 +22,9 @@
     "social-tier-b",
     "social-refusal",
     "citation-resolution",
-    "report-generation"
+    "report-generation",
+    "ocr-extraction",
+    "translation-workflow"
   ],
   "scoring": {
     "tier": "frontier",
@@ -898,6 +900,103 @@
         "Treating unused ledger rows as errors (they are warnings) or missing the distinction entirely."
       ],
       "notes": "current_version_status: FAIL - current agents may not distinguish lint errors from warnings in report_render.py."
+    },
+    {
+      "task_id": "FB-037",
+      "class": "ocr-extraction",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "Which ocr.py subcommand handles a scanned multi-page PDF by converting pages to images then running tesseract?",
+      "expected_answer": {
+        "value": "pdf",
+        "format": "subcommand",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/ocr.py",
+          "method": "pdftoppm + tesseract per page"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/ocr.py",
+        "references/ocr.md"
+      ],
+      "negative_signals": [
+        "Answering with text or to-ledger misses the PDF-specific multi-page subcommand."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know about the pdf subcommand for scanned documents."
+    },
+    {
+      "task_id": "FB-038",
+      "class": "ocr-extraction",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "What does ocr.py do when tesseract is not installed?",
+      "expected_answer": {
+        "value": "tesseract is not installed",
+        "format": "behavior",
+        "match_mode": "substring",
+        "case_sensitive": false,
+        "supporting_fields": {
+          "script": "scripts/ocr.py",
+          "behavior": "Prints a helpful installation message and exits non-zero without crashing"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/ocr.py",
+        "references/ocr.md"
+      ],
+      "negative_signals": [
+        "Claiming it raises an ImportError or crashes misses the soft-fail pattern."
+      ],
+      "notes": "current_version_status: FAIL - current agents may assume tesseract is a hard dependency."
+    },
+    {
+      "task_id": "FB-039",
+      "class": "translation-workflow",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "What is the default translation backend in translate.py when no env var is set?",
+      "expected_answer": {
+        "value": "libretranslate",
+        "format": "backend-name",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/translate.py",
+          "constant": "LIBRETRANSLATE_INSTANCES"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/translate.py",
+        "adapters/translation.md"
+      ],
+      "negative_signals": [
+        "Answering with deepl or google misses the default no-key-required backend."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know the default translation backend."
+    },
+    {
+      "task_id": "FB-040",
+      "class": "translation-workflow",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "Which subcommand of translate.py returns top-3 language candidates with confidence scores using a stdlib trigram heuristic?",
+      "expected_answer": {
+        "value": "detect",
+        "format": "subcommand",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/translate.py",
+          "method": "trigram cosine similarity"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/translate.py",
+        "adapters/translation.md"
+      ],
+      "negative_signals": [
+        "Answering with text or instances misses the language detection subcommand."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know about the offline language detection capability."
     }
   ]
 }

@@ -48,3 +48,14 @@ When permission is unclear:
 - avoid automated extraction
 - ask the user to manually retrieve authorized data
 - document the limitation
+
+## Machine translation privacy
+
+Remote machine translation services (LibreTranslate, DeepL, Google Translate) send text to third-party servers. This is a privacy-sensitive operation:
+
+- **Requires explicit opt-in**: `--allow-remote` flag or `D_RESEARCH_ALLOW_REMOTE_TRANSLATION=1`
+- **Do not pipe sensitive evidence-ledger rows** to public MT without user consent
+- **Prefer local translation** (Argos Translate) for confidential or personal data
+- **Document when remote MT is used** in the evidence ledger `notes` field
+
+See `adapters/translation.md` for backend configuration and `scripts/translate.py` for usage.

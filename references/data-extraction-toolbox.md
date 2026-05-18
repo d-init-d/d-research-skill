@@ -241,6 +241,23 @@ If you hit any of the above, stop and produce a blocker report (see
 `references/blocker-report.md`). Do not switch to stealth plugins,
 fake user agents, IP rotation, or session-token forging.
 
+## Scanned documents and images (OCR)
+
+When a source is an image file or a scanned PDF where `pdftotext` returns empty text, use `scripts/ocr.py`:
+
+```bash
+# Image to text
+python scripts/ocr.py text --in scan.png --lang eng
+
+# Scanned PDF (multi-page)
+python scripts/ocr.py pdf --in scanned.pdf --out text.txt
+
+# Emit evidence-ledger row from OCR
+python scripts/ocr.py to-ledger --in scan.png --url https://example.com/doc --out-row row.csv
+```
+
+Requires `tesseract-ocr` system package (optional; soft-fails if missing). See `references/ocr.md`.
+
 ## See also
 
 - `references/extraction-methods.md` — extraction strategy

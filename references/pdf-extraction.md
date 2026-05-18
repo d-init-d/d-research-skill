@@ -145,10 +145,26 @@ to add context-specific values.
 | PDF behind a login wall | Produce a blocker report (`references/blocker-report.md`) |
 | Non-PDF structured data | See `references/data-extraction-toolbox.md` |
 
+## Scanned / image-only PDFs
+
+If `pdftotext` returns empty or near-empty output, the PDF is likely scanned (image-only). Use `scripts/ocr.py pdf` instead:
+
+```bash
+# Try pdftotext first
+python scripts/pdf_extract.py text --in doc.pdf --out text.txt
+
+# If empty, fall back to OCR
+python scripts/ocr.py pdf --in doc.pdf --out text.txt --lang eng
+```
+
+See `references/ocr.md` for full OCR documentation.
+
 ## See also
 
 - `references/data-extraction-toolbox.md` — full extraction recipe catalog
 - `references/extraction-methods.md` — extraction strategy and decision rules
 - `references/evidence-ledger.md` — ledger schema and CSV quoting rules
+- `references/ocr.md` — OCR extraction for scanned documents
 - `templates/evidence-ledger.csv` — row template for positive and negative rows
 - `scripts/pdf_extract.py` — the script itself
+- `scripts/ocr.py` — OCR fallback for scanned PDFs

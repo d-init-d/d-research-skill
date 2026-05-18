@@ -121,6 +121,8 @@ FRONTIER_CLASSES = {
     "social-refusal",
     "citation-resolution",
     "report-generation",
+    "ocr-extraction",
+    "translation-workflow",
 }
 
 LEAK_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
@@ -417,6 +419,18 @@ def validate_frontier_task(task: dict[str, Any], prefix: str) -> list[str]:
         answer = task.get("expected_answer")
         if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
             errors.append(f"{prefix}: report-generation requires expected_answer.value")
+    elif cls == "ocr-extraction":
+        if source_count < 1:
+            errors.append(f"{prefix}: ocr-extraction requires at least 1 source")
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(f"{prefix}: ocr-extraction requires expected_answer.value")
+    elif cls == "translation-workflow":
+        if source_count < 1:
+            errors.append(f"{prefix}: translation-workflow requires at least 1 source")
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(f"{prefix}: translation-workflow requires expected_answer.value")
     return errors
 
 

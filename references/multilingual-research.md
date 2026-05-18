@@ -57,6 +57,20 @@ Effective translation preserves meaning while enabling analysis:
 - **Keep proper nouns untranslated**: Names, locations, organizations, and product names should remain in original form
 - **Verify technical terms**: Confirm translation accuracy of specialized terminology with domain-specific resources or native speakers
 
+### Tool support
+
+Use `scripts/translate.py` for programmatic translation:
+
+```bash
+# Detect language (offline, no network)
+python scripts/translate.py detect --in source.txt
+
+# Translate with explicit remote opt-in
+python scripts/translate.py text --in source.txt --to en --allow-remote --out translated.txt
+```
+
+Remote translation requires `--allow-remote` or `D_RESEARCH_ALLOW_REMOTE_TRANSLATION=1` for privacy. See `adapters/translation.md` for backend configuration.
+
 ## Academic Multilingual Resources
 
 Many academic databases support language filtering and specialized local repositories exist:

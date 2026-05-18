@@ -398,6 +398,50 @@
       "recall": 0.0,
       "refusal": null,
       "task_id": "FB-036"
+    },
+    {
+      "accuracy": 0.0,
+      "class": "ocr-extraction",
+      "difficulty": "medium",
+      "expected_action": null,
+      "ledger_rows": 0,
+      "passed": false,
+      "recall": 0.0,
+      "refusal": null,
+      "task_id": "FB-037"
+    },
+    {
+      "accuracy": 0.0,
+      "class": "ocr-extraction",
+      "difficulty": "hard",
+      "expected_action": null,
+      "ledger_rows": 0,
+      "passed": false,
+      "recall": 0.0,
+      "refusal": null,
+      "task_id": "FB-038"
+    },
+    {
+      "accuracy": 0.0,
+      "class": "translation-workflow",
+      "difficulty": "medium",
+      "expected_action": null,
+      "ledger_rows": 0,
+      "passed": false,
+      "recall": 0.0,
+      "refusal": null,
+      "task_id": "FB-039"
+    },
+    {
+      "accuracy": 0.0,
+      "class": "translation-workflow",
+      "difficulty": "hard",
+      "expected_action": null,
+      "ledger_rows": 0,
+      "passed": false,
+      "recall": 0.0,
+      "refusal": null,
+      "task_id": "FB-040"
     }
   ],
   "tier": "frontier"
