@@ -25,7 +25,8 @@
     "report-generation",
     "ocr-extraction",
     "translation-workflow",
-    "semantic-retrieval"
+    "semantic-retrieval",
+    "citation-graph"
   ],
   "scoring": {
     "tier": "frontier",
@@ -1046,6 +1047,54 @@
         "Answering with D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS alone misses the API key requirement."
       ],
       "notes": "current_version_status: FAIL - current agents may not know the specific env var for Cohere embeddings."
+    },
+    {
+      "task_id": "FB-043",
+      "class": "citation-graph",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "What is the default --max cap on citation_graph.py expand for snowball traversal?",
+      "expected_answer": {
+        "value": "500",
+        "format": "integer",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/citation_graph.py",
+          "constant": "DEFAULT_MAX_EXPAND"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/citation_graph.py",
+        "references/citation-graph.md"
+      ],
+      "negative_signals": [
+        "Answering with 200 (the cited-by/references default) or an arbitrary number misses the expand-specific cap."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know the specific expand cap."
+    },
+    {
+      "task_id": "FB-044",
+      "class": "citation-graph",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "Which OpenAlex API filter does citation_graph.py cited-by use to find papers citing a work?",
+      "expected_answer": {
+        "value": "cites",
+        "format": "api-filter",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/citation_graph.py",
+          "url_pattern": "/works?filter=cites:{openalex_id}"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/citation_graph.py",
+        "references/citation-graph.md"
+      ],
+      "negative_signals": [
+        "Answering with cited_by_count or referenced_works misses the actual API filter parameter."
+      ],
+      "notes": "current_version_status: FAIL - current agents may confuse the filter name with response fields."
     }
   ]
 }

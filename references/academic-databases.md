@@ -674,6 +674,26 @@ search_log = {
 
 ## Citation Network Analysis
 
+### Automated graph traversal
+
+Use `scripts/citation_graph.py` for programmatic citation network building:
+
+```bash
+# Forward citations (who cites this paper?)
+python scripts/citation_graph.py cited-by --doi 10.1038/nature12373 --depth 1 --max 100 --out cited-by.json
+
+# Backward citations (what does this paper cite?)
+python scripts/citation_graph.py references --doi 10.1038/nature12373 --depth 1 --max 100 --out refs.json
+
+# Full snowball (both directions)
+python scripts/citation_graph.py expand --seed seeds.csv --direction both --max 500 --out graph.json
+
+# Coauthor network
+python scripts/citation_graph.py coauthors --orcid 0000-0001-2345-6789 --out coauthors.json
+```
+
+See `references/citation-graph.md` for full documentation.
+
 ### Forward Citations (What Cites This?)
 
 Papers published after your target paper that cite it.

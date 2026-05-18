@@ -95,6 +95,20 @@ Use `scripts/data_clean.py dedup --on doi,title` to collapse duplicates.
 Record the PRISMA flow numbers in `templates/prisma-flow.json` (see
 template field documentation below).
 
+### Step 4b — Citation chasing / snowball sampling
+
+After initial identification, expand the candidate set via citation graph traversal:
+
+```bash
+# Create seeds.csv from included DOIs
+python scripts/citation_graph.py expand --seed seeds.csv --direction both --max 500 --out citation-graph.json
+
+# Convert to frontier candidates for further screening
+python scripts/citation_graph.py to-frontier --graph citation-graph.json --out frontier-candidates.csv
+```
+
+Screen the new candidates through the same eligibility criteria (Step 5). This catches papers missed by keyword search. See `references/citation-graph.md`.
+
 ## Step 5 — Screening (PRISMA items 8, 17, 24c)
 
 Screen records against eligibility criteria in two passes:

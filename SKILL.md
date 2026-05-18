@@ -136,7 +136,7 @@ Use the academic workflow. Define research questions, search strings, inclusion 
 
 ### If the user asks for a systematic review, scoping review, rapid review, or PRISMA-grade output
 
-Use `references/systematic-review-protocol.md` (PRISMA 2020). Pick the right review type with `references/synthesis-patterns.md`. Populate `templates/prisma-flow.json` for the flow diagram and `templates/screening-log.csv` for screening decisions. See `examples/systematic-review-prisma.md` for an end-to-end walkthrough.
+Use `references/systematic-review-protocol.md` (PRISMA 2020). Pick the right review type with `references/synthesis-patterns.md`. Populate `templates/prisma-flow.json` for the flow diagram and `templates/screening-log.csv` for screening decisions. For citation chasing / snowball sampling, use `scripts/citation_graph.py expand --seed seeds.csv --direction both` to traverse forward and backward citations from included papers. See `examples/systematic-review-prisma.md` for an end-to-end walkthrough.
 
 ### If the user gives a specific URL
 
@@ -400,6 +400,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/ocr.py`: text / pdf / to-ledger / langs / self-test — OCR via tesseract (optional system binary, soft-fail if missing); see `references/ocr.md`
 - `scripts/translate.py`: text / detect / instances / self-test — translation adapter with stdlib trigram language detection and LibreTranslate/DeepL/Google/Argos backends; see `adapters/translation.md`
 - `scripts/embed_corpus.py`: index / query / query-ledger / dedupe / self-test — semantic retrieval over text corpora using cosine similarity with stub/sentence-transformers/cohere/llama-cli backends; see `references/semantic-retrieval.md`
+- `scripts/citation_graph.py`: cited-by / references / expand / to-frontier / coauthors / self-test — citation graph traversal via OpenAlex for snowball sampling and network analysis; see `references/citation-graph.md`
 - `scripts/bench_harness_check.py`: check / check-all / orphans / self-test — bench/fixture/harness consistency check. **NOT an agent benchmark** — only catches bench data regressions
 - `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE); see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)

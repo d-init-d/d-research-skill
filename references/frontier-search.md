@@ -37,7 +37,7 @@ A frontier node is anything that can be opened, searched, or fetched. Use one of
 - `url` — a specific public page (HTML, JSON, XML, RSS, sitemap).
 - `file` — a public downloadable file (PDF, CSV, XLSX, JSON, DOCX, XML).
 - `api` — a REST/GraphQL/SPARQL endpoint (see `references/api-access-workflow.md`).
-- `citation` — a paper / DOI / arXiv ID / dataset to chase (see `references/academic-databases.md`).
+- `citation` — a paper / DOI / arXiv ID / dataset to chase (see `references/academic-databases.md`). Use `scripts/citation_graph.py to-frontier` to convert a citation graph into frontier candidates.
 - `repo` — a code repository, release, changelog, issue, or discussion thread.
 - `alias` — a renaming/alias/old-name/local-language form of an entity to re-search.
 - `archive` — an archived or historical copy (see `references/monitoring-change-detection.md`).
