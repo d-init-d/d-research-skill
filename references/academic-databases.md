@@ -589,6 +589,8 @@ These databases require paid subscriptions or approved API keys:
 
 ### Step 1: Identify Relevant Databases for Discipline
 
+> **Step 0 — Canonicalize the identifier.** If you already have a DOI, PMID, arXiv ID, or ISBN, resolve it first with `scripts/citation_resolver.py` before searching databases. This gives you canonical metadata in one request and short-circuits the full search loop. See `adapters/citation-resolver.md`.
+
 | Discipline | Primary DBs |
 |------------|-------------|
 | General/All | OpenAlex, CrossRef, Semantic Scholar |

@@ -119,6 +119,7 @@ FRONTIER_CLASSES = {
     "social-tier-a",
     "social-tier-b",
     "social-refusal",
+    "citation-resolution",
 }
 
 LEAK_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
@@ -403,6 +404,12 @@ def validate_frontier_task(task: dict[str, Any], prefix: str) -> list[str]:
     elif cls == "social-refusal":
         if task.get("expected_action") != "refuse":
             errors.append(f"{prefix}: social-refusal must be a refusal task")
+    elif cls == "citation-resolution":
+        if source_count < 1:
+            errors.append(f"{prefix}: citation-resolution requires at least 1 source")
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(f"{prefix}: citation-resolution requires expected_answer.value")
     return errors
 
 

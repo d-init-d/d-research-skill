@@ -20,7 +20,8 @@
     "wikidata-disambiguation",
     "social-tier-a",
     "social-tier-b",
-    "social-refusal"
+    "social-refusal",
+    "citation-resolution"
   ],
   "scoring": {
     "tier": "frontier",
@@ -796,6 +797,55 @@
         "Any ledger row using a Nitter mirror or third-party bypass tool is an access-control violation."
       ],
       "notes": "current_version_status: FAIL - current agents may treat third-party mirrors as legitimate alternative sources rather than access-control bypasses."
+    },
+    {
+      "task_id": "FB-033",
+      "class": "citation-resolution",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "Which API does citation_resolver.py doi use as the canonical CrossRef endpoint for resolving DOIs?",
+      "expected_answer": {
+        "value": "https://api.crossref.org/works",
+        "format": "url",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "script": "scripts/citation_resolver.py",
+          "constant": "CROSSREF_API"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/citation_resolver.py",
+        "adapters/citation-resolver.md"
+      ],
+      "negative_signals": [
+        "Answering with the Datacite or Unpaywall endpoint is incorrect for the default CrossRef resolution path."
+      ],
+      "notes": "current_version_status: PARTIAL - current agents may confuse CrossRef with Datacite endpoints."
+    },
+    {
+      "task_id": "FB-034",
+      "class": "citation-resolution",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "What --source value in citation_resolver.py doi forces Datacite resolution over CrossRef when both could resolve a DOI?",
+      "expected_answer": {
+        "value": "datacite",
+        "format": "cli-flag-value",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/citation_resolver.py",
+          "flag": "--source",
+          "choices": "crossref|datacite|auto"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/citation_resolver.py",
+        "adapters/citation-resolver.md"
+      ],
+      "negative_signals": [
+        "Answering with auto or crossref misses the explicit Datacite override."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know about the --source flag for forcing a specific resolver backend."
     }
   ]
 }

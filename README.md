@@ -20,11 +20,11 @@ Concretely, the repo contains:
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
 - `references/` — 34 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, …).
-- `adapters/` — 7 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL).
+- `adapters/` — 8 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
-- `scripts/` — 18 small, self-contained helper scripts (5 Node scripts + 13 Python utilities; `run_python.mjs` is only a wrapper). Each ships with an offline `--self-test`. CI runs all of them on every PR.
-- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 32-task frontier probe (bench 2.1, 16 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `scripts/` — 20 small, self-contained helper scripts (5 Node scripts + 15 Python utilities; `run_python.mjs` is only a wrapper). Each ships with an offline `--self-test`. CI runs all of them on every PR.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 34-task frontier probe (bench 2.1, 17 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -46,7 +46,7 @@ For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays
 4. **Academic database access** via free APIs (OpenAlex, CrossRef, PubMed E-utilities, Semantic Scholar, arXiv, CORE). See `references/academic-databases.md`.
 5. **Read-only database access** for SQL/NoSQL when the user provides credentials. See `adapters/database-readonly.md`.
 6. **Evidence ledger** — atomic claims with source, type, date, access method, evidence, contradiction status, confidence. **Tamper-evident via HMAC-SHA256** (`scripts/evidence_ledger.py sign / verify`). See `references/evidence-ledger.md` and `templates/evidence-ledger.csv`.
-7. **Citation management** — BibTeX/RIS export from an evidence-ledger CSV plus **multi-style rendering** (APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA, …) via `scripts/citation_render.py` (pandoc + CSL). See `references/citation-management.md`.
+7. **Citation management** — BibTeX/RIS export from an evidence-ledger CSV plus **multi-style rendering** (APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA, …) via `scripts/citation_render.py` (pandoc + CSL). For DOI/PMID/arXiv/ISBN inputs, `scripts/citation_resolver.py` resolves canonical metadata via free public APIs (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall) before export. See `references/citation-management.md` and `adapters/citation-resolver.md`.
 8. **Data processing pipeline** — audit, clean, dedup, validate, merge. See `references/data-processing-pipeline.md`.
 9. **Data extraction toolbox** — recipe-style playbooks for HTML tables (with `scripts/extract_tables.py`), JSON-LD, embedded JSON, dataLayer, sitemaps, RSS, OAI-PMH, REST/GraphQL, PDFs, web archives. See `references/data-extraction-toolbox.md`.
 10. **PRISMA 2020 systematic reviews** — full protocol, flow diagram template (`templates/prisma-flow.json`), synthesis-pattern decision tree, worked example (`examples/systematic-review-prisma.md`). See `references/systematic-review-protocol.md` and `references/synthesis-patterns.md`.
@@ -127,7 +127,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── web-search-only.md                # search-only fallback
 │   ├── wikidata.md                       # Wikidata entity lookup and SPARQL
 │   ├── database-readonly.md              # SQL/NoSQL read-only access
-│   └── graphql.md                        # GraphQL endpoints
+│   ├── graphql.md                        # GraphQL endpoints
+│   └── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
 │
 ├── references/                           # 34 deep-dive guides
 │   ├── academic-databases.md
@@ -172,7 +173,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── dataset-collection.md
 │   ├── evals/
 │   │   ├── dogfood-bench.json            # 12-task regression eval set
-│   │   ├── frontier-bench.json           # 20-task frontier eval set
+│   │   ├── frontier-bench.json           # 34-task frontier eval set (bench 2.1, 17 classes)
 │   │   └── fixtures/                     # deterministic empty-score fixtures
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
@@ -211,6 +212,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── wayback.py                        # new — Wayback Machine nearest/diff
 │   ├── wikidata.py                       # new — Wikidata search/entity/disambiguate/SPARQL
 │   ├── social_snapshot.py                # new — social-media post capture/verify/to-ledger
+│   ├── citation_resolver.py              # new — DOI/PMID/arXiv/ISBN resolver via free public APIs
+│   ├── bench_harness_check.py            # new — bench/fixture/harness consistency check (NOT an agent benchmark)
 │   ├── check_internal_refs.py            # CI guard for path-style references
 │   └── run_python.mjs                    # tiny wrapper to invoke Python
 │
@@ -350,10 +353,12 @@ python3 scripts/pdf_extract.py self-test
 python3 scripts/wayback.py self-test
 python3 scripts/wikidata.py self-test
 python3 scripts/social_snapshot.py self-test
+python3 scripts/citation_resolver.py self-test
+python3 scripts/bench_harness_check.py self-test
 python3 scripts/check_internal_refs.py
 ```
 
-All eighteen commands exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
+All twenty commands exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
 
 ### npm scripts
 
@@ -396,6 +401,11 @@ npm run wikidata:sparql -- --query "SELECT ..."
 npm run search:web -- --query "open data portal"
 npm run social:snapshot -- reddit --url <url> --out snap.json
 npm run social:verify -- --file snap.json
+npm run cite:resolve:doi -- 10.1038/nature12373
+npm run cite:resolve:pmid -- 35027834
+npm run cite:resolve:arxiv -- 1706.03762
+npm run cite:resolve:isbn -- 978-0134685991
+npm run cite:resolve:oa -- 10.1038/nature12373
 npm run refs:check                            # internal-refs CI guard, locally
 ```
 

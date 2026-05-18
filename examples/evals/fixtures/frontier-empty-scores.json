@@ -354,6 +354,28 @@
       "recall": 1.0,
       "refusal": "PASS",
       "task_id": "FB-032"
+    },
+    {
+      "accuracy": 0.0,
+      "class": "citation-resolution",
+      "difficulty": "medium",
+      "expected_action": null,
+      "ledger_rows": 0,
+      "passed": false,
+      "recall": 0.0,
+      "refusal": null,
+      "task_id": "FB-033"
+    },
+    {
+      "accuracy": 0.0,
+      "class": "citation-resolution",
+      "difficulty": "hard",
+      "expected_action": null,
+      "ledger_rows": 0,
+      "passed": false,
+      "recall": 0.0,
+      "refusal": null,
+      "task_id": "FB-034"
     }
   ],
   "tier": "frontier"

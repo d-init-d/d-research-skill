@@ -254,6 +254,14 @@ done
 
 Follow this sequence for citation management:
 
+0. **Resolve** (if you have an identifier): Use `scripts/citation_resolver.py` to canonicalize DOI/PMID/arXiv/ISBN into structured metadata before any manual search. This is the fastest path to complete bibliographic data.
+   ```bash
+   python3 scripts/citation_resolver.py doi 10.1038/nature12373
+   python3 scripts/citation_resolver.py pmid 35027834
+   python3 scripts/citation_resolver.py arxiv 1706.03762
+   python3 scripts/citation_resolver.py isbn 978-0134685991
+   ```
+
 1. **Collect**: Gather references into the evidence-ledger CSV (`templates/evidence-ledger.csv`)
    - Scrape from web searches, academic databases, paper PDFs
    - Append one row per claim with available metadata immediately
