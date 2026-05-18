@@ -26,7 +26,7 @@ Core workflow:
 14. For structured data extraction (HTML tables, JSON-LD, sitemaps, RSS, OAI-PMH, embedded JSON), use the recipes in `references/data-extraction-toolbox.md` and `scripts/extract_tables.py`.
 15. For tamper-evidence on the evidence ledger, sign it with `scripts/evidence_ledger.py sign` (HMAC-SHA256). Verify with the same script's `verify` subcommand.
 16. Apply the source-quality rubric with `scripts/score_source.py score` to get deterministic per-row scores.
-17. Before declaring an output "done", walk through `references/reproducibility-checklist.md`.
+17. Before declaring an output "done", walk through `references/reproducibility-checklist.md`. For long-horizon workspaces with a plan + evidence ledger, use `scripts/report_render.py render --workspace <dir>` to produce the final structured report, then `scripts/report_render.py lint` to verify claim coverage.
 18. If a relevant public tier-1 source is blocked by anti-bot, JavaScript challenge, captcha, 403, or 429, run the bounded fallback chain in `references/anti-bot-fallback.md` once: canonical API/static form -> public web archive -> cache/snippet if available -> fetch-only/no-JS retrieval -> blocker report. Record failed attempts as low-confidence process rows. Do not bypass access controls.
 
 Data access layers (in order):

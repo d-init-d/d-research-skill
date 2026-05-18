@@ -73,9 +73,21 @@ evidence ledger.
 - **Confusing "number of papers" with "evidence" — quality and
   independence matter more than count.
 
+## Output stage
+
+After synthesis is complete, produce the final deliverable using `scripts/report_render.py`:
+
+```bash
+python scripts/report_render.py render --workspace <dir>
+python scripts/report_render.py lint --workspace <dir>
+```
+
+This generates a structured Markdown report from the workspace's plan, evidence ledger, and screening log. See `references/report-generation.md` for full details.
+
 ## See also
 
 - `references/systematic-review-protocol.md` — full PRISMA 2020 protocol
 - `references/academic-research-protocol.md` — general academic workflow
 - `references/source-quality-rubric.md` — quality scoring
+- `references/report-generation.md` — final report generation
 - `examples/systematic-review-prisma.md` — worked example

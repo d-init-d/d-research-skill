@@ -344,11 +344,14 @@ narrative artefact (the final report). The agent does this:
 2. Read the evidence ledger (full).
 3. Read each per-task summary artefact (small structured
    markdown/JSON, not raw extractions).
-4. Compose the report following
-   `references/final-report-template.md`.
-5. Render citations with `scripts/citation_render.py`.
-6. Sign the ledger with `scripts/evidence_ledger.py sign`.
-7. Run `gate.release_ready`.
+4. Initialize the report skeleton: `scripts/report_render.py init --workspace <dir>`.
+5. Compose the report following
+   `references/final-report-template.md` or edit `report.draft.md`.
+6. Render the final report: `scripts/report_render.py render --workspace <dir>`.
+7. Render citations with `scripts/citation_render.py`.
+8. Lint the report: `scripts/report_render.py lint --workspace <dir>`.
+9. Sign the ledger with `scripts/evidence_ledger.py sign`.
+10. Run `gate.release_ready`.
 
 If at any point the agent feels the urge to "go look at one more
 source", it instead adds a follow-up task to the plan, marks the

@@ -21,7 +21,8 @@
     "social-tier-a",
     "social-tier-b",
     "social-refusal",
-    "citation-resolution"
+    "citation-resolution",
+    "report-generation"
   ],
   "scoring": {
     "tier": "frontier",
@@ -846,6 +847,57 @@
         "Answering with auto or crossref misses the explicit Datacite override."
       ],
       "notes": "current_version_status: FAIL - current agents may not know about the --source flag for forcing a specific resolver backend."
+    },
+    {
+      "task_id": "FB-035",
+      "class": "report-generation",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "When does report_render.py render hard-fail on ledger signature state?",
+      "expected_answer": {
+        "value": "require-signature",
+        "format": "cli-flag",
+        "match_mode": "substring",
+        "case_sensitive": false,
+        "supporting_fields": {
+          "script": "scripts/report_render.py",
+          "behavior": "Hard-fails when a .hmac sidecar exists but verification fails, or when --require-signature is set and no valid signature is present"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/report_render.py",
+        "references/report-generation.md"
+      ],
+      "negative_signals": [
+        "Claiming it always requires a signature or never checks signatures is incorrect."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not understand the conditional signature verification behavior."
+    },
+    {
+      "task_id": "FB-036",
+      "class": "report-generation",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "What does report_render.py lint report as errors versus warnings?",
+      "expected_answer": {
+        "value": "claim referenced in report but not in ledger",
+        "format": "behavior",
+        "match_mode": "substring",
+        "case_sensitive": false,
+        "supporting_fields": {
+          "script": "scripts/report_render.py",
+          "errors": "claims referenced in report but not in ledger",
+          "warnings": "ledger claims not referenced in report"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/report_render.py",
+        "references/report-generation.md"
+      ],
+      "negative_signals": [
+        "Treating unused ledger rows as errors (they are warnings) or missing the distinction entirely."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not distinguish lint errors from warnings in report_render.py."
     }
   ]
 }
