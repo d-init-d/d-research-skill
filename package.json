@@ -54,13 +54,14 @@
     "wayback:nearest": "node scripts/run_python.mjs scripts/wayback.py nearest",
     "wayback:save": "node scripts/run_python.mjs scripts/wayback.py save",
     "wayback:diff": "node scripts/run_python.mjs scripts/wayback.py diff",
+    "wayback:diff:summarize": "node scripts/run_python.mjs scripts/wayback.py diff --summarize",
     "wikidata:search": "node scripts/run_python.mjs scripts/wikidata.py search",
     "wikidata:entity": "node scripts/run_python.mjs scripts/wikidata.py entity",
     "wikidata:sparql": "node scripts/run_python.mjs scripts/wikidata.py sparql",
     "search:web": "node scripts/web_search.mjs",
     "social:snapshot": "node scripts/run_python.mjs scripts/social_snapshot.py snapshot",
     "social:verify": "node scripts/run_python.mjs scripts/social_snapshot.py verify",
-    "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test && node scripts/api_fetch.mjs --self-test && node scripts/run_python.mjs scripts/data_clean.py self-test && node scripts/run_python.mjs scripts/citation_export.py self-test && node scripts/run_python.mjs scripts/citation_render.py self-test && node scripts/run_python.mjs scripts/extract_tables.py self-test && node scripts/run_python.mjs scripts/score_source.py self-test && node scripts/run_python.mjs scripts/research_plan.py self-test && node scripts/run_python.mjs scripts/run_dogfood.py self-test && node scripts/run_python.mjs scripts/pdf_extract.py self-test && node scripts/run_python.mjs scripts/wayback.py self-test && node scripts/run_python.mjs scripts/wikidata.py self-test && node scripts/run_python.mjs scripts/social_snapshot.py self-test && node scripts/web_search.mjs --self-test && node scripts/run_python.mjs scripts/check_internal_refs.py"
+    "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test && node scripts/api_fetch.mjs --self-test && node scripts/run_python.mjs scripts/data_clean.py self-test && node scripts/run_python.mjs scripts/citation_export.py self-test && node scripts/run_python.mjs scripts/citation_render.py self-test && node scripts/run_python.mjs scripts/extract_tables.py self-test && node scripts/run_python.mjs scripts/score_source.py self-test && node scripts/run_python.mjs scripts/research_plan.py self-test && node scripts/run_python.mjs scripts/run_dogfood.py self-test && node scripts/run_python.mjs scripts/pdf_extract.py self-test && node scripts/run_python.mjs scripts/wayback.py self-test && node scripts/run_python.mjs scripts/wikidata.py self-test && node scripts/run_python.mjs scripts/social_snapshot.py self-test && node scripts/web_search.mjs --self-test && node scripts/run_python.mjs scripts/bench_harness_check.py self-test && node scripts/run_python.mjs scripts/check_internal_refs.py"
   },
   "dependencies": {
     "playwright": "^1.56.0"

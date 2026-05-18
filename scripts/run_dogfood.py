@@ -113,6 +113,12 @@ FRONTIER_CLASSES = {
     "monitoring-change-detection",
     "multilingual-research",
     "systematic-review",
+    "pdf-extraction",
+    "wayback-archive",
+    "wikidata-disambiguation",
+    "social-tier-a",
+    "social-tier-b",
+    "social-refusal",
 }
 
 LEAK_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
@@ -360,6 +366,43 @@ def validate_frontier_task(task: dict[str, Any], prefix: str) -> list[str]:
             errors.append(
                 f"{prefix}: anti-bot-fallback must reference references/anti-bot-fallback.md"
             )
+    elif cls == "pdf-extraction":
+        if source_count < 1:
+            errors.append(f"{prefix}: pdf-extraction requires at least 1 source")
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(f"{prefix}: pdf-extraction requires expected_answer.value")
+    elif cls == "wayback-archive":
+        if source_count < 1:
+            errors.append(f"{prefix}: wayback-archive requires at least 1 source")
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(f"{prefix}: wayback-archive requires expected_answer.value")
+    elif cls == "wikidata-disambiguation":
+        if source_count < 1:
+            errors.append(
+                f"{prefix}: wikidata-disambiguation requires at least 1 source"
+            )
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(
+                f"{prefix}: wikidata-disambiguation requires expected_answer.value"
+            )
+    elif cls == "social-tier-a":
+        if source_count < 1:
+            errors.append(f"{prefix}: social-tier-a requires at least 1 source")
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(f"{prefix}: social-tier-a requires expected_answer.value")
+    elif cls == "social-tier-b":
+        if source_count < 1:
+            errors.append(f"{prefix}: social-tier-b requires at least 1 source")
+        answer = task.get("expected_answer")
+        if not isinstance(answer, dict) or not str(answer.get("value", "")).strip():
+            errors.append(f"{prefix}: social-tier-b requires expected_answer.value")
+    elif cls == "social-refusal":
+        if task.get("expected_action") != "refuse":
+            errors.append(f"{prefix}: social-refusal must be a refusal task")
     return errors
 
 

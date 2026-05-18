@@ -18,6 +18,7 @@ Save Page Now). It does not bypass any access control or rate limit.
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import http.server
 import io
@@ -332,12 +333,110 @@ def hash_content(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def build_diff_summary(
+    text_t1: str, text_t2: str, hash_t1: str, hash_t2: str, top_n: int = 5
+) -> dict:
+    """Build a structured diff summary between two text snapshots.
+
+    Uses stdlib difflib.unified_diff to compute line-level differences,
+    then extracts the top-N largest hunks by total changed lines.
+
+    Parameters
+    ----------
+    text_t1 : str
+        Content of the first snapshot.
+    text_t2 : str
+        Content of the second snapshot.
+    hash_t1 : str
+        SHA256 hash of text_t1.
+    hash_t2 : str
+        SHA256 hash of text_t2.
+    top_n : int
+        Maximum number of hunks to include in the summary.
+
+    Returns
+    -------
+    dict
+        Structured diff summary with hash_t1, hash_t2, identical flag,
+        and diff_summary containing added_lines, removed_lines, and top_hunks.
+    """
+    identical = hash_t1 == hash_t2
+    if identical:
+        return {
+            "hash_t1": hash_t1,
+            "hash_t2": hash_t2,
+            "identical": True,
+            "diff_summary": {
+                "added_lines": 0,
+                "removed_lines": 0,
+                "top_hunks": [],
+            },
+        }
+
+    lines_t1 = text_t1.splitlines(keepends=True)
+    lines_t2 = text_t2.splitlines(keepends=True)
+
+    diff_lines = list(difflib.unified_diff(lines_t1, lines_t2, lineterm=""))
+
+    added_lines = 0
+    removed_lines = 0
+    hunks: list[dict] = []
+    current_hunk_context = ""
+    current_added: list[str] = []
+    current_removed: list[str] = []
+
+    for line in diff_lines:
+        if line.startswith("@@"):
+            # Save previous hunk if any
+            if current_added or current_removed:
+                hunks.append({
+                    "context": current_hunk_context.strip(),
+                    "added": "\n".join(current_added),
+                    "removed": "\n".join(current_removed),
+                })
+            current_hunk_context = line
+            current_added = []
+            current_removed = []
+        elif line.startswith("+++") or line.startswith("---"):
+            continue
+        elif line.startswith("+"):
+            added_lines += 1
+            current_added.append(line[1:].rstrip())
+        elif line.startswith("-"):
+            removed_lines += 1
+            current_removed.append(line[1:].rstrip())
+
+    # Save last hunk
+    if current_added or current_removed:
+        hunks.append({
+            "context": current_hunk_context.strip(),
+            "added": "\n".join(current_added),
+            "removed": "\n".join(current_removed),
+        })
+
+    # Sort hunks by total changed lines (largest first) and take top_n
+    hunks.sort(key=lambda h: len(h["added"].splitlines()) + len(h["removed"].splitlines()), reverse=True)
+    top_hunks = hunks[:top_n]
+
+    return {
+        "hash_t1": hash_t1,
+        "hash_t2": hash_t2,
+        "identical": False,
+        "diff_summary": {
+            "added_lines": added_lines,
+            "removed_lines": removed_lines,
+            "top_hunks": top_hunks,
+        },
+    }
+
+
 def cmd_diff(args: argparse.Namespace) -> int:
     """Compare content between two timestamps via hash.
 
     Queries the Availability API for both timestamps to find snapshot URLs,
     fetches both snapshot pages, hashes the visible text content of each,
-    and reports whether the content changed.
+    and reports whether the content changed. When --summarize is set, also
+    produces a unified diff summary with line counts and top hunks.
     """
     # Find snapshot for t1
     params_t1 = urllib.parse.urlencode({"url": args.url, "timestamp": args.t1})
@@ -376,16 +475,23 @@ def cmd_diff(args: argparse.Namespace) -> int:
     hash_t1 = hash_content(content_t1)
     hash_t2 = hash_content(content_t2)
 
-    print(f"URL:       {args.url}")
-    print(f"Snapshot 1: {url_t1}")
-    print(f"  Hash:    {hash_t1}")
-    print(f"Snapshot 2: {url_t2}")
-    print(f"  Hash:    {hash_t2}")
+    summarize = getattr(args, "summarize", False)
+    top_n = getattr(args, "top_n", 5)
 
-    if hash_t1 == hash_t2:
-        print("\nResult: Content is IDENTICAL between the two snapshots.")
+    if summarize:
+        result = build_diff_summary(content_t1, content_t2, hash_t1, hash_t2, top_n)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
-        print("\nResult: Content CHANGED between the two snapshots.")
+        print(f"URL:       {args.url}")
+        print(f"Snapshot 1: {url_t1}")
+        print(f"  Hash:    {hash_t1}")
+        print(f"Snapshot 2: {url_t2}")
+        print(f"  Hash:    {hash_t2}")
+
+        if hash_t1 == hash_t2:
+            print("\nResult: Content is IDENTICAL between the two snapshots.")
+        else:
+            print("\nResult: Content CHANGED between the two snapshots.")
 
     return 0
 
@@ -536,6 +642,8 @@ def cmd_self_test(args: argparse.Namespace) -> int:
             url="https://example.com/page",
             t1="20200101",
             t2="20210101",
+            summarize=False,
+            top_n=5,
         )
         captured = io.StringIO()
         sys.stdout = captured
@@ -549,6 +657,70 @@ def cmd_self_test(args: argparse.Namespace) -> int:
             errors.append(f"diff returned exit code {rc}")
         elif "CHANGED" not in output:
             errors.append("diff did not detect content change between timestamps")
+
+        # --- Test diff --summarize ---
+        diff_sum_ns = argparse.Namespace(
+            url="https://example.com/page",
+            t1="20200101",
+            t2="20210101",
+            summarize=True,
+            top_n=3,
+        )
+        captured = io.StringIO()
+        sys.stdout = captured
+        try:
+            rc = cmd_diff(diff_sum_ns)
+        finally:
+            sys.stdout = old_stdout
+        output = captured.getvalue()
+
+        if rc != 0:
+            errors.append(f"diff --summarize returned exit code {rc}")
+        else:
+            try:
+                summary = json.loads(output)
+                if summary.get("identical") is not False:
+                    errors.append("diff --summarize did not detect change (identical should be false)")
+                ds = summary.get("diff_summary", {})
+                if not isinstance(ds.get("added_lines"), int):
+                    errors.append("diff --summarize missing added_lines integer")
+                if not isinstance(ds.get("removed_lines"), int):
+                    errors.append("diff --summarize missing removed_lines integer")
+                if not isinstance(ds.get("top_hunks"), list):
+                    errors.append("diff --summarize missing top_hunks list")
+                if ds.get("added_lines", 0) == 0 and ds.get("removed_lines", 0) == 0:
+                    errors.append("diff --summarize reported 0 changes for different content")
+            except json.JSONDecodeError:
+                errors.append("diff --summarize output is not valid JSON")
+
+        # --- Test diff --summarize with identical content ---
+        diff_same_ns = argparse.Namespace(
+            url="https://example.com/page",
+            t1="20200101",
+            t2="20200101",
+            summarize=True,
+            top_n=5,
+        )
+        captured = io.StringIO()
+        sys.stdout = captured
+        try:
+            rc = cmd_diff(diff_same_ns)
+        finally:
+            sys.stdout = old_stdout
+        output = captured.getvalue()
+
+        if rc != 0:
+            errors.append(f"diff --summarize (identical) returned exit code {rc}")
+        else:
+            try:
+                summary = json.loads(output)
+                if summary.get("identical") is not True:
+                    errors.append("diff --summarize did not detect identical content")
+                ds = summary.get("diff_summary", {})
+                if ds.get("added_lines") != 0 or ds.get("removed_lines") != 0:
+                    errors.append("diff --summarize reported changes for identical content")
+            except json.JSONDecodeError:
+                errors.append("diff --summarize (identical) output is not valid JSON")
 
         # Report results
         if errors:
@@ -628,6 +800,19 @@ def main() -> int:
     diff_p.add_argument("--url", required=True, help="Target URL.")
     diff_p.add_argument("--t1", required=True, help="First timestamp (YYYYMMDD).")
     diff_p.add_argument("--t2", required=True, help="Second timestamp (YYYYMMDD).")
+    diff_p.add_argument(
+        "--summarize",
+        action="store_true",
+        default=False,
+        help="Output a structured JSON diff summary instead of plain text.",
+    )
+    diff_p.add_argument(
+        "--top-n",
+        dest="top_n",
+        type=int,
+        default=5,
+        help="Number of largest hunks to include in the summary (default: 5).",
+    )
 
     # -- self-test (placeholder for future implementation) --
     sub.add_parser("self-test", help="Run offline self-tests with mock server.")

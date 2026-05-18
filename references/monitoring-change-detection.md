@@ -139,3 +139,30 @@ python scripts/wayback.py diff --url <url> --t1 YYYYMMDD --t2 YYYYMMDD
 ```
 
 This fetches the two nearest Wayback Machine snapshots for the given URL at timestamps `t1` and `t2`, then produces a unified text diff of the archived page content. Useful for detecting silent edits to policy pages, pricing tables, or documentation that the site operator did not announce publicly.
+
+### Structured diff summary
+
+For programmatic consumption, add `--summarize` to get a JSON object with line-level change counts and the top-N largest hunks:
+
+```bash
+python scripts/wayback.py diff --url <url> --t1 YYYYMMDD --t2 YYYYMMDD --summarize --top-n 3
+```
+
+Output:
+
+```json
+{
+  "hash_t1": "abc123...",
+  "hash_t2": "def456...",
+  "identical": false,
+  "diff_summary": {
+    "added_lines": 42,
+    "removed_lines": 17,
+    "top_hunks": [
+      {"context": "@@ -10,5 +10,8 @@", "added": "new pricing tier...", "removed": "old pricing..."}
+    ]
+  }
+}
+```
+
+Use this when you need to quantify how much a page changed (e.g., "pricing page gained 42 lines") or when feeding change data into a downstream monitoring pipeline. The `--top-n` flag controls how many hunks are included (default: 5).

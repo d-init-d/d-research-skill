@@ -99,3 +99,18 @@ jobs:
           # default so the parent shell does not leak a real key.
           D_RESEARCH_LEDGER_KEY: ""
         run: npm run self-test
+
+  bench-harness-consistency:
+    name: bench-harness consistency (NOT an agent benchmark)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run bench-harness consistency check
+        run: python3 scripts/bench_harness_check.py check-all --strict

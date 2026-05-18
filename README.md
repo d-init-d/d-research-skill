@@ -24,7 +24,7 @@ Concretely, the repo contains:
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
 - `scripts/` — 18 small, self-contained helper scripts (5 Node scripts + 13 Python utilities; `run_python.mjs` is only a wrapper). Each ships with an offline `--self-test`. CI runs all of them on every PR.
-- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 20-task frontier probe (bench 2.0). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 32-task frontier probe (bench 2.1, 16 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 

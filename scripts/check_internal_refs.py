@@ -83,6 +83,10 @@ def scan(repo: Path) -> list[tuple[Path, str]]:
             continue
         if ".git" in md.parts:
             continue
+        # Skip PLAN-* files: these are roadmap documents that intentionally
+        # reference scripts/files not yet implemented in the current version.
+        if md.name.startswith("PLAN-"):
+            continue
         text = md.read_text(encoding="utf-8", errors="replace")
         # Skip fenced code blocks so we don't validate references that only
         # appear inside example code.

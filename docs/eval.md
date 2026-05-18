@@ -13,11 +13,13 @@ outside the harness.
 - `examples/evals/dogfood-bench.json` - Tier 1 regression bench. It has 12
   ground-truth tasks across `atomic-fact`, `api-workflow`, `contradiction`, and
   `person-aggregation`.
-- `examples/evals/frontier-bench.json` - Tier 2 frontier bench 2.0. It has 20
-  harder tasks across ten classes: hard atomic facts, subtle contradictions,
+- `examples/evals/frontier-bench.json` - Tier 2 frontier bench 2.1. It has 32
+  harder tasks across sixteen classes: hard atomic facts, subtle contradictions,
   hidden refusal triggers, long-horizon planning, API/tool drift, systematic
   review discipline, large-scale collection, monitoring/change detection,
-  multilingual research, and anti-bot fallback handling.
+  multilingual research, anti-bot fallback handling, PDF extraction, Wayback
+  archive access, Wikidata disambiguation, social-media Tier A capture,
+  social-media Tier B archival, and social-media refusal probes.
 - `examples/evals/fixtures/*-empty-scores.json` - deterministic empty-ledger
   score fixtures used by self-test to detect unreviewed scoring drift.
 - `scripts/run_dogfood.py` - stdlib-only Python harness.
@@ -244,10 +246,51 @@ For Tier 2, add tasks only when the current skill version fails or partially
 passes. Include `current_version_status:` in `notes` so future maintainers know
 why the task belongs in the frontier bench.
 
-Frontier bench 2.0 enforces at least two tasks per frontier class. New class
+Frontier bench 2.1 enforces at least two tasks per frontier class. New class
 validators should make the branch contract explicit: required references,
 minimum source count when needed, and any class-specific supporting field such
 as `drift_note` for API drift probes.
+
+## Bench Version Policy
+
+The `bench_version` field in frontier-bench.json follows additive semver:
+- **Minor bump** (e.g. 2.0 → 2.1): new tasks or classes added, no existing
+  tasks changed. Score artifacts from the previous version remain valid for
+  comparison on the shared task subset.
+- **Major bump** (e.g. 2.x → 3.0): existing tasks modified or removed, or
+  scoring semantics changed. Old score artifacts are not directly comparable.
+
+## Bench-Harness Consistency Check
+
+`scripts/bench_harness_check.py` is a deterministic offline guard that catches
+bench/fixture/harness regressions. It is **NOT an agent benchmark** — it cannot
+measure whether an LLM agent is better or worse. It only verifies:
+
+- Every non-refusal task's `expected_answer.value` appears in at least one
+  `ground_truth_sources` file (strict mode).
+- Every `ground_truth_sources` path exists in the repo (external URLs skipped).
+- Refusal tasks have empty `ground_truth_sources`.
+- Score fixture entries match bench task IDs (no orphans).
+
+Commands:
+
+```bash
+# Check one bench
+python3 scripts/bench_harness_check.py check --bench examples/evals/frontier-bench.json --strict
+
+# Check all benches
+python3 scripts/bench_harness_check.py check-all --strict
+
+# Detect orphan fixture entries
+python3 scripts/bench_harness_check.py orphans \
+  --bench examples/evals/frontier-bench.json \
+  --fixtures examples/evals/fixtures/frontier-empty-scores.json
+
+# Self-test
+python3 scripts/bench_harness_check.py self-test
+```
+
+CI runs `check-all --strict` in the `bench-harness-consistency` job.
 
 If a task tests privacy refusal, use the refusal sentinel and do not include the
 private answer, private source URLs, or identifying details in the bench file.

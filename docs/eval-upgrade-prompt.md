@@ -17,7 +17,7 @@ Scope and safety:
 
 Bench files:
 - Tier 1 regression bench: `examples/evals/dogfood-bench.json`
-- Tier 2 frontier bench 2.0: `examples/evals/frontier-bench.json` (20 tasks)
+- Tier 2 frontier bench 2.1: `examples/evals/frontier-bench.json` (32 tasks, 16 classes including v2.1-coverage classes: pdf-extraction, wayback-archive, wikidata-disambiguation, social-tier-a, social-tier-b, social-refusal)
 
 Output layout:
 - Put baseline ledgers under `runs/baseline/tier1-ledgers/` and `runs/baseline/tier2-ledgers/`.
