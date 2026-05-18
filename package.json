@@ -42,6 +42,8 @@
     "eval:list": "node scripts/run_python.mjs scripts/run_dogfood.py list",
     "eval:render": "node scripts/run_python.mjs scripts/run_dogfood.py render",
     "eval:score": "node scripts/run_python.mjs scripts/run_dogfood.py score",
+    "eval:score-all": "node scripts/run_python.mjs scripts/run_dogfood.py score-all",
+    "eval:compare": "node scripts/run_python.mjs scripts/run_dogfood.py compare",
     "self-test": "node scripts/playwright_probe.mjs --self-test && node scripts/playwright_extract.mjs --self-test && node scripts/playwright_crawl.mjs --self-test && node scripts/run_python.mjs scripts/evidence_ledger.py self-test && node scripts/api_fetch.mjs --self-test && node scripts/run_python.mjs scripts/data_clean.py self-test && node scripts/run_python.mjs scripts/citation_export.py self-test && node scripts/run_python.mjs scripts/citation_render.py self-test && node scripts/run_python.mjs scripts/extract_tables.py self-test && node scripts/run_python.mjs scripts/score_source.py self-test && node scripts/run_python.mjs scripts/research_plan.py self-test && node scripts/run_python.mjs scripts/run_dogfood.py self-test && node scripts/run_python.mjs scripts/check_internal_refs.py"
   },
   "dependencies": {

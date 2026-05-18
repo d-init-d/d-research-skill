@@ -24,7 +24,7 @@ Concretely, the repo contains:
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
 - `scripts/` — 13 small, self-contained helper scripts (4 Node scripts + 9 Python utilities; `run_python.mjs` is only a wrapper). Each ships with an offline `--self-test`. CI runs all of them on every PR.
-- `examples/evals/dogfood-bench.json` and `docs/eval.md` — the offline regression-detector bench (12 ground-truth tasks, 4 classes) plus the harness usage guide. See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 10-task frontier probe. See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -56,7 +56,7 @@ For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays
 14. **Frontier search for gap-driven follow-up** — when the first pass leaves evidence gaps, obscure facts, or contested claims, build a small best-first priority queue over candidate queries / URLs / files / APIs / citations / repos / aliases / archives, score each node against the unresolved sub-question, and stop on evidence saturation. Not a literal pathfinding algorithm; no A* / Dijkstra. Maintains a `frontier-ledger.csv` and `coverage-map.json` alongside the evidence ledger. Never bypasses access controls. See `references/frontier-search.md`, `templates/frontier-ledger.csv`, and `templates/coverage-map.json`.
 15. **Fact-verification fast path** — for one-entity / one-attribute / deterministic-primary-source questions (commit SHA, package version, API limit, license clause). Skips decompose, source map, query fanout, and crawl. Hits the primary source once, quotes verbatim, files one ledger row with a one-shot independent re-check, and reports. Bails to the broad workflow on any anomaly. See `references/fact-verification.md`.
 16. **Person aggregation with a privacy boundary** — a dedicated branch for cross-source public-role lookups about a named person (maintainer, author, speaker, journalist, public figure). Anchors on one canonical source (GitHub profile, ORCID, package author, faculty page, verified byline), aggregates verified public-role claims, and **enforces an explicit privacy boundary**: home address, family, private accounts, personal contact, photos, medical / financial / legal / orientation / whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuses on minors, private individuals, and harassment / stalking / doxxing framings. Saturates at 25 ledger rows or three sources adding no new verified claims. See `references/person-aggregation.md`.
-17. **Offline eval harness** — a small ground-truth bench (`examples/evals/dogfood-bench.json`, 12 tasks across 4 classes) and a stdlib-only harness (`scripts/run_dogfood.py`) that validates the bench in CI and scores an agent's evidence ledger against ground-truth sources after a run. Designed as a regression detector, not a leaderboard. See `docs/eval.md`.
+17. **Offline eval harness** — a two-tier ground-truth suite (`examples/evals/dogfood-bench.json` for regression and `examples/evals/frontier-bench.json` for frontier probes) plus a stdlib-only harness (`scripts/run_dogfood.py`) that validates benches in CI, scores agent-produced ledgers, and compares baseline vs. candidate score artifacts. Designed as a regression detector and upgrade signal, not a leaderboard. See `docs/eval.md`.
 18. **Anti-bot fallback chain** — when a relevant public tier-1 source is blocked by Cloudflare, JavaScript challenge, captcha, 403, 429, or repeated browser/fetch failure, try exactly one lawful fallback chain: canonical API/static form, public web archive, cache/snippet if available, fetch-only/no-JS retrieval, then blocker report. Failed attempts are recorded as low-confidence process rows, not positive evidence. See `references/anti-bot-fallback.md`.
 19. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 20. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
@@ -166,7 +166,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── blocked-source-report.md
 │   ├── dataset-collection.md
 │   ├── evals/
-│   │   └── dogfood-bench.json            # new — 12-task ground-truth eval set
+│   │   ├── dogfood-bench.json            # 12-task regression eval set
+│   │   └── frontier-bench.json           # 10-task frontier eval set
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
 │   ├── scientific-literature-review.md
@@ -361,6 +362,8 @@ npm run extract:tables -- --in page.html --out-dir out/
 npm run score:source -- --file evidence.csv --out scored.csv
 npm run ledger:sign -- --file evidence.csv --key-env D_RESEARCH_LEDGER_KEY
 npm run ledger:verify -- --file evidence.csv --key-env D_RESEARCH_LEDGER_KEY
+npm run eval:score-all -- --bench examples/evals/dogfood-bench.json --ledgers-dir runs/candidate/tier1-ledgers --out runs/candidate/tier1-scores.json
+npm run eval:compare -- runs/baseline/tier1-scores.json runs/candidate/tier1-scores.json
 npm run plan:init                             # write research-plan.json from template
 npm run plan:check                            # validate schema + dep graph
 npm run plan:status                           # one-line status per task

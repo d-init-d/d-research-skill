@@ -58,7 +58,7 @@ python3 scripts/citation_render.py    self-test   # → "All self-tests passed!"
 python3 scripts/extract_tables.py     self-test   # → "All self-tests passed!" (5 subtests)
 python3 scripts/score_source.py       self-test   # → "All self-tests passed!" (4 subtests)
 python3 scripts/research_plan.py      self-test   # → "OK: research_plan self-test passed (NN sub-tests)."
-python3 scripts/run_dogfood.py        self-test   # → "OK: dogfood-bench.json is valid; 12 tasks, 4 classes."
+python3 scripts/run_dogfood.py        self-test   # -> "OK: eval benches valid; dogfood-bench.json: 12 tasks, frontier-bench.json: 10 tasks."
 python3 scripts/check_internal_refs.py            # → "OK: all backticked internal refs resolve."
 ```
 
@@ -130,7 +130,7 @@ If any of the 13 self-tests fail locally, the same failure will block the PR. Fi
 | Pandoc-related FAIL in `citation_render` | Pandoc not installed or `< 2.11` | Install pandoc; the self-test will skip the pandoc-dependent subtest if pandoc is genuinely missing |
 | `playwright_*` self-test hangs | Real browser launch attempted | Self-tests must not require a browser; check the script wasn't edited to drop the offline branch |
 | `check_internal_refs.py` reports a missing path | A markdown file backticks an in-repo path (e.g. a reference, adapter, template, or script) that no longer exists | Update the reference, restore the file, or remove the link |
-| `dogfood-bench.json` schema error | New task missing required keys | Compare against an existing task; required keys are listed in `docs/eval.md` |
+| Eval bench schema error | New task missing required keys or frontier/refusal rule violation | Compare against an existing task; required keys are listed in `docs/eval.md` |
 
 ## Adding a new script
 
