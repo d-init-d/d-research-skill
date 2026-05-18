@@ -21,6 +21,10 @@ Run the chain in this order. Stop as soon as one fallback yields usable evidence
 
 1. **Canonical API or raw/static form from the same source.** Try the official API, JSON endpoint, raw file URL, registry API, release asset, sitemap-listed file, or canonical static page for the same record. Examples: GitHub HTML page -> GitHub REST API; PyPI project page -> PyPI JSON; docs page -> raw Markdown in the upstream repo.
 2. **Public web archive.** Try `web.archive.org` for the same URL or a nearby canonical URL. Use the archived page only if the timestamp is acceptable for the research question and the archive does not expose private or restricted content.
+
+   ```bash
+   python scripts/wayback.py nearest --url <blocked-url> --timestamp <YYYYMMDD>
+   ```
 3. **Search-engine cache or snippet, if available.** Use cached copies or snippets only as discovery signals unless you can open a stable public cached page and quote it with a URL and timestamp. Do not treat a snippet alone as high-confidence evidence for a final claim.
 4. **Fetch-only or no-JavaScript retrieval.** If Playwright hit a challenge, try a normal HTTP fetch, documented feed, sitemap, RSS, or static file path. If fetch is the path that was blocked first, try browser rendering once instead. Do not change identity, spoof fingerprints, or retry aggressively.
 5. **Blocker report.** If the first four steps fail, stop. Produce `references/blocker-report.md` with the original URL, blocker type, fallback attempts, visible evidence, and manual retrieval instructions.

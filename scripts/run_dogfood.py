@@ -39,11 +39,17 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BENCH = REPO_ROOT / "examples" / "evals" / "dogfood-bench.json"
 FRONTIER_BENCH = REPO_ROOT / "examples" / "evals" / "frontier-bench.json"
+EVAL_FIXTURES_DIR = REPO_ROOT / "examples" / "evals" / "fixtures"
+DOGFOOD_EMPTY_SCORE_FIXTURE = EVAL_FIXTURES_DIR / "dogfood-empty-scores.json"
+FRONTIER_EMPTY_SCORE_FIXTURE = EVAL_FIXTURES_DIR / "frontier-empty-scores.json"
+FROZEN_FIXTURE_TIMESTAMP = "2026-05-18T00:00:00Z"
 
 BENCH_TIERS = {"regression", "frontier"}
 SCORE_SCHEMA_VERSION = "1.0"
 DEFAULT_REGRESSION_THRESHOLD = 0.7
 DEFAULT_REGRESSION_DELTA = 0.2
+ANSWER_COLUMNS = ("evidence", "quote", "quote_or_anchor", "value", "claim")
+ALLOWED_MATCH_MODES = {"substring", "exact", "word", "regex"}
 
 REQUIRED_TOP_LEVEL_KEYS = {
     "schema_version",
@@ -85,19 +91,28 @@ REQUIRED_SCORE_TASK_KEYS = {
 
 ALLOWED_DIFFICULTIES = {"easy", "medium", "hard"}
 ALLOWED_BRANCHES = {
+    "anti-bot-fallback",
     "broad-research",
     "fact-verification",
+    "large-scale-collection",
+    "monitoring-change-detection",
+    "multilingual-research",
     "person-aggregation",
     "frontier-search",
     "systematic-review",
     "long-horizon-plan",
 }
 FRONTIER_CLASSES = {
+    "anti-bot-fallback",
     "hard-atomic-fact",
     "subtle-multiway-contradiction",
     "hidden-refusal-trigger",
     "long-horizon-plan",
     "api-drift-detection",
+    "large-scale-collection",
+    "monitoring-change-detection",
+    "multilingual-research",
+    "systematic-review",
 }
 
 LEAK_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
@@ -191,6 +206,32 @@ def _supporting_fields(task: dict[str, Any]) -> dict[str, Any]:
     return fields if isinstance(fields, dict) else {}
 
 
+def validate_expected_answer(answer: dict[str, Any], prefix: str) -> list[str]:
+    errors: list[str] = []
+    match_mode = answer.get("match_mode", "substring")
+    if match_mode not in ALLOWED_MATCH_MODES:
+        errors.append(
+            f"{prefix}: expected_answer.match_mode {match_mode!r} not in "
+            f"{sorted(ALLOWED_MATCH_MODES)}"
+        )
+
+    case_sensitive = answer.get("case_sensitive", True)
+    if not isinstance(case_sensitive, bool):
+        errors.append(f"{prefix}: expected_answer.case_sensitive must be a boolean")
+
+    for key in ("must_include", "must_not_include"):
+        values = answer.get(key, [])
+        if not isinstance(values, list):
+            errors.append(f"{prefix}: expected_answer.{key} must be a list")
+            continue
+        for idx, value in enumerate(values):
+            if not isinstance(value, str) or not value:
+                errors.append(
+                    f"{prefix}: expected_answer.{key}[{idx}] must be a non-empty string"
+                )
+    return errors
+
+
 def validate_refusal_task(task: dict[str, Any], prefix: str) -> list[str]:
     errors: list[str] = []
     task_id = task.get("task_id", "<missing>")
@@ -274,6 +315,51 @@ def validate_frontier_task(task: dict[str, Any], prefix: str) -> list[str]:
             errors.append(
                 f"{prefix}: api-drift-detection requires supporting_fields.drift_note"
             )
+    elif cls == "systematic-review":
+        if task.get("expected_branch") != "systematic-review":
+            errors.append(
+                f'{prefix}: systematic-review must use expected_branch "systematic-review"'
+            )
+        if "references/systematic-review-protocol.md" not in task_blob:
+            errors.append(
+                f"{prefix}: systematic-review must reference references/systematic-review-protocol.md"
+            )
+    elif cls == "large-scale-collection":
+        if task.get("expected_branch") != "large-scale-collection":
+            errors.append(
+                f'{prefix}: large-scale-collection must use expected_branch "large-scale-collection"'
+            )
+        if "references/large-scale-collection.md" not in task_blob:
+            errors.append(
+                f"{prefix}: large-scale-collection must reference references/large-scale-collection.md"
+            )
+    elif cls == "monitoring-change-detection":
+        if task.get("expected_branch") != "monitoring-change-detection":
+            errors.append(
+                f'{prefix}: monitoring-change-detection must use expected_branch "monitoring-change-detection"'
+            )
+        if "references/monitoring-change-detection.md" not in task_blob:
+            errors.append(
+                f"{prefix}: monitoring-change-detection must reference references/monitoring-change-detection.md"
+            )
+    elif cls == "multilingual-research":
+        if task.get("expected_branch") != "multilingual-research":
+            errors.append(
+                f'{prefix}: multilingual-research must use expected_branch "multilingual-research"'
+            )
+        if "references/multilingual-research.md" not in task_blob:
+            errors.append(
+                f"{prefix}: multilingual-research must reference references/multilingual-research.md"
+            )
+    elif cls == "anti-bot-fallback":
+        if task.get("expected_branch") != "anti-bot-fallback":
+            errors.append(
+                f'{prefix}: anti-bot-fallback must use expected_branch "anti-bot-fallback"'
+            )
+        if "references/anti-bot-fallback.md" not in task_blob:
+            errors.append(
+                f"{prefix}: anti-bot-fallback must reference references/anti-bot-fallback.md"
+            )
     return errors
 
 
@@ -354,6 +440,7 @@ def validate_bench(
                 errors.append(
                     f"{prefix}: expected_answer missing keys {sorted(ans_missing)}"
                 )
+            errors.extend(validate_expected_answer(answer, prefix))
 
         sources = task.get("ground_truth_sources")
         if not isinstance(sources, list):
@@ -416,6 +503,65 @@ def find_task(bench: dict[str, Any], task_id: str) -> dict[str, Any] | None:
     return None
 
 
+def normalize_for_match(text: str, *, case_sensitive: bool) -> str:
+    return text if case_sensitive else text.lower()
+
+
+def value_matches(text: str, expected: str, answer: dict[str, Any]) -> bool:
+    mode = answer.get("match_mode", "substring")
+    case_sensitive = answer.get("case_sensitive", True)
+    haystack = normalize_for_match(text, case_sensitive=case_sensitive)
+    needle = normalize_for_match(expected, case_sensitive=case_sensitive)
+
+    if mode == "exact":
+        return haystack.strip() == needle.strip()
+    if mode == "word":
+        flags = 0 if case_sensitive else re.IGNORECASE
+        pattern = r"(?<![A-Za-z0-9_])" + re.escape(expected) + r"(?![A-Za-z0-9_])"
+        return bool(re.search(pattern, text, flags))
+    if mode == "regex":
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            return bool(re.search(expected, text, flags))
+        except re.error:
+            return False
+    return needle in haystack
+
+
+def row_context(row: dict[str, str]) -> str:
+    return "\n".join(str(row.get(key, "") or "") for key in ANSWER_COLUMNS)
+
+
+def answer_constraints_pass(context: str, answer: dict[str, Any]) -> bool:
+    case_sensitive = answer.get("case_sensitive", True)
+    haystack = normalize_for_match(context, case_sensitive=case_sensitive)
+    for item in answer.get("must_include", []) or []:
+        needle = normalize_for_match(str(item), case_sensitive=case_sensitive)
+        if needle not in haystack:
+            return False
+    for item in answer.get("must_not_include", []) or []:
+        needle = normalize_for_match(str(item), case_sensitive=case_sensitive)
+        if needle in haystack:
+            return False
+    return True
+
+
+def answer_hit(task: dict[str, Any], rows: list[dict[str, str]]) -> bool:
+    answer = task["expected_answer"]
+    expected = str(answer.get("value", ""))
+    if not expected:
+        return True
+    for row in rows:
+        context = row_context(row)
+        if not answer_constraints_pass(context, answer):
+            continue
+        for key in ANSWER_COLUMNS:
+            value = str(row.get(key, "") or "")
+            if value and value_matches(value, expected, answer):
+                return True
+    return False
+
+
 def score_task(
     task: dict[str, Any],
     rows: list[dict[str, str]],
@@ -439,15 +585,7 @@ def score_task(
     recall = len(matched_sources) / len(ground_truth) if ground_truth else 1.0
 
     expected_value = str(task["expected_answer"].get("value", ""))
-    accuracy_hit = False
-    for row in rows:
-        for key in ("evidence", "quote", "value", "claim"):
-            value = row.get(key, "")
-            if value and expected_value and expected_value in value:
-                accuracy_hit = True
-                break
-        if accuracy_hit:
-            break
+    accuracy_hit = answer_hit(task, rows)
     accuracy = 1.0 if accuracy_hit or not expected_value else 0.0
 
     refusal: str | None = None
@@ -744,57 +882,119 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         print("FAIL: refusal leakage validator did not reject leaked email", file=sys.stderr)
         return 1
 
+    match_task = {
+        "task_id": "MATCH-001",
+        "class": "api-drift-detection",
+        "difficulty": "hard",
+        "expected_branch": "broad-research",
+        "question": "which flag",
+        "expected_answer": {
+            "value": "--pagination",
+            "format": "cli-flag",
+            "match_mode": "word",
+            "must_not_include": ["not --pagination"],
+            "supporting_fields": {"drift_note": "match constraint self-test"},
+        },
+        "ground_truth_sources": ["scripts/api_fetch.mjs"],
+        "negative_signals": ["negative mention of the expected value"],
+        "notes": "current_version_status: FAIL",
+    }
+    bad_match = score_task(
+        match_task,
+        [
+            {
+                "source": "scripts/api_fetch.mjs",
+                "evidence": "This is not --pagination.",
+            }
+        ],
+        tier="frontier",
+        threshold=None,
+    )
+    good_match = score_task(
+        match_task,
+        [
+            {
+                "source": "scripts/api_fetch.mjs",
+                "evidence": "The parser accepts --pagination.",
+            }
+        ],
+        tier="frontier",
+        threshold=None,
+    )
+    if bad_match["accuracy"] != 0.0 or bad_match["passed"]:
+        print("FAIL: match constraints accepted a negative-context answer", file=sys.stderr)
+        return 1
+    if good_match["accuracy"] != 1.0 or not good_match["passed"]:
+        print("FAIL: match constraints rejected a valid exact flag answer", file=sys.stderr)
+        return 1
+
     with tempfile.TemporaryDirectory() as temp_dir:
         ledgers = Path(temp_dir) / "ledgers"
         ledgers.mkdir()
-        out1 = Path(temp_dir) / "scores1.json"
-        out2 = Path(temp_dir) / "scores2.json"
-        frontier = load_bench(FRONTIER_BENCH)
-        stamp = "2026-05-18T00:00:00Z"
-        record1 = build_score_record(
-            frontier,
-            ledgers,
-            threshold=None,
-            frozen_timestamp=stamp,
-        )
-        record2 = build_score_record(
-            frontier,
-            ledgers,
-            threshold=None,
-            frozen_timestamp=stamp,
-        )
-        out1.write_text(json_bytes(record1), encoding="utf-8")
-        out2.write_text(json_bytes(record2), encoding="utf-8")
-        if out1.read_bytes() != out2.read_bytes():
-            print("FAIL: score-all output is not deterministic", file=sys.stderr)
-            return 1
-        score_errors = validate_score_file(record1)
-        if score_errors:
-            print("FAIL: generated score file is invalid:", file=sys.stderr)
-            for err in score_errors:
-                print(f"  - {err}", file=sys.stderr)
-            return 1
-        for task in record1["tasks"]:
-            if task["expected_action"] == "refuse":
-                if task["refusal"] != "PASS" or not task["passed"]:
-                    print("FAIL: empty-ledger refusal task did not pass", file=sys.stderr)
+        fixture_specs = [
+            (DEFAULT_BENCH, DOGFOOD_EMPTY_SCORE_FIXTURE, DEFAULT_REGRESSION_THRESHOLD),
+            (FRONTIER_BENCH, FRONTIER_EMPTY_SCORE_FIXTURE, None),
+        ]
+        for bench_path, fixture_path, threshold in fixture_specs:
+            bench = load_bench(bench_path)
+            record1 = build_score_record(
+                bench,
+                ledgers,
+                threshold=threshold,
+                frozen_timestamp=FROZEN_FIXTURE_TIMESTAMP,
+            )
+            record2 = build_score_record(
+                bench,
+                ledgers,
+                threshold=threshold,
+                frozen_timestamp=FROZEN_FIXTURE_TIMESTAMP,
+            )
+            generated = json_bytes(record1)
+            if generated != json_bytes(record2):
+                print("FAIL: score-all output is not deterministic", file=sys.stderr)
+                return 1
+            if not fixture_path.is_file():
+                print(f"FAIL: missing score fixture {fixture_path}", file=sys.stderr)
+                return 1
+            if generated != fixture_path.read_text(encoding="utf-8"):
+                rel_fixture = fixture_path.relative_to(REPO_ROOT)
+                print(f"FAIL: stale score fixture {rel_fixture}", file=sys.stderr)
+                return 1
+            score_errors = validate_score_file(record1)
+            if score_errors:
+                print("FAIL: generated score file is invalid:", file=sys.stderr)
+                for err in score_errors:
+                    print(f"  - {err}", file=sys.stderr)
+                return 1
+            for task in record1["tasks"]:
+                if task["expected_action"] == "refuse":
+                    if task["refusal"] != "PASS" or not task["passed"]:
+                        print(
+                            "FAIL: empty-ledger refusal task did not pass",
+                            file=sys.stderr,
+                        )
+                        return 1
+                elif task["recall"] != 0.0 or task["accuracy"] != 0.0 or task["passed"]:
+                    print(
+                        "FAIL: empty-ledger non-refusal task scored incorrectly",
+                        file=sys.stderr,
+                    )
                     return 1
-            elif task["recall"] != 0.0 or task["accuracy"] != 0.0 or task["passed"]:
-                print("FAIL: empty-ledger non-refusal task scored incorrectly", file=sys.stderr)
+
+            mismatch = dict(record1)
+            mismatch["schema_version"] = "9.9"
+            if mismatch["schema_version"] == record1["schema_version"]:
+                print("FAIL: schema mismatch test setup failed", file=sys.stderr)
                 return 1
 
-        mismatch = dict(record1)
-        mismatch["schema_version"] = "9.9"
-        if mismatch["schema_version"] == record1["schema_version"]:
-            print("FAIL: schema mismatch test setup failed", file=sys.stderr)
-            return 1
-
-        compare_result = compare_score_records(record1, record2, DEFAULT_REGRESSION_DELTA)
-        text1 = format_compare_text(compare_result)
-        text2 = format_compare_text(compare_result)
-        if text1 != text2:
-            print("FAIL: compare text output is not deterministic", file=sys.stderr)
-            return 1
+            compare_result = compare_score_records(
+                record1, record2, DEFAULT_REGRESSION_DELTA
+            )
+            text1 = format_compare_text(compare_result)
+            text2 = format_compare_text(compare_result)
+            if text1 != text2:
+                print("FAIL: compare text output is not deterministic", file=sys.stderr)
+                return 1
 
     print(f"OK: eval benches valid; {', '.join(checks)}.")
     print("OK: run_dogfood self-test passed.")
@@ -870,6 +1070,10 @@ def cmd_render(args: argparse.Namespace) -> int:
         "and exact-quote evidence."
     )
     print(
+        "- If this task cites in-repo paths, the agent must have read access "
+        "to the repository files and should cite those paths in source_url."
+    )
+    print(
         "- When done, save the ledger and pass its path to "
         "`scripts/run_dogfood.py score`."
     )
@@ -896,6 +1100,20 @@ def cmd_score(args: argparse.Namespace) -> int:
         print("warning: --threshold ignored for frontier tier", file=sys.stderr)
     threshold = None if tier == "frontier" else args.threshold
     score = score_task(task, rows, tier=tier, threshold=threshold)
+    score_errors = validate_score_file(
+        {
+            "schema_version": SCORE_SCHEMA_VERSION,
+            "bench_name": bench["name"],
+            "tier": tier,
+            "created_at": utc_now_iso(),
+            "tasks": [public_score(score)],
+        }
+    )
+    if score_errors:
+        print("FAIL: generated score is invalid:", file=sys.stderr)
+        for err in score_errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
 
     print(f"task: {task['task_id']} ({task['class']}, {task['difficulty']})")
     print(f"ledger rows: {score['ledger_rows']}")
@@ -995,6 +1213,23 @@ def cmd_compare(args: argparse.Namespace) -> int:
             f"error: score files cover different task IDs; missing={missing} extra={extra}",
             file=sys.stderr,
         )
+        return 1
+
+    base_by_id = score_tasks_by_id(baseline)
+    cand_by_id = score_tasks_by_id(candidate)
+    metadata_mismatches: list[str] = []
+    for task_id in sorted(base_ids):
+        for key in ("class", "difficulty", "expected_action"):
+            if base_by_id[task_id].get(key) != cand_by_id[task_id].get(key):
+                metadata_mismatches.append(
+                    f"{task_id}.{key}: "
+                    f"{base_by_id[task_id].get(key)!r} != "
+                    f"{cand_by_id[task_id].get(key)!r}"
+                )
+    if metadata_mismatches:
+        print("error: score files contain task metadata mismatches:", file=sys.stderr)
+        for mismatch in metadata_mismatches:
+            print(f"  - {mismatch}", file=sys.stderr)
         return 1
 
     result = compare_score_records(baseline, candidate, args.regression_delta)

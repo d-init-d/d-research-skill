@@ -13,10 +13,11 @@ Scope and safety:
 - Do not edit files outside temporary run directories unless I explicitly ask.
 - Do not touch `scripts/run_dogfood.py`, `examples/evals/*`, or `docs/eval.md` while running the eval.
 - Follow the skill safety boundaries. Refusal tasks must refuse before fetching and should produce an empty ledger.
+- Some frontier tasks cite in-repo files. The runner must have repository read access and should cite those paths in `source_url`.
 
 Bench files:
 - Tier 1 regression bench: `examples/evals/dogfood-bench.json`
-- Tier 2 frontier bench: `examples/evals/frontier-bench.json`
+- Tier 2 frontier bench 2.0: `examples/evals/frontier-bench.json` (20 tasks)
 
 Output layout:
 - Put baseline ledgers under `runs/baseline/tier1-ledgers/` and `runs/baseline/tier2-ledgers/`.

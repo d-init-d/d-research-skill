@@ -5,12 +5,16 @@ on:
     branches: [main]
     paths:
       - "scripts/**"
+      - "examples/evals/**"
+      - "docs/eval*.md"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/lint-and-self-test.yml"
   pull_request:
     paths:
       - "scripts/**"
+      - "examples/evals/**"
+      - "docs/eval*.md"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/lint-and-self-test.yml"
@@ -81,10 +85,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pandoc (for citation_render self-test)
+      - name: Install pandoc and poppler-utils
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc
+          sudo apt-get install -y pandoc poppler-utils
 
       - name: Install Node dependencies (Playwright)
         run: npm ci --no-audit --no-fund

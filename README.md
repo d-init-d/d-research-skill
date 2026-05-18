@@ -19,12 +19,12 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 31 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, …).
-- `adapters/` — 6 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, database read-only, GraphQL).
+- `references/` — 34 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, …).
+- `adapters/` — 7 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
-- `scripts/` — 13 small, self-contained helper scripts (4 Node scripts + 9 Python utilities; `run_python.mjs` is only a wrapper). Each ships with an offline `--self-test`. CI runs all of them on every PR.
-- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 10-task frontier probe. See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `scripts/` — 18 small, self-contained helper scripts (5 Node scripts + 13 Python utilities; `run_python.mjs` is only a wrapper). Each ships with an offline `--self-test`. CI runs all of them on every PR.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 20-task frontier probe (bench 2.0). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -61,6 +61,7 @@ For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays
 19. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 20. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
 21. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
+22. **Social-media archival** — capture public social-media posts from 12 platforms (Reddit, HN, Mastodon, Bluesky, Lemmy, X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) plus a generic fallback. Tier A platforms use direct public API fetch with SHA-256 content hashing for high verifiability; Tier B platforms use archive-only via Wayback Machine. Every capture carries a mandatory verifiability label and plain-language note. See `references/social-media-archival.md` and `scripts/social_snapshot.py`.
 
 ---
 
@@ -124,10 +125,11 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── generic-browser.md                # any other browser tool
 │   ├── fetch-only.md                     # URL fetch without a browser
 │   ├── web-search-only.md                # search-only fallback
+│   ├── wikidata.md                       # Wikidata entity lookup and SPARQL
 │   ├── database-readonly.md              # SQL/NoSQL read-only access
 │   └── graphql.md                        # GraphQL endpoints
 │
-├── references/                           # 31 deep-dive guides
+├── references/                           # 34 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources
@@ -146,6 +148,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── large-scale-collection.md
 │   ├── monitoring-change-detection.md
 │   ├── multilingual-research.md
+│   ├── pdf-extraction.md                 # new — PDF extraction reference
 │   ├── person-aggregation.md              # new — public-role aggregation w/ privacy boundary
 │   ├── query-patterns.md
 │   ├── reproducibility-checklist.md      # new — pre-release audit
@@ -158,7 +161,9 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── synthesis-patterns.md             # new — review-type decision tree
 │   ├── systematic-review-protocol.md     # new — PRISMA 2020
 │   ├── tool-adapter-policy.md
-│   └── topic-decomposition.md
+│   ├── topic-decomposition.md
+│   ├── wayback-archive.md                # new — Wayback Machine archive access
+│   └── social-media-archival.md          # new — social-media post archival (two-tier)
 │
 ├── examples/                             # worked examples
 │   ├── academic-review.md
@@ -167,7 +172,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── dataset-collection.md
 │   ├── evals/
 │   │   ├── dogfood-bench.json            # 12-task regression eval set
-│   │   └── frontier-bench.json           # 10-task frontier eval set
+│   │   ├── frontier-bench.json           # 20-task frontier eval set
+│   │   └── fixtures/                     # deterministic empty-score fixtures
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
 │   ├── scientific-literature-review.md
@@ -192,6 +198,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── playwright_extract.mjs            # extract text/tables/links/files
 │   ├── playwright_crawl.mjs              # bounded same-domain crawl
 │   ├── api_fetch.mjs                     # paginated API fetch w/ rate limit
+│   ├── web_search.mjs                    # new — multi-engine web search w/ fallback chain
 │   ├── evidence_ledger.py                # init/validate/sign/verify ledger
 │   ├── data_clean.py                     # clean/dedup/validate/merge/stats
 │   ├── citation_export.py                # BibTeX/RIS export + CrossRef enrich
@@ -200,6 +207,10 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── score_source.py                   # new — rubric-based source scoring
 │   ├── research_plan.py                  # new — workspace, approval, context budget, and plan manager
 │   ├── run_dogfood.py                    # new — offline eval-bench harness
+│   ├── pdf_extract.py                    # new — PDF text/meta/table extraction
+│   ├── wayback.py                        # new — Wayback Machine nearest/diff
+│   ├── wikidata.py                       # new — Wikidata search/entity/disambiguate/SPARQL
+│   ├── social_snapshot.py                # new — social-media post capture/verify/to-ledger
 │   ├── check_internal_refs.py            # CI guard for path-style references
 │   └── run_python.mjs                    # tiny wrapper to invoke Python
 │
@@ -326,6 +337,7 @@ node scripts/playwright_probe.mjs --self-test
 node scripts/playwright_extract.mjs --self-test
 node scripts/playwright_crawl.mjs --self-test
 node scripts/api_fetch.mjs --self-test
+node scripts/web_search.mjs --self-test
 python3 scripts/evidence_ledger.py self-test
 python3 scripts/data_clean.py self-test
 python3 scripts/citation_export.py self-test
@@ -334,10 +346,14 @@ python3 scripts/extract_tables.py self-test
 python3 scripts/score_source.py self-test
 python3 scripts/research_plan.py self-test
 python3 scripts/run_dogfood.py self-test
+python3 scripts/pdf_extract.py self-test
+python3 scripts/wayback.py self-test
+python3 scripts/wikidata.py self-test
+python3 scripts/social_snapshot.py self-test
 python3 scripts/check_internal_refs.py
 ```
 
-All thirteen commands exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
+All eighteen commands exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
 
 ### npm scripts
 
@@ -374,6 +390,12 @@ npm run plan:render                           # write PLAN.md for review
 npm run plan:approve -- --by "Reviewer"       # approve before execution
 npm run plan:revoke -- --reason "scope changed"
 npm run plan:gate -- --gate synthesize_ready  # run a named gate
+npm run wikidata:search -- --term "Douglas Adams"
+npm run wikidata:entity -- --id Q42
+npm run wikidata:sparql -- --query "SELECT ..."
+npm run search:web -- --query "open data portal"
+npm run social:snapshot -- reddit --url <url> --out snap.json
+npm run social:verify -- --file snap.json
 npm run refs:check                            # internal-refs CI guard, locally
 ```
 

@@ -1,5 +1,6 @@
 node_modules/
 research-output/
+.kiro/
 .env
 .env.*
 *.log

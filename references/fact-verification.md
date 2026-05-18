@@ -20,10 +20,11 @@ If any condition is false, fall back to `SKILL.md` "If the user asks for a broad
 
 The general `SKILL.md` tool priority list is correct for broad research. For atomic facts, **prefer a deterministic primary source over web search**, in this order:
 
-1. **Public API of the canonical source.** Git commit → GitHub/GitLab/Gitea API. Package version → PyPI/npm/crates.io JSON. Standards body → its registry/IANA/SPDX. DOI → CrossRef.
-2. **Canonical static file.** A license text on the OSI page, an RFC on the IETF page, a release notes page on the project's own site.
-3. **Repository file on the upstream remote.** A `LICENSE` file, a `CHANGELOG.md`, a `package.json`, etc., fetched at a specific ref.
-4. **Web search** only if 1–3 do not exist for this fact class. Then prefer the first result that is an *official* domain; never trust a paraphrased fact from an aggregator blog for the final claim.
+1. **Wikidata canonical-entity short-circuit.** When verifying a fact about a known entity (a person, organisation, place, or concept with a Q-ID), check `scripts/wikidata.py entity --id <Q-ID>` first. Wikidata claims are sourced and versioned; if the attribute you need is present in the entity's claims, use it as the primary source and cross-check with one independent source. This avoids a full web search for facts that Wikidata already structures (birth/death dates, affiliations, identifiers, official websites).
+2. **Public API of the canonical source.** Git commit → GitHub/GitLab/Gitea API. Package version → PyPI/npm/crates.io JSON. Standards body → its registry/IANA/SPDX. DOI → CrossRef.
+3. **Canonical static file.** A license text on the OSI page, an RFC on the IETF page, a release notes page on the project's own site.
+4. **Repository file on the upstream remote.** A `LICENSE` file, a `CHANGELOG.md`, a `package.json`, etc., fetched at a specific ref.
+5. **Web search** only if 1–4 do not exist for this fact class. Then prefer the first result that is an *official* domain; never trust a paraphrased fact from an aggregator blog for the final claim.
 
 Skip Playwright and bounded crawl. There is no page to render, no link graph to expand.
 

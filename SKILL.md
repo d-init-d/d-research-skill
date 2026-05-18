@@ -45,14 +45,14 @@ Run every research task as a layered investigation:
 Use the best available tool stack in this order:
 
 1. user-provided context, URLs, files, and constraints
-2. web search
+2. web search (programmatic via `scripts/web_search.mjs` or browser-based)
 3. URL fetch or HTTP read, when available
 4. Playwright browser automation
 5. public files: PDF, CSV, JSON, XML, XLSX, DOCX, TXT
 6. public API or public network responses exposed by the page
 7. local files or repo search, when the user provides a workspace
 8. configured browser adapter, if not Playwright
-9. web-search-only fallback, if no browser or fetch tool exists
+9. web-search-only fallback via `scripts/web_search.mjs` (DDG → SearXNG → Brave → Google CSE), if no browser or fetch tool exists
 
 If a tool is unavailable, continue with the next-best method and record the limitation.
 
@@ -67,9 +67,10 @@ Access data in order of preference:
 1. **Web layer** — public pages, dynamic content, file downloads (existing browser/fetch workflow)
 2. **File layer** — CSV, JSON, XML, PDF, XLSX, DOCX from public URLs
 3. **API layer** — REST, GraphQL, SPARQL endpoints with proper authentication. See `references/api-access-workflow.md`
-4. **Database layer** — read-only SQL/NoSQL access when user provides credentials. See `adapters/database-readonly.md`
-5. **Academic database layer** — OpenAlex, CrossRef, PubMed, Semantic Scholar, arXiv. See `references/academic-databases.md`
-6. **Specialized domain layer** — financial APIs, patent databases, government portals. See `references/specialized-domains.md`
+4. **Wikidata layer** — structured entity lookups, disambiguation, and SPARQL queries. See `adapters/wikidata.md`
+5. **Database layer** — read-only SQL/NoSQL access when user provides credentials. See `adapters/database-readonly.md`
+6. **Academic database layer** — OpenAlex, CrossRef, PubMed, Semantic Scholar, arXiv. See `references/academic-databases.md`
+7. **Specialized domain layer** — financial APIs, patent databases, government portals. See `references/specialized-domains.md`
 
 For each layer, follow the safety boundary: read-only, respect rate limits, log all access.
 
@@ -108,6 +109,10 @@ The full safety and access policy (legal/ethical framing, what counts as a publi
 ### If the user asks to verify or look up one specific atomic fact
 
 Use `references/fact-verification.md`. Applies when the question targets one named entity, one named attribute, has a deterministic primary source (API, registry, canonical text), and a one-sentence-or-quote answer. Skip decompose, source map, query fanout, and crawl. Hit the primary source once, quote the value verbatim, file one ledger row with a one-shot independent re-check, and report. If anything looks off — non-2xx status, contradicting mirrors, the user follows up with "why" — escalate to the broad research workflow below. Never reach for `references/frontier-search.md` from this branch; atomic facts either fetch cleanly or fail loudly.
+
+### If the user asks to capture or analyze a public social-media post
+
+Use `references/social-media-archival.md`. Capture public posts from 12 supported platforms (Reddit, Hacker News, Mastodon, Bluesky, Lemmy, X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) plus a generic fallback. The script `scripts/social_snapshot.py` handles snapshot capture, hash-based verification, and evidence-ledger row generation. **Read the privacy boundary section first** — it refuses minors, private individuals, harassment/stalking/doxxing framings, and login-bypass attempts before making any HTTP call. Tier A platforms (Reddit, HN, Mastodon, Bluesky, Lemmy) use direct public API fetch with high verifiability; Tier B platforms (X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) use archive-only via `scripts/wayback.py` with low verifiability.
 
 ### If the user asks for public-role information about a specific named person
 
@@ -382,6 +387,9 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/extract_tables.py`: extract HTML `<table>` elements into CSV (handles `colspan`/`rowspan`, stdlib only)
 - `scripts/score_source.py`: apply the `references/source-quality-rubric.md` rubric to an evidence ledger and emit per-row scores + bands
 - `scripts/research_plan.py`: init / configure-execution / set-execution / render / approve / revoke / check / status / parallelizable / mark / block / add-task / gate — drives the long-horizon context-safe protocol in `references/research-plan-protocol.md`
+- `scripts/wikidata.py`: search / entity / disambiguate / sparql / self-test — Wikidata entity lookup, disambiguation, and SPARQL queries (see `adapters/wikidata.md`)
+- `scripts/social_snapshot.py`: snapshot / verify / to-ledger / self-test — public social-media post capture with two-tier architecture, content hashing, and evidence-ledger integration (see `references/social-media-archival.md`)
+- `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE); see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 
 The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.

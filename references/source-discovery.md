@@ -23,6 +23,27 @@ For factual claims, prefer primary sources. Use secondary sources to discover pr
 
 Run query fanout from `query-patterns.md`.
 
+#### Search engine fallback chain
+
+When using `scripts/web_search.mjs` for programmatic search (no browser needed), the script attempts engines in this order:
+
+1. **DuckDuckGo** — no API key required, always attempted first
+2. **SearXNG** — no API key required, privacy-respecting metasearch (override instance with `SEARXNG_INSTANCE` env var)
+3. **Brave Search** — attempted only if `BRAVE_API_KEY` is set
+4. **Google CSE** — attempted only if both `GOOGLE_CSE_KEY` and `GOOGLE_CSE_ID` are set
+
+The first engine that succeeds returns results; no cross-engine merging occurs. Use `npm run search:web -- --query "<q>"` or invoke directly with `node scripts/web_search.mjs --query "<q>"`.
+
+Use this programmatic search when:
+- No browser tool is available for interactive search
+- You need reproducible, scriptable search queries
+- You want to fan out multiple queries without manual browser interaction
+
+Use browser-based search (Playwright / generic browser) when:
+- You need to interact with search result pages (pagination, filters)
+- You need to verify full page content beyond snippets
+- The search engine requires JavaScript rendering
+
 ### Domain layer
 
 For each promising domain, inspect:

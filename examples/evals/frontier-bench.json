@@ -1,14 +1,20 @@
 {
   "schema_version": "1.0",
+  "bench_version": "2.0",
   "tier": "frontier",
   "name": "d-research frontier upgrade probe",
-  "description": "Tier 2 frontier probe for upgrade verification. These tasks are intentionally harder than the dogfood regression guard and are meant to expose capability gains after research-reach upgrades. The five classes each have at least two tasks so a single lucky pass does not overstate improvement; this keeps the minimum set at 10 tasks while covering hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, and API/tool drift detection.",
+  "description": "Tier 2 frontier probe for upgrade verification. Bench 2.0 keeps the original hard research probes and expands coverage to ten classes with at least two tasks per class, so a single lucky pass does not overstate improvement. It covers hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, API/tool drift, systematic review discipline, large-scale collection, monitoring/change detection, multilingual research, and anti-bot fallback handling.",
   "classes": [
     "hard-atomic-fact",
     "subtle-multiway-contradiction",
     "hidden-refusal-trigger",
     "long-horizon-plan",
-    "api-drift-detection"
+    "api-drift-detection",
+    "systematic-review",
+    "large-scale-collection",
+    "monitoring-change-detection",
+    "multilingual-research",
+    "anti-bot-fallback"
   ],
   "scoring": {
     "tier": "frontier",
@@ -25,6 +31,7 @@
       "expected_answer": {
         "value": "claim_id",
         "format": "field-name",
+        "match_mode": "word",
         "supporting_fields": {
           "reason": "The CSV template starts with claim_id and scripts/evidence_ledger.py defines claim_id as the first FIELDS entry and validates it as required and unique."
         }
@@ -47,6 +54,7 @@
       "expected_answer": {
         "value": "plan_ready",
         "format": "gate-name",
+        "match_mode": "word",
         "supporting_fields": {
           "reference": "references/research-plan-protocol.md",
           "script": "scripts/research_plan.py"
@@ -70,6 +78,7 @@
       "expected_answer": {
         "value": "HMAC-SHA256",
         "format": "implementation-choice",
+        "match_mode": "word",
         "supporting_fields": {
           "not_implemented": "Merkle tree + RSA-4096",
           "signature_version": "d-research-skill/hmac-sha256/v1"
@@ -94,6 +103,13 @@
       "expected_answer": {
         "value": "--pagination",
         "format": "cli-flag",
+        "match_mode": "word",
+        "must_not_include": [
+          "not --pagination",
+          "script actually parses --paginate",
+          "implementation-correct flag is --paginate",
+          "correct flag is --paginate"
+        ],
         "supporting_fields": {
           "wrong_doc_example": "--paginate",
           "correct_script_flag": "--pagination"
@@ -158,6 +174,7 @@
       "expected_answer": {
         "value": "plan_ready",
         "format": "workflow-gate",
+        "match_mode": "word",
         "supporting_fields": {
           "render_command": "scripts/research_plan.py render",
           "protocol": "references/research-plan-protocol.md"
@@ -182,6 +199,7 @@
       "expected_answer": {
         "value": "synthesize_ready",
         "format": "workflow-gate",
+        "match_mode": "word",
         "supporting_fields": {
           "protocol": "references/research-plan-protocol.md",
           "script": "scripts/research_plan.py"
@@ -206,6 +224,7 @@
       "expected_answer": {
         "value": "201",
         "format": "integer",
+        "match_mode": "word",
         "supporting_fields": {
           "drift_note": "The docs claim a lower documented max, while repo evidence records runtime acceptance through 200 and HTTP 400 at 201."
         }
@@ -229,6 +248,13 @@
       "expected_answer": {
         "value": "--pagination",
         "format": "cli-flag",
+        "match_mode": "word",
+        "must_not_include": [
+          "not --pagination",
+          "script actually parses --paginate",
+          "implementation-correct flag is --paginate",
+          "correct flag is --paginate"
+        ],
         "supporting_fields": {
           "drift_note": "references/data-extraction-toolbox.md shows --paginate, while scripts/api_fetch.mjs actually parses --pagination."
         }
@@ -241,6 +267,245 @@
         "Using --paginate repeats stale documentation and fails the implementation drift check."
       ],
       "notes": "current_version_status: FAIL - current agents typically quote the docs example rather than checking the script parser."
+    },
+    {
+      "task_id": "FB-011",
+      "class": "systematic-review",
+      "difficulty": "medium",
+      "expected_branch": "systematic-review",
+      "question": "For a PRISMA-grade review in this skill, which reporting standard is the protocol mapped to, and which JSON template stores the flow counts?",
+      "expected_answer": {
+        "value": "PRISMA 2020",
+        "format": "reporting-standard",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "flow_template": "templates/prisma-flow.json",
+          "protocol": "references/systematic-review-protocol.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/systematic-review-protocol.md",
+        "templates/prisma-flow.json",
+        "README.md"
+      ],
+      "negative_signals": [
+        "Answering only with a generic literature-review workflow misses the PRISMA 2020 reporting requirement and flow template."
+      ],
+      "notes": "current_version_status: PARTIAL - current agents often say PRISMA generally but omit the concrete flow-count artifact."
+    },
+    {
+      "task_id": "FB-012",
+      "class": "systematic-review",
+      "difficulty": "hard",
+      "expected_branch": "systematic-review",
+      "question": "Which CSV template is required for systematic-review screening decisions, and what does it log?",
+      "expected_answer": {
+        "value": "templates/screening-log.csv",
+        "format": "repo-path",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "purpose": "Logs screening decisions and exclusion reasons during PRISMA review screening.",
+          "protocol": "references/systematic-review-protocol.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/systematic-review-protocol.md",
+        "templates/screening-log.csv",
+        "references/synthesis-patterns.md"
+      ],
+      "negative_signals": [
+        "Using only search-log.csv or evidence-ledger.csv misses the dedicated screening artifact."
+      ],
+      "notes": "current_version_status: PARTIAL - current agents often collect papers but do not create the screening decision ledger."
+    },
+    {
+      "task_id": "FB-013",
+      "class": "large-scale-collection",
+      "difficulty": "medium",
+      "expected_branch": "large-scale-collection",
+      "question": "For a 100+ record collection run that must resume safely, what checkpoint file path does the large-scale workflow standardize on?",
+      "expected_answer": {
+        "value": "research-output/checkpoint.json",
+        "format": "repo-path",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "workflow": "references/large-scale-collection.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/large-scale-collection.md",
+        "README.md"
+      ],
+      "negative_signals": [
+        "A generic note to checkpoint without the exact file path fails the resumability contract."
+      ],
+      "notes": "current_version_status: PARTIAL - current agents mention batching but often skip the concrete checkpoint artifact."
+    },
+    {
+      "task_id": "FB-014",
+      "class": "large-scale-collection",
+      "difficulty": "hard",
+      "expected_branch": "large-scale-collection",
+      "question": "What error-rate threshold triggers alert/review in the large-scale collection workflow?",
+      "expected_answer": {
+        "value": "20%",
+        "format": "percentage",
+        "match_mode": "word",
+        "supporting_fields": {
+          "config_key": "largeScale.maxErrorRatePercent",
+          "workflow": "references/large-scale-collection.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/large-scale-collection.md",
+        "README.md"
+      ],
+      "negative_signals": [
+        "Answering with a vague low error rate or invented retry count misses the configured review threshold."
+      ],
+      "notes": "current_version_status: FAIL - current agents often continue large crawls without surfacing error-budget gates."
+    },
+    {
+      "task_id": "FB-015",
+      "class": "monitoring-change-detection",
+      "difficulty": "medium",
+      "expected_branch": "monitoring-change-detection",
+      "question": "Which hash primitive does the monitoring workflow name for full-text page hashes and file checksum comparison?",
+      "expected_answer": {
+        "value": "SHA-256",
+        "format": "hash-primitive",
+        "match_mode": "word",
+        "supporting_fields": {
+          "workflow": "references/monitoring-change-detection.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/monitoring-change-detection.md",
+        "README.md"
+      ],
+      "negative_signals": [
+        "Answering only with a generic checksum without SHA-256 misses the monitoring primitive."
+      ],
+      "notes": "current_version_status: PARTIAL - current agents commonly say compare snapshots but omit the hash primitive."
+    },
+    {
+      "task_id": "FB-016",
+      "class": "monitoring-change-detection",
+      "difficulty": "hard",
+      "expected_branch": "monitoring-change-detection",
+      "question": "When a monitored structured field keeps the same schema but its value changes, which change-type label should be recorded?",
+      "expected_answer": {
+        "value": "value_changed",
+        "format": "change-type",
+        "match_mode": "word",
+        "supporting_fields": {
+          "allowed_labels": "field_added | field_removed | value_changed | structure_changed",
+          "workflow": "references/monitoring-change-detection.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/monitoring-change-detection.md",
+        "references/frontier-search.md"
+      ],
+      "negative_signals": [
+        "Using field_added, field_removed, or a free-form label hides the exact diff classification."
+      ],
+      "notes": "current_version_status: FAIL - current agents often describe the changed value but do not classify it with the canonical label."
+    },
+    {
+      "task_id": "FB-017",
+      "class": "multilingual-research",
+      "difficulty": "medium",
+      "expected_branch": "multilingual-research",
+      "question": "In the multilingual translation strategy, what is the rule about extraction versus translation order?",
+      "expected_answer": {
+        "value": "Extract first, translate second",
+        "format": "workflow-rule",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "workflow": "references/multilingual-research.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/multilingual-research.md",
+        "SKILL.md"
+      ],
+      "negative_signals": [
+        "Translating search results first and extracting only translated snippets loses original-language evidence."
+      ],
+      "notes": "current_version_status: PARTIAL - current agents frequently translate early and drop original-language source evidence."
+    },
+    {
+      "task_id": "FB-018",
+      "class": "multilingual-research",
+      "difficulty": "hard",
+      "expected_branch": "multilingual-research",
+      "question": "What preservation rule should be applied to translated multilingual evidence so later reviewers can verify translation quality?",
+      "expected_answer": {
+        "value": "Preserve original alongside translation",
+        "format": "workflow-rule",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "workflow": "references/multilingual-research.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/multilingual-research.md",
+        "references/person-aggregation.md"
+      ],
+      "negative_signals": [
+        "Providing only the English translation without original text makes the evidence non-auditable."
+      ],
+      "notes": "current_version_status: FAIL - current agents often summarize translated evidence without preserving the original quote."
+    },
+    {
+      "task_id": "FB-019",
+      "class": "anti-bot-fallback",
+      "difficulty": "medium",
+      "expected_branch": "anti-bot-fallback",
+      "question": "When a relevant public tier-1 URL is blocked by an anti-bot challenge, what is the first lawful fallback step before trying archives or cache/snippets?",
+      "expected_answer": {
+        "value": "canonical API/static form",
+        "format": "fallback-step",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "workflow": "references/anti-bot-fallback.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/anti-bot-fallback.md",
+        "SKILL.md",
+        "README.md"
+      ],
+      "negative_signals": [
+        "Trying stealth, captcha solving, or rate-limit evasion is outside the skill boundary."
+      ],
+      "notes": "current_version_status: PARTIAL - current agents often jump straight to archive.org or blocker reports without the canonical API/static-form step."
+    },
+    {
+      "task_id": "FB-020",
+      "class": "anti-bot-fallback",
+      "difficulty": "hard",
+      "expected_branch": "anti-bot-fallback",
+      "question": "If every lawful fallback attempt for a blocked public source fails, which notes marker should the low-confidence process row use?",
+      "expected_answer": {
+        "value": "fallback_result=blocked",
+        "format": "ledger-note",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "workflow": "references/anti-bot-fallback.md",
+          "ledger_reference": "references/evidence-ledger.md"
+        }
+      },
+      "ground_truth_sources": [
+        "references/anti-bot-fallback.md",
+        "references/evidence-ledger.md",
+        "references/blocker-report.md"
+      ],
+      "negative_signals": [
+        "Recording the blocked page as positive evidence or inventing ad-hoc ledger columns fails the fallback audit trail."
+      ],
+      "notes": "current_version_status: FAIL - current agents may report a source as blocked without creating the required process-row marker."
     }
   ]
 }

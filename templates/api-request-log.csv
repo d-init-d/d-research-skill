@@ -1,4 +1,4 @@
-api_request_id,timestamp,url,method,status_code,response_time_ms,rate_limit_remaining,pagination_cursor,notes
-R0001,2026-05-15T10:14:22Z,https://api.openalex.org/works?search=playwright&per-page=200,GET,200,412,9998,page=1,"First page; 200 results returned."
-R0002,2026-05-15T10:14:24Z,https://api.openalex.org/works?search=playwright&per-page=200&cursor=*,GET,200,398,9997,"cursor=Cl4oKEd[redacted]","Cursor pagination handed off; continuing."
-R0003,2026-05-15T10:14:25Z,https://api.crossref.org/works/10.1109/ACCESS.2024.123456,GET,404,121,,,"DOI not yet indexed in CrossRef; flag for follow-up."
+api_request_id,timestamp,url,method,status_code,response_time_ms,rate_limit_remaining,pagination_cursor,platform,rate_limit_bucket,notes
+R0001,2026-05-15T10:14:22Z,https://api.openalex.org/works?search=playwright&per-page=200,GET,200,412,9998,page=1,openalex,default,"First page; 200 results returned."
+R0002,2026-05-15T10:14:24Z,https://api.openalex.org/works?search=playwright&per-page=200&cursor=*,GET,200,398,9997,"cursor=Cl4oKEd[redacted]",openalex,default,"Cursor pagination handed off; continuing."
+R0003,2026-05-15T10:14:25Z,https://api.crossref.org/works/10.1109/ACCESS.2024.123456,GET,404,121,,,crossref,default,"DOI not yet indexed in CrossRef; flag for follow-up."

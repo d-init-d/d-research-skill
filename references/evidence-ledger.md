@@ -15,7 +15,7 @@ The evidence ledger prevents unsupported claims, weak synthesis, and source conf
 | sub_question | which sub-question the claim answers |
 | source_title | title of source |
 | source_url | URL or local path |
-| source_type | primary, official, dataset, code, paper, filing, secondary, community, unknown |
+| source_type | primary, official, dataset, code, pdf, paper, filing, secondary, community, unknown |
 | date_published | publication date if available |
 | date_accessed | date accessed by agent |
 | access_method | search, fetch, playwright, public_file, public_api, screenshot, manual_needed |
@@ -93,3 +93,25 @@ Before final answer, check:
 - blocked sources are not treated as evidence
 - contradictions are disclosed
 - inference is labeled as inference
+
+## Social archival columns (v2.1)
+
+Five optional columns appended after `notes` to support social-media evidence rows. Existing ledgers without these columns remain valid and continue to pass `evidence_ledger.py validate`.
+
+| Field | Allowed Values | Semantics |
+|---|---|---|
+| archive_url | Any URL or empty | Wayback Machine or other archive URL for the captured content. Empty for Tier A direct-API captures that have no archive copy. |
+| content_hash | SHA-256 hex string or empty | Hash of the canonicalised post text at capture time. Used for tamper detection on re-verification. Empty when text could not be extracted (Tier B). |
+| snapshot_status | `intact`, `edited`, `deleted`, `unknown`, or empty | Result of the most recent verification pass. `intact` = content unchanged, `edited` = content differs from original hash, `deleted` = source returned 404, `unknown` = cannot re-verify (Tier B / archive-only). Empty if never verified. |
+| verifiability | `direct_api`, `direct_api_deleted`, `archive_snapshot`, `screenshot_only`, `unverified`, or empty | Confidence classification for the evidence capture method. `direct_api` = fetched from a stable public API with content hash. `direct_api_deleted` = was direct_api but post has since been deleted. `archive_snapshot` = captured via Wayback Machine only. `screenshot_only` = only a screenshot exists. `unverified` = no independent verification path available. Empty for non-social rows. |
+| verifiability_note | Plain-language sentence or empty | Human-readable explanation of what the verifiability label means for this specific row. Example: "Fetched directly from Reddit JSON API; content hash can be re-verified." |
+
+### HMAC coverage
+
+When `evidence_ledger.py sign` is invoked on a ledger containing these columns, all five are included in the canonical bytes hashed by HMAC-SHA256. Tampering with any social column value will be detected by `evidence_ledger.py verify`.
+
+### Validation rules
+
+- `verifiability` must be one of the allowed values listed above, or empty.
+- `snapshot_status` must be one of the allowed values listed above, or empty.
+- All other new columns are free-form (no value restriction beyond CSV quoting rules).

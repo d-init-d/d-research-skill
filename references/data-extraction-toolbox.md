@@ -177,15 +177,30 @@ that's the polite path.
 **Signature**: links ending in `.pdf` or `Content-Type:
 application/pdf`.
 
-**Extractor**: outside this skill. Suggested tools:
+**Extractor**: `scripts/pdf_extract.py`.
 
-- `pdftotext` (Poppler) for plain text
-- `pdfplumber` (Python) for tables
-- `unstructured` (Python) for sectioned extraction
+```bash
+# Extract plain text from a PDF
+python3 scripts/pdf_extract.py text --in document.pdf --out document.txt
+
+# Extract metadata (title, author, page count, creation date)
+python3 scripts/pdf_extract.py meta --in document.pdf
+
+# Extract tables to CSV (one CSV per table found)
+python3 scripts/pdf_extract.py tables --in document.pdf --out-dir out/
+```
+
+For pages where the PDF link is behind JavaScript rendering, first
+download the file via `scripts/playwright_extract.mjs`, then feed the
+result into `pdf_extract.py`.
 
 When you extract text from a PDF, record the **page number** in the
 evidence ledger `quote_or_anchor` field (e.g. "p. 12, paragraph 3") so
 the quote can be located again.
+
+**Don't**: paste PDF text into an LLM and ask it to "parse" — the
+deterministic extractor is faster, cheaper, and won't hallucinate
+structure.
 
 ## Recipe 10 — Web archives (Wayback Machine, archive.today)
 

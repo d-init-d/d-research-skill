@@ -44,11 +44,14 @@ Refuse the task and explain the refusal if any of these is true:
 
 A refusal is short, polite, and points to what *would* be in-scope (e.g. "I can pull this OSS maintainer's public repos, talks, and the maintainer email they list on the project page — I won't aggregate private accounts, family, or non-public contact information.").
 
-## Workflow (8 steps)
+## Workflow (9 steps)
 
 ```
+0. Anchor resolution via Wikidata. Before fanning out to web sources, attempt to resolve the person to a Wikidata Q-ID using:
+   scripts/wikidata.py disambiguate --term "<name>" --context "<context>"
+   where <context> is the role, affiliation, or domain the user mentioned. If a high-confidence match is returned (score ≥ 0.5), adopt the Q-ID as the canonical anchor and use `scripts/wikidata.py entity --id <Q-ID>` to seed the alias set, affiliation, and known works. If no match or low confidence, proceed to step 1 without a Wikidata anchor.
 1. Restate. Write one sentence: "aggregate public-role info about <person> for <purpose>." Apply the privacy boundary and hard stops before doing anything else.
-2. Identify the canonical anchor. Pick the single most authoritative starting point — usually the artifact tying the person to the public role (a GitHub profile, an ORCID, a package `author` field, a journal byline, a verified site). Capture URL, access date, and a content hash if possible.
+2. Identify the canonical anchor. Pick the single most authoritative starting point — usually the artifact tying the person to the public role (a GitHub profile, an ORCID, a package `author` field, a journal byline, a verified site). Capture URL, access date, and a content hash if possible. If step 0 returned a Q-ID, the Wikidata entity page is a valid canonical anchor.
 3. Build the alias set. Collect spellings and handles the person actually uses (`Vu Anh` / `Vũ Anh` / `vuanhle`), tied to the anchor. Mark each alias `verified` or `tentative`. Do not include aliases whose link to the anchor is purely circumstantial. See `references/multilingual-research.md` for diacritic / transliteration handling.
 4. Disambiguate. Before fanning out, enumerate the homonyms (GitHub will list every `Vu Anh`; "Marie Curie" school exists in HCMC and Hà Nội). For each candidate match found later, require at least one positive disambiguator (same project, same publication, same affiliation, same handle, same time period) before adopting it.
 5. Source map. For *this* public role, pick the source classes that apply: code-host profile, package registries, ORCID/Scholar/Crossref, official affiliation page, conference/talk pages, public press coverage, the person's own site/blog. Skip social-platform deep-dives unless the platform handle is verified-public and on-topic for the role.

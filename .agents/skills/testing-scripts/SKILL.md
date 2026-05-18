@@ -37,18 +37,19 @@ This is the same chain CI runs. It executes every script's offline self-test in 
 
 ## Quick validation: individual scripts
 
-If you want to isolate a failure, run scripts one at a time. There are **13 helper scripts** with self-tests (4 Node + 9 Python). `run_python.mjs` is a thin wrapper and has no self-test of its own.
+If you want to isolate a failure, run scripts one at a time. There are **18 helper scripts** with self-tests (5 Node + 13 Python). `run_python.mjs` is a thin wrapper and has no self-test of its own.
 
-### Node scripts (4)
+### Node scripts (5)
 
 ```bash
 node scripts/playwright_probe.mjs   --self-test   # → "playwright_probe self-test ok"
 node scripts/playwright_extract.mjs --self-test   # → "playwright_extract self-test ok"
 node scripts/playwright_crawl.mjs   --self-test   # → "playwright_crawl self-test ok"
 node scripts/api_fetch.mjs          --self-test   # → 4× "✓ PASS" (parseArgs, Link header, cursor, offset)
+node scripts/web_search.mjs         --self-test   # → "web_search self-test ok"
 ```
 
-### Python scripts (9)
+### Python scripts (13)
 
 ```bash
 python3 scripts/evidence_ledger.py    self-test   # → "evidence_ledger self-test ok" (incl. tamper detection)
@@ -58,7 +59,11 @@ python3 scripts/citation_render.py    self-test   # → "All self-tests passed!"
 python3 scripts/extract_tables.py     self-test   # → "All self-tests passed!" (5 subtests)
 python3 scripts/score_source.py       self-test   # → "All self-tests passed!" (4 subtests)
 python3 scripts/research_plan.py      self-test   # → "OK: research_plan self-test passed (NN sub-tests)."
-python3 scripts/run_dogfood.py        self-test   # -> "OK: eval benches valid; dogfood-bench.json: 12 tasks, frontier-bench.json: 10 tasks."
+python3 scripts/run_dogfood.py        self-test   # -> "OK: eval benches valid; dogfood-bench.json: 12 tasks, frontier-bench.json: 20 tasks."
+python3 scripts/pdf_extract.py        self-test   # → "pdf_extract self-test ok"
+python3 scripts/wayback.py            self-test   # → "wayback self-test ok"
+python3 scripts/wikidata.py           self-test   # → "wikidata self-test ok"
+python3 scripts/social_snapshot.py    self-test   # → "social_snapshot self-test ok"
 python3 scripts/check_internal_refs.py            # → "OK: all backticked internal refs resolve."
 ```
 
@@ -119,7 +124,7 @@ Two GitHub Actions workflows replicate these checks on every pull request:
   - `lychee --offline` on all markdown — standard `[text](url)` link integrity
   - A weekly `lychee-external` job (non-blocking) validates external URLs
 
-If any of the 13 self-tests fail locally, the same failure will block the PR. Fix locally before pushing.
+If any of the 18 self-tests fail locally, the same failure will block the PR. Fix locally before pushing.
 
 ## Common failure modes
 

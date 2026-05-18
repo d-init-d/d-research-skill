@@ -42,13 +42,25 @@ FIELDS = [
     "contradiction",
     "confidence",
     "notes",
+    "archive_url",
+    "content_hash",
+    "snapshot_status",
+    "verifiability",
+    "verifiability_note",
 ]
+
+# The original 14 columns (pre-v2.1) for backward compatibility.
+FIELDS_LEGACY = FIELDS[:14]
+
+# New columns added in v2.1 for social-media archival support.
+FIELDS_SOCIAL = FIELDS[14:]
 
 VALID_SOURCE_TYPES = {
     "primary",
     "official",
     "dataset",
     "code",
+    "pdf",
     "paper",
     "filing",
     "secondary",
@@ -58,6 +70,17 @@ VALID_SOURCE_TYPES = {
 
 VALID_CONFIDENCE = {"high", "medium", "low"}
 VALID_CONTRADICTION = {"none", "possible", "direct", "unresolved", ""}
+
+VALID_VERIFIABILITY = {
+    "direct_api",
+    "direct_api_deleted",
+    "archive_snapshot",
+    "screenshot_only",
+    "unverified",
+    "",
+}
+
+VALID_SNAPSHOT_STATUS = {"intact", "edited", "deleted", "unknown", ""}
 
 
 def init_ledger(out: Path) -> None:
@@ -72,10 +95,16 @@ def validate_ledger(file: Path) -> int:
     errors: list[str] = []
     with file.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        if reader.fieldnames != FIELDS:
-            errors.append(f"header mismatch: expected {FIELDS}, got {reader.fieldnames}")
+        # Accept both legacy (14-column) and extended (19-column) headers.
+        if reader.fieldnames == FIELDS:
+            active_fields = FIELDS
+        elif reader.fieldnames == FIELDS_LEGACY:
+            active_fields = FIELDS_LEGACY
+        else:
+            errors.append(f"header mismatch: expected {FIELDS} or {FIELDS_LEGACY}, got {reader.fieldnames}")
             print("\n".join(errors), file=sys.stderr)
             return 1
+        has_social_cols = (active_fields == FIELDS)
         seen_ids: set[str] = set()
         for i, row in enumerate(reader, start=2):
             claim_id = row.get("claim_id", "").strip()
@@ -97,6 +126,14 @@ def validate_ledger(file: Path) -> int:
             contradiction = row.get("contradiction", "").strip().lower()
             if contradiction not in VALID_CONTRADICTION:
                 errors.append(f"line {i}: invalid contradiction {contradiction}")
+            # Validate new social columns when present.
+            if has_social_cols:
+                verifiability = row.get("verifiability", "").strip().lower()
+                if verifiability not in VALID_VERIFIABILITY:
+                    errors.append(f"line {i}: invalid verifiability {verifiability!r}")
+                snapshot_status = row.get("snapshot_status", "").strip().lower()
+                if snapshot_status not in VALID_SNAPSHOT_STATUS:
+                    errors.append(f"line {i}: invalid snapshot_status {snapshot_status!r}")
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
@@ -118,21 +155,29 @@ def canonicalise(file: Path) -> bytes:
     This is the input that gets HMAC'd. Both `sign` and `verify` MUST go
     through this function so that benign formatting differences (e.g. a
     text editor switching to CRLF) do not falsely invalidate a signature.
+
+    Supports both legacy (14-column) and extended (19-column) ledgers.
+    When the new social columns are present, they are included in the
+    canonical bytes so that tampering with them is detected.
     """
     with file.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        if reader.fieldnames != FIELDS:
+        if reader.fieldnames == FIELDS:
+            active_fields = FIELDS
+        elif reader.fieldnames == FIELDS_LEGACY:
+            active_fields = FIELDS_LEGACY
+        else:
             raise ValueError(
-                f"header mismatch: expected {FIELDS}, got {reader.fieldnames}"
+                f"header mismatch: expected {FIELDS} or {FIELDS_LEGACY}, got {reader.fieldnames}"
             )
         rows = list(reader)
     buf = io.StringIO()
     writer = csv.DictWriter(
-        buf, fieldnames=FIELDS, lineterminator="\n", quoting=csv.QUOTE_MINIMAL
+        buf, fieldnames=active_fields, lineterminator="\n", quoting=csv.QUOTE_MINIMAL
     )
     writer.writeheader()
     for row in rows:
-        clean = {k: (row.get(k) or "").strip() for k in FIELDS}
+        clean = {k: (row.get(k) or "").strip() for k in active_fields}
         writer.writerow(clean)
     return buf.getvalue().encode("utf-8")
 
@@ -206,7 +251,7 @@ def self_test() -> int:
             return 1
         # Sign / verify / tamper-detection round-trip.
         os.environ["D_RESEARCH_LEDGER_KEY"] = "unit-test-key-do-not-use-in-prod"
-        # Add one valid row so canonicalise has something to chew on.
+        # Add one valid row with the new social columns populated.
         with path.open("a", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=FIELDS)
             writer.writerow(
@@ -225,6 +270,11 @@ def self_test() -> int:
                     "contradiction": "none",
                     "confidence": "high",
                     "notes": "",
+                    "archive_url": "https://web.archive.org/web/20260515/https://example.com/sky",
+                    "content_hash": "abc123def456",
+                    "snapshot_status": "intact",
+                    "verifiability": "direct_api",
+                    "verifiability_note": "Fetched directly from public API.",
                 }
             )
         sig_path = path.with_suffix(".csv.hmac")
@@ -235,16 +285,110 @@ def self_test() -> int:
         if verify_ledger(path, "D_RESEARCH_LEDGER_KEY", None) != 0:
             print("initial verify failed", file=sys.stderr)
             return 1
-        # Tamper with the file; verify must reject.
+        # Tamper with a legacy column; verify must reject.
         text = path.read_text(encoding="utf-8")
         path.write_text(
             text.replace("the sky is blue", "the sky is green"),
             encoding="utf-8",
         )
         if verify_ledger(path, "D_RESEARCH_LEDGER_KEY", None) == 0:
-            print("tamper not detected", file=sys.stderr)
+            print("tamper on legacy column not detected", file=sys.stderr)
             return 1
+        # Restore and re-sign for next tamper test.
+        path.write_text(text, encoding="utf-8")
+        sign_ledger(path, "D_RESEARCH_LEDGER_KEY", None)
+
+        # Tamper with a NEW social column; verify must reject.
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace("direct_api", "unverified"),
+            encoding="utf-8",
+        )
+        if verify_ledger(path, "D_RESEARCH_LEDGER_KEY", None) == 0:
+            print("tamper on verifiability column not detected", file=sys.stderr)
+            return 1
+        # Restore and re-sign for next tamper test.
+        path.write_text(text, encoding="utf-8")
+        sign_ledger(path, "D_RESEARCH_LEDGER_KEY", None)
+
+        # Tamper with snapshot_status column; verify must reject.
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace("intact", "deleted"),
+            encoding="utf-8",
+        )
+        if verify_ledger(path, "D_RESEARCH_LEDGER_KEY", None) == 0:
+            print("tamper on snapshot_status column not detected", file=sys.stderr)
+            return 1
+
         sig_path.unlink(missing_ok=True)
+
+        # --- Test backward compatibility with legacy (14-column) ledger ---
+        legacy_path = Path(d) / "legacy.csv"
+        with legacy_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS_LEGACY)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "claim_id": "C001",
+                    "claim": "legacy claim",
+                    "sub_question": "test",
+                    "source_title": "Legacy Source",
+                    "source_url": "https://example.com/legacy",
+                    "source_type": "primary",
+                    "date_published": "2024-01-01",
+                    "date_accessed": "2026-05-15",
+                    "access_method": "fetch",
+                    "evidence": "observed",
+                    "quote_or_anchor": "",
+                    "contradiction": "none",
+                    "confidence": "high",
+                    "notes": "",
+                }
+            )
+        if validate_ledger(legacy_path) != 0:
+            print("legacy ledger validation failed", file=sys.stderr)
+            return 1
+        rc = sign_ledger(legacy_path, "D_RESEARCH_LEDGER_KEY", None)
+        if rc != 0:
+            print("legacy sign failed", file=sys.stderr)
+            return 1
+        if verify_ledger(legacy_path, "D_RESEARCH_LEDGER_KEY", None) != 0:
+            print("legacy verify failed", file=sys.stderr)
+            return 1
+
+        # --- Test validation rejects invalid verifiability/snapshot_status ---
+        bad_path = Path(d) / "bad_verifiability.csv"
+        with bad_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "claim_id": "C001",
+                    "claim": "test claim",
+                    "sub_question": "test",
+                    "source_title": "Test",
+                    "source_url": "https://example.com",
+                    "source_type": "primary",
+                    "date_published": "2024-01-01",
+                    "date_accessed": "2026-05-15",
+                    "access_method": "fetch",
+                    "evidence": "test",
+                    "quote_or_anchor": "",
+                    "contradiction": "none",
+                    "confidence": "high",
+                    "notes": "",
+                    "archive_url": "",
+                    "content_hash": "",
+                    "snapshot_status": "INVALID_STATUS",
+                    "verifiability": "INVALID_VALUE",
+                    "verifiability_note": "",
+                }
+            )
+        if validate_ledger(bad_path) == 0:
+            print("validation should have rejected invalid verifiability/snapshot_status", file=sys.stderr)
+            return 1
+
     print("evidence_ledger self-test ok")
     return 0
 

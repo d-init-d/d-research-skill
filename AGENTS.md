@@ -20,6 +20,7 @@ Core workflow:
 11a. If the first pass leaves evidence gaps, obscure facts, or contested claims, escalate to `references/frontier-search.md`. Maintain `templates/frontier-ledger.csv` and `templates/coverage-map.json` alongside the evidence ledger, score candidate nodes against open gaps, expand the highest-priority node, and stop on evidence saturation. Never use this as a way around access controls.
 11b. If the user asks to verify or look up one specific atomic fact (one entity + one attribute, deterministic primary source, one-sentence answer), switch to `references/fact-verification.md` instead of running the full loop. Hit the primary source once, quote verbatim, file one ledger row with a one-shot independent re-check, and report. Bail back to the full workflow on any anomaly (non-2xx, contradicting mirrors, follow-up "why" questions). Do not reach for `references/frontier-search.md` from this branch.
 11c. If the user asks for public-role information about one named person (maintainer, author, speaker, journalist, public figure) and there is a canonical anchor (GitHub profile, ORCID, package author field, faculty page, verified byline), switch to `references/person-aggregation.md`. Apply the explicit privacy boundary in that file before fetching anything. Saturate at 25 ledger rows or three sources adding no new verified claims. Refuse on minors, private individuals, and harassment / stalking / doxxing framings. Do not re-identify pseudonyms, do not aggregate home address / family / personal contact / photos / medical / financial / orientation / whereabouts, and do not use `references/frontier-search.md` to chase one more piece of personal info.
+11d. If the user asks to capture, archive, or analyze a public social-media post, switch to `references/social-media-archival.md`. Use `scripts/social_snapshot.py` for snapshot capture (Tier A: direct API for Reddit, HN, Mastodon, Bluesky, Lemmy; Tier B: archive-only via `scripts/wayback.py` for X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn). Read the privacy boundary section first — it refuses minors, private individuals, harassment/stalking/doxxing framings, and login-bypass attempts before any HTTP call. Convert snapshots to evidence-ledger rows with `to-ledger` and verify Tier A captures with `verify`.
 12. Export citations in BibTeX/RIS format for academic work, and render to APA/MLA/IEEE/Chicago/Vancouver/Harvard/Nature with `scripts/citation_render.py` when needed (see `references/citation-management.md`).
 13. For PRISMA-grade systematic reviews, follow `references/systematic-review-protocol.md` and populate `templates/prisma-flow.json`.
 14. For structured data extraction (HTML tables, JSON-LD, sitemaps, RSS, OAI-PMH, embedded JSON), use the recipes in `references/data-extraction-toolbox.md` and `scripts/extract_tables.py`.
@@ -40,6 +41,7 @@ Available adapters:
 - `adapters/generic-browser.md`
 - `adapters/fetch-only.md`
 - `adapters/web-search-only.md`
+- `adapters/wikidata.md`
 - `adapters/database-readonly.md`
 - `adapters/graphql.md`
 

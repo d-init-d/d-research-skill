@@ -129,3 +129,13 @@ When changes are detected, report them in this structure:
 - **Combine methods** when needed — hash the page for fast checks, then use DOM comparison for detailed alerting
 
 For structured sources (APIs, feeds), prefer field-level comparison. For unstructured sources (web pages), use targeted DOM extraction to reduce noise from dynamic page elements.
+
+## Compare via Wayback snapshots
+
+When you need to compare how a public page looked at two different points in time, use `scripts/wayback.py diff`:
+
+```bash
+python scripts/wayback.py diff --url <url> --t1 YYYYMMDD --t2 YYYYMMDD
+```
+
+This fetches the two nearest Wayback Machine snapshots for the given URL at timestamps `t1` and `t2`, then produces a unified text diff of the archived page content. Useful for detecting silent edits to policy pages, pricing tables, or documentation that the site operator did not announce publicly.

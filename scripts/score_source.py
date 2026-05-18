@@ -4,7 +4,7 @@
 The rubric is documented in ``references/source-quality-rubric.md`` and
 scores each source across five dimensions:
 
-* **Type** (5): primary/dataset/code/filing > paper/official > secondary > community > unknown
+* **Type** (5): primary/dataset/code/filing > paper/official > pdf/secondary > community > unknown
 * **Authority** (5): how authoritative the publisher is for the claim
 * **Recency** (5): how recent the publication / access is relative to the claim
 * **Methodology** (5): for empirical / dataset claims, how transparent the methods are
@@ -45,6 +45,7 @@ TYPE_SCORE: dict[str, int] = {
     "filing": 5,
     "official": 4,
     "paper": 4,
+    "pdf": 2,
     "secondary": 2,
     "community": 1,
     "unknown": 0,
@@ -102,6 +103,7 @@ class Score:
     recency: int
     methodology: int
     independence: int
+    social_bonus: int = 0
 
     @property
     def total(self) -> int:
@@ -111,6 +113,7 @@ class Score:
             + self.recency
             + self.methodology
             + self.independence
+            + self.social_bonus
         )
 
     @property
@@ -244,7 +247,7 @@ def score_independence(row: dict[str, str]) -> int:
 
 def score_row(row: dict[str, str], today: date | None = None) -> Score:
     today = today or date.today()
-    return Score(
+    sc = Score(
         type_score=TYPE_SCORE.get(
             (row.get("source_type") or "").strip().lower(), 0
         ),
@@ -257,6 +260,19 @@ def score_row(row: dict[str, str], today: date | None = None) -> Score:
         methodology=score_methodology(row),
         independence=score_independence(row),
     )
+    # Social scoring modifiers (v2.1): applied when verifiability column is present.
+    verifiability = (row.get("verifiability") or "").strip().lower()
+    if verifiability == "archive_snapshot":
+        sc.social_bonus += 2
+    if verifiability == "unverified":
+        sc.social_bonus -= 1
+    # Author handle bonus: check notes field for author_handle indicator
+    # or a dedicated column if present in the row.
+    notes = (row.get("notes") or "").strip()
+    author_handle = (row.get("author_handle") or "").strip()
+    if author_handle or "author_handle=" in notes.lower():
+        sc.social_bonus += 1
+    return sc
 
 
 def cmd_score(file: Path, out: Path | None, today: date | None = None) -> int:
@@ -281,6 +297,7 @@ def cmd_score(file: Path, out: Path | None, today: date | None = None) -> int:
                 "recency": sc.recency,
                 "methodology": sc.methodology,
                 "independence": sc.independence,
+                "social_bonus": sc.social_bonus,
                 "total": sc.total,
                 "band": sc.band,
             }
@@ -372,6 +389,64 @@ def cmd_self_test() -> int:
     assert _apex("https://www.ncbi.nlm.nih.gov/pubmed/123") == "nih.gov"
     assert _apex("https://example.co.uk/page") == "example.co.uk"
     print("  [PASS] apex-domain extractor")
+
+    # --- Social scoring bands (v2.1) ---
+    social_samples = [
+        {
+            "claim_id": "S001",
+            "source_type": "primary",
+            "source_title": "Reddit Post via Archive",
+            "source_url": "https://web.archive.org/web/20260515/https://reddit.com/r/test/123",
+            "date_published": "2026-01-10",
+            "date_accessed": "2026-05-15",
+            "access_method": "script",
+            "evidence": "User posted about the topic with detailed analysis.",
+            "quote_or_anchor": "'This is the exact quote from the post.'",
+            "verifiability": "archive_snapshot",
+            "notes": "author_handle=@testuser",
+        },
+        {
+            "claim_id": "S002",
+            "source_type": "community",
+            "source_title": "Unverified Social Claim",
+            "source_url": "https://example.com/social/post/456",
+            "date_published": "2026-03-01",
+            "date_accessed": "2026-05-15",
+            "access_method": "screenshot",
+            "evidence": "Short claim.",
+            "quote_or_anchor": "",
+            "verifiability": "unverified",
+            "notes": "",
+        },
+        {
+            "claim_id": "S003",
+            "source_type": "primary",
+            "source_title": "Direct API Capture",
+            "source_url": "https://mastodon.social/@user/12345",
+            "date_published": "2026-04-01",
+            "date_accessed": "2026-05-15",
+            "access_method": "api",
+            "evidence": "Full post text captured directly from Mastodon API with hash verification.",
+            "quote_or_anchor": "'Exact post content here.'",
+            "verifiability": "direct_api",
+            "notes": "author_handle=@user@mastodon.social",
+        },
+    ]
+
+    ss1 = score_row(social_samples[0], today=fixed_today)
+    # archive_snapshot -> +2, author_handle in notes -> +1 = social_bonus 3
+    assert ss1.social_bonus == 3, f"expected social_bonus=3, got {ss1.social_bonus}"
+    print(f"  [PASS] social archive_snapshot + author_handle -> social_bonus={ss1.social_bonus}, total={ss1.total}")
+
+    ss2 = score_row(social_samples[1], today=fixed_today)
+    # unverified -> -1, no author_handle -> social_bonus -1
+    assert ss2.social_bonus == -1, f"expected social_bonus=-1, got {ss2.social_bonus}"
+    print(f"  [PASS] social unverified -> social_bonus={ss2.social_bonus}, total={ss2.total}")
+
+    ss3 = score_row(social_samples[2], today=fixed_today)
+    # direct_api -> no archive bonus, author_handle in notes -> +1 = social_bonus 1
+    assert ss3.social_bonus == 1, f"expected social_bonus=1, got {ss3.social_bonus}"
+    print(f"  [PASS] social direct_api + author_handle -> social_bonus={ss3.social_bonus}, total={ss3.total}")
 
     print("\nAll self-tests passed!")
     return 0
