@@ -24,7 +24,7 @@ Concretely, the repo contains:
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
 - `scripts/` — 28 small, self-contained helper scripts (5 Node scripts + 23 Python utilities; `run_python.mjs` is only a wrapper, and `scripts/lib/http_cache.mjs` is a Node helper imported by `api_fetch.mjs`). Each ships with an offline `--self-test`. CI runs all of them on every PR.
-- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 48-task frontier probe (bench 2.1, 24 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 50-task frontier probe (bench 2.1, 25 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -178,7 +178,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── dataset-collection.md
 │   ├── evals/
 │   │   ├── dogfood-bench.json            # 12-task regression eval set
-│   │   ├── frontier-bench.json           # 48-task frontier eval set (bench 2.1, 24 classes)
+│   │   ├── frontier-bench.json           # 50-task frontier eval set (bench 2.1, 25 classes)
 │   │   └── fixtures/                     # deterministic empty-score fixtures
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough

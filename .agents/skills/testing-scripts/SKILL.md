@@ -60,7 +60,7 @@ python3 scripts/citation_render.py     self-test   # → "All self-tests passed!
 python3 scripts/extract_tables.py      self-test   # → "All self-tests passed!" (5 subtests)
 python3 scripts/score_source.py        self-test   # → "All self-tests passed!" (4 subtests)
 python3 scripts/research_plan.py       self-test   # → "OK: research_plan self-test passed (NN sub-tests)."
-python3 scripts/run_dogfood.py         self-test   # → "OK: eval benches valid; dogfood-bench.json: 12 tasks, frontier-bench.json: 48 tasks."
+python3 scripts/run_dogfood.py         self-test   # → "OK: eval benches valid; dogfood-bench.json: 12 tasks, frontier-bench.json: 50 tasks."
 python3 scripts/pdf_extract.py         self-test   # → "pdf_extract self-test ok"
 python3 scripts/wayback.py             self-test   # → "wayback self-test ok"
 python3 scripts/wikidata.py            self-test   # → "wikidata self-test ok"

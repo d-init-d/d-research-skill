@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import http.server
 import json
 import os
@@ -414,6 +415,16 @@ def to_ledger_row(resolved: dict[str, Any], source_url: str) -> dict[str, str]:
     title = resolved.get("title", "Untitled")
     year = str(resolved.get("year", ""))
     identifier = doi or resolved.get("pmid", "") or resolved.get("arxiv_id", "") or resolved.get("isbn", "unknown")
+    src_name = (resolved.get('source') or 'citation_resolver')
+    prov_id = (
+        "prov:citation_resolver:" + hashlib.sha256(
+            f"{src_name}|{identifier}".encode("utf-8")
+        ).hexdigest()[:8]
+    )
+    # License is unknown for arbitrary citations - use NOASSERTION as the
+    # SPDX-conformant placeholder. Robots.txt is not applicable to
+    # canonical metadata APIs (CrossRef, NCBI, arXiv, OpenLibrary).
+    license_spdx = "NOASSERTION"
 
     return {
         "claim_id": f"cite-{identifier}",
@@ -435,6 +446,9 @@ def to_ledger_row(resolved: dict[str, Any], source_url: str) -> dict[str, str]:
         "snapshot_status": "",
         "verifiability": "",
         "verifiability_note": "",
+        "license_spdx": license_spdx,
+        "robots_status": "not_applicable",
+        "prov_activity_id": prov_id,
     }
 
 
@@ -804,6 +818,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             "evidence", "quote_or_anchor", "contradiction", "confidence", "notes",
             "archive_url", "content_hash", "snapshot_status", "verifiability",
             "verifiability_note",
+            "license_spdx", "robots_status", "prov_activity_id",
         ]
         missing_fields = [f for f in expected_fields if f not in row]
         if missing_fields:

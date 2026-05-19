@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import email.utils
 import html.parser
 import json
@@ -508,7 +509,10 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
         "evidence", "quote_or_anchor", "contradiction", "confidence", "notes",
         "archive_url", "content_hash", "snapshot_status", "verifiability",
         "verifiability_note",
+        "license_spdx", "robots_status", "prov_activity_id",
     ]
+    prov_seed = (f"multi_extract|{args.url or path.name}").encode("utf-8")
+    prov_id = "prov:multi_extract:" + hashlib.sha256(prov_seed).hexdigest()[:8]
     row = {
         "claim_id": f"extract-{path.stem}",
         "claim": text.strip()[:200],
@@ -529,6 +533,9 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
         "snapshot_status": "",
         "verifiability": "",
         "verifiability_note": "",
+        "license_spdx": "NOASSERTION",
+        "robots_status": "not_applicable",
+        "prov_activity_id": prov_id,
     }
     out_path = Path(args.out_row)
     out_path.parent.mkdir(parents=True, exist_ok=True)

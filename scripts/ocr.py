@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import os
 import shutil
 import subprocess
@@ -160,7 +161,10 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
         "evidence", "quote_or_anchor", "contradiction", "confidence", "notes",
         "archive_url", "content_hash", "snapshot_status", "verifiability",
         "verifiability_note",
+        "license_spdx", "robots_status", "prov_activity_id",
     ]
+    prov_seed = (f"ocr|{url or Path(in_path).name}").encode("utf-8")
+    prov_id = "prov:ocr:" + hashlib.sha256(prov_seed).hexdigest()[:8]
     row = {
         "claim_id": f"ocr-{Path(in_path).stem}",
         "claim": text.strip()[:200],
@@ -181,6 +185,9 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
         "snapshot_status": "",
         "verifiability": "",
         "verifiability_note": "extracted via OCR; accuracy depends on image quality",
+        "license_spdx": "NOASSERTION",
+        "robots_status": "not_applicable",
+        "prov_activity_id": prov_id,
     }
     out_path = Path(args.out_row)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,6 +237,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         "evidence", "quote_or_anchor", "contradiction", "confidence", "notes",
         "archive_url", "content_hash", "snapshot_status", "verifiability",
         "verifiability_note",
+        "license_spdx", "robots_status", "prov_activity_id",
     ]
     mock_row = {
         "claim_id": "ocr-test",
@@ -251,6 +259,9 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         "snapshot_status": "",
         "verifiability": "",
         "verifiability_note": "extracted via OCR",
+        "license_spdx": "NOASSERTION",
+        "robots_status": "not_applicable",
+        "prov_activity_id": "prov:ocr:test0001",
     }
     missing = [f for f in fields if f not in mock_row]
     if missing:

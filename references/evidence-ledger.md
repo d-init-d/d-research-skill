@@ -115,3 +115,60 @@ When `evidence_ledger.py sign` is invoked on a ledger containing these columns, 
 - `verifiability` must be one of the allowed values listed above, or empty.
 - `snapshot_status` must be one of the allowed values listed above, or empty.
 - All other new columns are free-form (no value restriction beyond CSV quoting rules).
+
+
+## Provenance / compliance columns (v3.0, optional)
+
+Three additional optional columns appended after the social-media block. They are **purely additive** — existing ledgers (14-column legacy or 19-column v2.1) continue to validate, sign, and verify without change. Use them only when you can populate the value with real, checked information.
+
+| Field | Allowed values | Semantics |
+|---|---|---|
+| `license_spdx` | empty, `NOASSERTION`, an SPDX-style token (`MIT`, `Apache-2.0`, `CC-BY-4.0`, `CC-BY-NC-4.0`, ...), or `LicenseRef-<token>` | Declared license of the captured source. Use `NOASSERTION` when the source is publicly accessible but no license is declared (the SPDX-conformant placeholder). Leave empty when license discovery has not been attempted. |
+| `robots_status` | empty, `allowed`, `disallowed`, `unknown`, `not_checked`, `not_applicable` | Result of consulting the source host's `robots.txt` for the User-Agent that fetched the evidence. **Never set this to `allowed` unless robots.txt was actually checked**; default to `unknown` or `not_checked` when in doubt. Use `not_applicable` for canonical-metadata APIs (CrossRef, OpenAlex, NCBI), local files, and direct social-media APIs whose access is governed by ToS rather than robots. |
+| `prov_activity_id` | empty or a stable identifier (recommended `prov:<script>:<hash>` or a UUID) | Identifier of the PROV-O `Activity` that generated this row. Lets `evidence_ledger.py prov-export` link claims to extraction events. Identifiers do not need to be globally unique across files; they only need to be stable inside one ledger. |
+
+Validation rules:
+- `license_spdx` must be empty, `NOASSERTION`, `LicenseRef-<token>`, or match `^[A-Za-z0-9.\-+]{1,64}$`.
+- `robots_status` must be empty or one of the values above.
+- `prov_activity_id` must be empty or a non-whitespace token of length 1-128.
+
+### Backward compatibility matrix
+
+| Schema | Columns | Status |
+|---|---|---|
+| Legacy | 14 | Read-only support: validates, signs, verifies. Skips social/provenance checks. |
+| v2.1 social | 19 | Validates, signs, verifies. Provenance columns are not present. |
+| v3.0 provenance | 22 | Validates, signs, verifies. All five social columns plus three provenance columns are included in the canonical bytes hashed by HMAC-SHA256, so tampering with any of them is detected. |
+
+`evidence_ledger.py init` writes the 22-column header so new ledgers default to v3.0. `validate`, `sign`, and `verify` accept all three header sets.
+
+### PROV-O export
+
+```bash
+python scripts/evidence_ledger.py prov-export \
+  --file evidence-ledger.csv \
+  --out prov.jsonld
+```
+
+The exporter emits a JSON-LD document with this shape:
+
+```json
+{
+  "@context": {
+    "prov": "http://www.w3.org/ns/prov#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "dcterms": "http://purl.org/dc/terms/",
+    "dres": "https://github.com/d-init-d/d-research-skill/ns#"
+  },
+  "@graph": [
+    {"@id": "claim:C001", "@type": "prov:Entity",
+     "rdfs:label": "...", "prov:wasGeneratedBy": {"@id": "prov:wayback:abcd1234"}},
+    {"@id": "https://example.com/source", "@type": "prov:Entity",
+     "dres:robotsStatus": "allowed"},
+    {"@id": "prov:wayback:abcd1234", "@type": "prov:Activity",
+     "rdfs:label": "wayback_snapshot", "prov:used": [{"@id": "https://example.com/source"}]}
+  ]
+}
+```
+
+Rows without a `prov_activity_id` still appear as `prov:Entity` nodes; they just do not participate in the activity graph. Legacy and v2.1 ledgers without provenance columns export a graph with only entity nodes (no activities).

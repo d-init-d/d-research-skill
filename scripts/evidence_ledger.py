@@ -6,6 +6,7 @@ Commands:
   validate --file evidence.csv
   sign --file evidence.csv --key-env LEDGER_KEY [--out evidence.csv.hmac]
   verify --file evidence.csv --key-env LEDGER_KEY [--sig evidence.csv.hmac]
+  prov-export --file evidence.csv [--out prov.jsonld]
   self-test
 
 The `sign`/`verify` subcommands implement tamper-evident audit trails
@@ -15,6 +16,12 @@ the "Merkle tree + RSA-4096" sketched by an earlier README draft - HMAC
 is a much simpler primitive that does not require key management
 infrastructure, but it is sufficient for tamper-evidence when the
 signing key is held by a single trusted party.
+
+The `prov-export` subcommand emits a PROV-O JSON-LD document describing
+the ledger as a graph of prov:Entity (claims/sources) and prov:Activity
+(extraction events identified by ``prov_activity_id``). It only uses the
+22-column v3.0 schema; legacy and v2.1 ledgers without provenance columns
+are still exported but the activity graph will be sparse.
 """
 from __future__ import annotations
 
@@ -24,6 +31,7 @@ import hashlib
 import hmac
 import io
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -47,13 +55,26 @@ FIELDS = [
     "snapshot_status",
     "verifiability",
     "verifiability_note",
+    "license_spdx",
+    "robots_status",
+    "prov_activity_id",
 ]
 
 # The original 14 columns (pre-v2.1) for backward compatibility.
 FIELDS_LEGACY = FIELDS[:14]
 
+# v2.1 social-media archival schema (19 columns).
+FIELDS_V2_1 = FIELDS[:19]
+
 # New columns added in v2.1 for social-media archival support.
-FIELDS_SOCIAL = FIELDS[14:]
+FIELDS_SOCIAL = FIELDS[14:19]
+
+# Optional v3.0 provenance/compliance columns appended at the end.
+FIELDS_PROVENANCE = FIELDS[19:]
+
+# All currently-accepted header sets, in the order validate_ledger /
+# canonicalise / sign / verify try to match them. Newest first.
+ACCEPTED_FIELD_SETS = [FIELDS, FIELDS_V2_1, FIELDS_LEGACY]
 
 VALID_SOURCE_TYPES = {
     "primary",
@@ -82,6 +103,47 @@ VALID_VERIFIABILITY = {
 
 VALID_SNAPSHOT_STATUS = {"intact", "edited", "deleted", "unknown", ""}
 
+# v3.0 optional provenance/compliance column rules.
+VALID_ROBOTS_STATUS = {
+    "allowed",
+    "disallowed",
+    "unknown",
+    "not_checked",
+    "not_applicable",
+    "",
+}
+
+# Lightweight SPDX-like identifier check. Accepts:
+#   - empty string
+#   - NOASSERTION
+#   - LicenseRef-<token>
+#   - SPDX-style tokens such as MIT, Apache-2.0, CC-BY-4.0, GPL-3.0-or-later
+# This is deliberately permissive - we only catch obviously invalid values
+# (whitespace, weird characters) and let upstream tools normalise the rest.
+_LICENSE_SPDX_RE = re.compile(r"^[A-Za-z0-9.\-+]{1,64}$")
+
+
+def _is_valid_license_spdx(value: str) -> bool:
+    if not value:
+        return True
+    if value == "NOASSERTION":
+        return True
+    if value.startswith("LicenseRef-"):
+        return bool(_LICENSE_SPDX_RE.match(value[len("LicenseRef-"):])) if value[len("LicenseRef-"):] else False
+    return bool(_LICENSE_SPDX_RE.match(value))
+
+
+# prov_activity_id is intentionally permissive: any non-whitespace token up
+# to 128 chars is acceptable. We recommend `prov:<slug>` or a UUID-like
+# string in docs, but we do not enforce a specific shape.
+_PROV_ID_RE = re.compile(r"^\S{1,128}$")
+
+
+def _is_valid_prov_activity_id(value: str) -> bool:
+    if not value:
+        return True
+    return bool(_PROV_ID_RE.match(value))
+
 
 def init_ledger(out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -95,16 +157,22 @@ def validate_ledger(file: Path) -> int:
     errors: list[str] = []
     with file.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        # Accept both legacy (14-column) and extended (19-column) headers.
+        # Accept legacy (14), v2.1 social (19), and v3.0 provenance (22).
         if reader.fieldnames == FIELDS:
             active_fields = FIELDS
+        elif reader.fieldnames == FIELDS_V2_1:
+            active_fields = FIELDS_V2_1
         elif reader.fieldnames == FIELDS_LEGACY:
             active_fields = FIELDS_LEGACY
         else:
-            errors.append(f"header mismatch: expected {FIELDS} or {FIELDS_LEGACY}, got {reader.fieldnames}")
+            errors.append(
+                "header mismatch: expected 14, 19, or 22 column header; "
+                f"got {reader.fieldnames}"
+            )
             print("\n".join(errors), file=sys.stderr)
             return 1
-        has_social_cols = (active_fields == FIELDS)
+        has_social_cols = len(active_fields) >= 19
+        has_prov_cols = len(active_fields) >= 22
         seen_ids: set[str] = set()
         for i, row in enumerate(reader, start=2):
             claim_id = row.get("claim_id", "").strip()
@@ -126,7 +194,6 @@ def validate_ledger(file: Path) -> int:
             contradiction = row.get("contradiction", "").strip().lower()
             if contradiction not in VALID_CONTRADICTION:
                 errors.append(f"line {i}: invalid contradiction {contradiction}")
-            # Validate new social columns when present.
             if has_social_cols:
                 verifiability = row.get("verifiability", "").strip().lower()
                 if verifiability not in VALID_VERIFIABILITY:
@@ -134,6 +201,24 @@ def validate_ledger(file: Path) -> int:
                 snapshot_status = row.get("snapshot_status", "").strip().lower()
                 if snapshot_status not in VALID_SNAPSHOT_STATUS:
                     errors.append(f"line {i}: invalid snapshot_status {snapshot_status!r}")
+            if has_prov_cols:
+                license_spdx = row.get("license_spdx", "").strip()
+                if not _is_valid_license_spdx(license_spdx):
+                    errors.append(
+                        f"line {i}: invalid license_spdx {license_spdx!r} "
+                        "(expected SPDX-like token, NOASSERTION, LicenseRef-..., or empty)"
+                    )
+                robots_status = row.get("robots_status", "").strip().lower()
+                if robots_status not in VALID_ROBOTS_STATUS:
+                    errors.append(
+                        f"line {i}: invalid robots_status {robots_status!r} "
+                        f"(expected one of {sorted(VALID_ROBOTS_STATUS)})"
+                    )
+                prov_id = row.get("prov_activity_id", "").strip()
+                if not _is_valid_prov_activity_id(prov_id):
+                    errors.append(
+                        f"line {i}: invalid prov_activity_id {prov_id!r}"
+                    )
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
@@ -164,11 +249,14 @@ def canonicalise(file: Path) -> bytes:
         reader = csv.DictReader(f)
         if reader.fieldnames == FIELDS:
             active_fields = FIELDS
+        elif reader.fieldnames == FIELDS_V2_1:
+            active_fields = FIELDS_V2_1
         elif reader.fieldnames == FIELDS_LEGACY:
             active_fields = FIELDS_LEGACY
         else:
             raise ValueError(
-                f"header mismatch: expected {FIELDS} or {FIELDS_LEGACY}, got {reader.fieldnames}"
+                "header mismatch: expected 14, 19, or 22 column header; "
+                f"got {reader.fieldnames}"
             )
         rows = list(reader)
     buf = io.StringIO()
@@ -241,7 +329,117 @@ def verify_ledger(file: Path, key_env: str, sig: Path | None) -> int:
     return 1
 
 
+def prov_export(file: Path, out: Path | None) -> int:
+    """Emit a PROV-O JSON-LD graph for an evidence ledger.
+
+    The output uses a tiny PROV-O subset:
+      - prov:Entity     for each ledger row (the claim) and its source URL
+      - prov:Activity   for each distinct prov_activity_id
+      - prov:wasGeneratedBy linking claims to the activity that produced them
+      - prov:used       linking activities to source URLs
+
+    Rows without a prov_activity_id are still exported as entities; they
+    just do not participate in the activity graph.
+    """
+    import json
+
+    try:
+        with file.open(newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames not in (FIELDS, FIELDS_V2_1, FIELDS_LEGACY):
+                print(
+                    "error: prov-export requires a 14, 19, or 22 column ledger; "
+                    f"got {reader.fieldnames}",
+                    file=sys.stderr,
+                )
+                return 1
+            rows = list(reader)
+    except FileNotFoundError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    graph: list[dict] = []
+    activities: dict[str, dict] = {}
+    seen_sources: dict[str, dict] = {}
+
+    for row in rows:
+        claim_id = (row.get("claim_id") or "").strip()
+        if not claim_id:
+            continue
+        source_url = (row.get("source_url") or "").strip()
+        source_title = (row.get("source_title") or "").strip()
+        prov_id = (row.get("prov_activity_id") or "").strip()
+        license_spdx = (row.get("license_spdx") or "").strip()
+        robots_status = (row.get("robots_status") or "").strip()
+        access_method = (row.get("access_method") or "").strip()
+        date_accessed = (row.get("date_accessed") or "").strip()
+
+        # Claim entity
+        claim_entity: dict = {
+            "@id": f"claim:{claim_id}",
+            "@type": "prov:Entity",
+            "rdfs:label": (row.get("claim") or "").strip()[:200],
+            "dcterms:identifier": claim_id,
+        }
+        if prov_id:
+            claim_entity["prov:wasGeneratedBy"] = {"@id": prov_id}
+        if license_spdx:
+            claim_entity["dcterms:license"] = license_spdx
+        graph.append(claim_entity)
+
+        # Source entity (deduplicated)
+        if source_url and source_url not in seen_sources:
+            source_entity = {
+                "@id": source_url,
+                "@type": "prov:Entity",
+                "rdfs:label": source_title or source_url,
+            }
+            if license_spdx:
+                source_entity["dcterms:license"] = license_spdx
+            if robots_status:
+                source_entity["dres:robotsStatus"] = robots_status
+            seen_sources[source_url] = source_entity
+            graph.append(source_entity)
+
+        # Activity (deduplicated by id)
+        if prov_id and prov_id not in activities:
+            activity = {
+                "@id": prov_id,
+                "@type": "prov:Activity",
+                "rdfs:label": access_method or "extraction",
+            }
+            if date_accessed:
+                activity["prov:endedAtTime"] = date_accessed
+            activity["prov:used"] = []
+            activities[prov_id] = activity
+            graph.append(activity)
+        if prov_id and source_url:
+            used_list = activities[prov_id]["prov:used"]
+            ref = {"@id": source_url}
+            if ref not in used_list:
+                used_list.append(ref)
+
+    doc = {
+        "@context": {
+            "prov": "http://www.w3.org/ns/prov#",
+            "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+            "dcterms": "http://purl.org/dc/terms/",
+            "dres": "https://github.com/d-init-d/d-research-skill/ns#",
+        },
+        "@graph": graph,
+    }
+    body = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+    if out is None:
+        print(body)
+    else:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(body, encoding="utf-8")
+        print(f"wrote PROV-O export to {out}")
+    return 0
+
+
 def self_test() -> int:
+    import json
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:
@@ -389,6 +587,121 @@ def self_test() -> int:
             print("validation should have rejected invalid verifiability/snapshot_status", file=sys.stderr)
             return 1
 
+        # --- Test v3.0 (22-column) ledger validates/signs/verifies ---
+        v3_path = Path(d) / "v3.csv"
+        with v3_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "claim_id": "C001",
+                    "claim": "v3 claim",
+                    "sub_question": "test",
+                    "source_title": "Source",
+                    "source_url": "https://example.com/v3",
+                    "source_type": "primary",
+                    "date_published": "2024-01-01",
+                    "date_accessed": "2026-05-19",
+                    "access_method": "fetch",
+                    "evidence": "test evidence",
+                    "quote_or_anchor": "",
+                    "contradiction": "none",
+                    "confidence": "high",
+                    "notes": "",
+                    "archive_url": "",
+                    "content_hash": "",
+                    "snapshot_status": "intact",
+                    "verifiability": "direct_api",
+                    "verifiability_note": "Public API.",
+                    "license_spdx": "CC-BY-4.0",
+                    "robots_status": "allowed",
+                    "prov_activity_id": "prov:fetch:abcd1234",
+                }
+            )
+        if validate_ledger(v3_path) != 0:
+            print("v3.0 ledger validation failed", file=sys.stderr)
+            return 1
+        if sign_ledger(v3_path, "D_RESEARCH_LEDGER_KEY", None) != 0:
+            print("v3.0 sign failed", file=sys.stderr)
+            return 1
+        if verify_ledger(v3_path, "D_RESEARCH_LEDGER_KEY", None) != 0:
+            print("v3.0 verify failed", file=sys.stderr)
+            return 1
+        # Tamper with prov_activity_id; verify must reject.
+        text = v3_path.read_text(encoding="utf-8")
+        v3_path.write_text(
+            text.replace("prov:fetch:abcd1234", "prov:fetch:00000000"),
+            encoding="utf-8",
+        )
+        if verify_ledger(v3_path, "D_RESEARCH_LEDGER_KEY", None) == 0:
+            print("tamper on prov_activity_id not detected", file=sys.stderr)
+            return 1
+        v3_path.write_text(text, encoding="utf-8")
+        sign_ledger(v3_path, "D_RESEARCH_LEDGER_KEY", None)
+        # Tamper with license_spdx; verify must reject.
+        text = v3_path.read_text(encoding="utf-8")
+        v3_path.write_text(
+            text.replace("CC-BY-4.0", "MIT"),
+            encoding="utf-8",
+        )
+        if verify_ledger(v3_path, "D_RESEARCH_LEDGER_KEY", None) == 0:
+            print("tamper on license_spdx not detected", file=sys.stderr)
+            return 1
+        v3_path.write_text(text, encoding="utf-8")
+
+        # --- Test 22-column validation rejects bad provenance values ---
+        bad_prov = Path(d) / "bad_prov.csv"
+        with bad_prov.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "claim_id": "C001", "claim": "x", "sub_question": "",
+                    "source_title": "", "source_url": "https://x.example",
+                    "source_type": "primary", "date_published": "",
+                    "date_accessed": "", "access_method": "fetch",
+                    "evidence": "", "quote_or_anchor": "",
+                    "contradiction": "none", "confidence": "high", "notes": "",
+                    "archive_url": "", "content_hash": "",
+                    "snapshot_status": "", "verifiability": "",
+                    "verifiability_note": "",
+                    "license_spdx": "Not A License Token",
+                    "robots_status": "INVALID",
+                    "prov_activity_id": "has space invalid",
+                }
+            )
+        if validate_ledger(bad_prov) == 0:
+            print(
+                "validation should have rejected invalid provenance fields",
+                file=sys.stderr,
+            )
+            return 1
+
+        # --- Test prov-export on a 22-column ledger ---
+        prov_out = Path(d) / "prov.jsonld"
+        if prov_export(v3_path, prov_out) != 0:
+            print("prov-export failed", file=sys.stderr)
+            return 1
+        prov_doc = json.loads(prov_out.read_text(encoding="utf-8"))
+        if "@graph" not in prov_doc or not prov_doc["@graph"]:
+            print("prov-export missing @graph", file=sys.stderr)
+            return 1
+        types = {n.get("@type") for n in prov_doc["@graph"]}
+        if "prov:Entity" not in types:
+            print("prov-export missing prov:Entity", file=sys.stderr)
+            return 1
+        if "prov:Activity" not in types:
+            print("prov-export missing prov:Activity", file=sys.stderr)
+            return 1
+        # wasGeneratedBy + used links present
+        joined = json.dumps(prov_doc)
+        if "prov:wasGeneratedBy" not in joined:
+            print("prov-export missing prov:wasGeneratedBy", file=sys.stderr)
+            return 1
+        if "prov:used" not in joined:
+            print("prov-export missing prov:used", file=sys.stderr)
+            return 1
+
     print("evidence_ledger self-test ok")
     return 0
 
@@ -426,6 +739,16 @@ def main() -> int:
         default=None,
         help="Signature sidecar path (default: <ledger>.csv.hmac).",
     )
+    p_prov = sub.add_parser(
+        "prov-export",
+        help="Export the ledger as a PROV-O JSON-LD graph.",
+    )
+    p_prov.add_argument("--file", default="evidence.csv")
+    p_prov.add_argument(
+        "--out",
+        default=None,
+        help="Output JSON-LD path (default: stdout).",
+    )
     sub.add_parser("self-test")
     args = parser.parse_args()
     if args.cmd == "init":
@@ -439,6 +762,9 @@ def main() -> int:
     if args.cmd == "verify":
         sig = Path(args.sig) if args.sig else None
         return verify_ledger(Path(args.file), args.key_env, sig)
+    if args.cmd == "prov-export":
+        out = Path(args.out) if args.out else None
+        return prov_export(Path(args.file), out)
     if args.cmd == "self-test":
         return self_test()
     return 1

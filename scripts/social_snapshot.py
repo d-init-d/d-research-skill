@@ -712,7 +712,15 @@ LEDGER_FIELDS = [
     "evidence", "quote_or_anchor", "contradiction", "confidence", "notes",
     "archive_url", "content_hash", "snapshot_status", "verifiability",
     "verifiability_note",
+    "license_spdx", "robots_status", "prov_activity_id",
 ]
+
+
+def _prov_activity_id(prefix: str, *parts: str) -> str:
+    """Compute a deterministic prov:Activity identifier."""
+    seed = "|".join(p for p in parts if p)
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:8]
+    return f"prov:{prefix}:{digest}"
 
 
 def to_ledger_row(file: Path, out_row: Path) -> int:
@@ -758,6 +766,15 @@ def to_ledger_row(file: Path, out_row: Path) -> int:
         "snapshot_status": verification.get("status", ""),
         "verifiability": snap.get("verifiability", ""),
         "verifiability_note": snap.get("verifiability_note", ""),
+        # v3.0 provenance/compliance fields. We do not check robots.txt for
+        # public social-media APIs - the platform's API ToS governs use.
+        "license_spdx": "NOASSERTION",
+        "robots_status": "not_applicable",
+        "prov_activity_id": _prov_activity_id(
+            f"social-{platform.lower() or 'unknown'}",
+            source_url,
+            content_hash,
+        ),
     }
 
     buf = io.StringIO()

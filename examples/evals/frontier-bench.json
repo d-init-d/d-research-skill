@@ -3,7 +3,7 @@
   "bench_version": "2.1",
   "tier": "frontier",
   "name": "d-research frontier upgrade probe",
-  "description": "Tier 2 frontier probe for upgrade verification. Bench 2.1 keeps the original hard research probes and expands coverage to sixteen classes with at least two tasks per class, so a single lucky pass does not overstate improvement. It covers hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, API/tool drift, systematic review discipline, large-scale collection, monitoring/change detection, multilingual research, anti-bot fallback handling, PDF extraction, Wayback archive access, Wikidata disambiguation, social-media Tier A capture, social-media Tier B archival, and social-media refusal probes.",
+  "description": "Tier 2 frontier probe for upgrade verification. Bench 2.1 keeps the original hard research probes and expands coverage to twenty-five classes with at least two tasks per class, so a single lucky pass does not overstate improvement. It covers hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, API/tool drift, systematic review discipline, large-scale collection, monitoring/change detection, multilingual research, anti-bot fallback handling, PDF extraction, Wayback archive access, Wikidata disambiguation, social-media Tier A capture, social-media Tier B archival, social-media refusal probes, citation resolution, report generation, OCR extraction, translation workflows, semantic retrieval, citation-graph traversal, multi-format extraction, dedup-and-cache, and provenance/compliance metadata.",
   "classes": [
     "hard-atomic-fact",
     "subtle-multiway-contradiction",
@@ -28,7 +28,8 @@
     "semantic-retrieval",
     "citation-graph",
     "multi-format-extraction",
-    "dedup-and-cache"
+    "dedup-and-cache",
+    "provenance-compliance"
   ],
   "scoring": {
     "tier": "frontier",
@@ -1195,6 +1196,59 @@
         "Answering with Levenshtein distance or Jaccard similarity misses the SimHash primitive."
       ],
       "notes": "current_version_status: FAIL - current agents may not know the specific dedup primitive used."
+    },
+    {
+      "task_id": "FB-049",
+      "class": "provenance-compliance",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "Which optional v3.0 evidence-ledger column records the SPDX license identifier of the source, and what column count results when the v3.0 schema is in use?",
+      "expected_answer": {
+        "value": "license_spdx",
+        "format": "field-name",
+        "match_mode": "word",
+        "supporting_fields": {
+          "column_count": "22",
+          "validator": "scripts/evidence_ledger.py",
+          "schema_compatibility": "14-column legacy and 19-column v2.1 ledgers continue to validate",
+          "sibling_columns": "robots_status, prov_activity_id"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/evidence_ledger.py",
+        "templates/evidence-ledger.csv",
+        "references/evidence-ledger.md"
+      ],
+      "negative_signals": [
+        "Listing only verifiability or content_hash misses the new SPDX column.",
+        "Claiming the new columns are required breaks backward compatibility with v2.1 ledgers."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not have seen the v3.0 column additions or may treat them as required instead of optional."
+    },
+    {
+      "task_id": "FB-050",
+      "class": "provenance-compliance",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "Which evidence_ledger.py subcommand exports the ledger as PROV-O JSON-LD, and which two PROV-O classes appear in the @graph?",
+      "expected_answer": {
+        "value": "prov-export",
+        "format": "subcommand",
+        "match_mode": "word",
+        "supporting_fields": {
+          "classes": "prov:Entity and prov:Activity",
+          "links": "prov:wasGeneratedBy, prov:used"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/evidence_ledger.py",
+        "references/evidence-ledger.md"
+      ],
+      "negative_signals": [
+        "Answering with prov-emit or export-prov misses the actual subcommand name.",
+        "Mentioning only prov:Entity without prov:Activity misses half of the graph."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not have seen the new prov-export subcommand or its PROV-O class set."
     }
   ]
 }

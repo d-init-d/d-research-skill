@@ -127,6 +127,7 @@ FRONTIER_CLASSES = {
     "citation-graph",
     "multi-format-extraction",
     "dedup-and-cache",
+    "provenance-compliance",
 }
 
 LEAK_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)

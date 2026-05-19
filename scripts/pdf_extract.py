@@ -233,6 +233,9 @@ def format_ledger_row(meta: dict, text: str, url: str) -> dict:
     # date_accessed is today in ISO 8601
     date_accessed = datetime.date.today().isoformat()
 
+    prov_seed = f"pdf_extract|{url or source_title}".encode("utf-8")
+    prov_id = f"prov:pdf_extract:{hashlib.sha256(prov_seed).hexdigest()[:8]}"
+
     return {
         "claim_id": claim_id,
         "claim": claim,
@@ -253,6 +256,9 @@ def format_ledger_row(meta: dict, text: str, url: str) -> dict:
         "snapshot_status": "",
         "verifiability": "",
         "verifiability_note": "",
+        "license_spdx": "NOASSERTION",
+        "robots_status": "not_applicable",
+        "prov_activity_id": prov_id,
     }
 
 
@@ -312,6 +318,7 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
         "evidence", "quote_or_anchor", "contradiction", "confidence", "notes",
         "archive_url", "content_hash", "snapshot_status", "verifiability",
         "verifiability_note",
+        "license_spdx", "robots_status", "prov_activity_id",
     ]
 
     with out_path.open("a", newline="", encoding="utf-8") as f:
@@ -414,6 +421,7 @@ def cmd_self_test(args: argparse.Namespace) -> int:
             "evidence", "quote_or_anchor", "contradiction", "confidence", "notes",
             "archive_url", "content_hash", "snapshot_status", "verifiability",
             "verifiability_note",
+            "license_spdx", "robots_status", "prov_activity_id",
         ]
         with ledger_out.open("r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
