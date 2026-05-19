@@ -1,18 +1,47 @@
 # D Research
 
-**Browser-First Deep Research & Public Data Collection Skill for AI Agents**
+**Production-grade research skill for AI agents: search, browser automation, APIs, archives, extraction, evidence ledgers, and reproducible evals.**
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+[![Release](https://img.shields.io/github/v/release/d-init-d/d-research-skill?sort=semver)](https://github.com/d-init-d/d-research-skill/releases)
+[![Self-test](https://github.com/d-init-d/d-research-skill/actions/workflows/lint-and-self-test.yml/badge.svg)](https://github.com/d-init-d/d-research-skill/actions/workflows/lint-and-self-test.yml)
+[![Link check](https://github.com/d-init-d/d-research-skill/actions/workflows/link-check.yml/badge.svg)](https://github.com/d-init-d/d-research-skill/actions/workflows/link-check.yml)
 
 Vietnamese docs: [README.vi.md](README.vi.md)
 
-> A markdown-based skill that teaches AI agents (Claude, Devin, GPT-class agents) how to run rigorous, source-backed deep research and lawful public web/data collection. Read-only by default. Never bypasses login, paywalls, captchas, rate limits, or robots restrictions.
+> D Research turns ad hoc agent research into an auditable workflow: plan the question, discover sources, collect public evidence, extract structured data, resolve citations, write a ledger, synthesize claims, and verify the result with offline benchmarks.
 
 ---
 
-## What this repository actually is
+## At a glance
 
-This is **a skill package**, not a runnable Python application or service.
+| Area | What D Research provides |
+|---|---|
+| Primary users | AI agents and agent operators who need source-backed research, public-data collection, literature review, fact verification, or long-horizon investigation workflows. |
+| Access model | Read-only by default. It uses search, browser automation, public APIs, web archives, user-provided read-only databases, and local files. |
+| Evidence model | Every meaningful claim should land in an evidence ledger with source, quote/value, access method, confidence, contradictions, provenance, and optional HMAC signature. |
+| Outputs | Evidence ledgers, citation files, extracted tables, frontier ledgers, coverage maps, research plans, reports, and reproducibility metadata. |
+| Verification | Offline self-tests, internal-reference checks, a 12-task regression bench, and a 50-task frontier bench covering 25 capability classes. |
+| Safety posture | Never bypass login, paywalls, captchas, rate limits, robots restrictions, or access controls. Blocked sources become blocker reports, not escalation attempts. |
+
+## When to use it
+
+Use D Research when an agent needs to:
+
+- answer a question with primary or high-quality sources rather than unsupported assertions;
+- collect lawful public data and preserve an audit trail;
+- compare contradictory sources and record uncertainty;
+- work across search engines, browser pages, APIs, PDFs, archives, academic IDs, and local files;
+- run systematic reviews, technical research, market/public-data scans, or multi-step long-horizon research;
+- verify that a skill upgrade did not regress core research behavior.
+
+Do **not** use it to bypass access controls, scrape private data, deanonymize people, evade platform restrictions, or run a live monitoring service without separate operational controls.
+
+## Product scope
+
+This is **a skill package**, not a hosted crawler, SaaS product, Python package, or API service.
+
+An agent reads `SKILL.md` and follows the workflow. The repository ships instructions, adapter policies, reference playbooks, templates, examples, eval benches, and optional helper scripts. Those helper scripts are deliberately small, local, and auditable; they support the workflow but do not replace the agent.
 
 Concretely, the repo contains:
 
@@ -28,7 +57,7 @@ Concretely, the repo contains:
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
-There is **no Python package**, **no API server**, **no Docker image**, **no `requirements.txt`**, **no notebooks**, and **no service running on `/metrics`** or `/research/start`. If you read older documentation that implied any of those, treat it as out-of-date.
+There is **no Python package**, **no API server**, **no Docker image**, **no `requirements.txt`**, **no notebooks**, and **no service running on `/metrics`** or `/research/start`.
 
 ---
 
@@ -56,7 +85,7 @@ For the full release history (PR #1–#10) see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## Core capabilities (what the skill actually teaches)
+## Core capabilities
 
 1. **Core deep research workflow** — restate goal → decompose topic → source map → query fanout → browser-first probe → extract → expand → evidence ledger → contradiction pass → blocker report → synthesize. See `SKILL.md`.
 2. **Browser-first crawl** with Playwright defaults: probe access state, extract visible text/tables/links/files, classify pages, capture evidence/blocker screenshots. See `adapters/playwright.md` and `references/browser-first-crawl.md`.

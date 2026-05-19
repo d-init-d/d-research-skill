@@ -1,10 +1,42 @@
 # D Research (Tiếng Việt)
 
-Tài liệu tiếng Anh chính và đầy đủ nhất: [README.md](README.md). Bản tiếng Việt này là bản tóm tắt nhanh; bảng tính năng và bảng config đầy đủ nằm trong README tiếng Anh.
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+[![Release](https://img.shields.io/github/v/release/d-init-d/d-research-skill?sort=semver)](https://github.com/d-init-d/d-research-skill/releases)
+[![Self-test](https://github.com/d-init-d/d-research-skill/actions/workflows/lint-and-self-test.yml/badge.svg)](https://github.com/d-init-d/d-research-skill/actions/workflows/lint-and-self-test.yml)
 
-D Research là một skill dạng markdown cho AI agent. Nó dạy agent cách làm nghiên cứu chuyên sâu, thu thập dữ liệu công khai hợp pháp, ghi chứng cứ, tạo báo cáo có trích dẫn và giữ toàn bộ đầu ra trong một workspace có thể bàn giao lại.
+**Skill nghiên cứu production-grade cho AI agent: web search, browser automation, API, archive, trích xuất dữ liệu, evidence ledger và benchmark tái lập.**
 
-Đây không phải app, API server hay package Python. Agent đọc `SKILL.md` và làm theo workflow; các script trong `scripts/` chỉ là helper tùy chọn.
+Tài liệu tiếng Anh đầy đủ nhất nằm ở [README.md](README.md). Bản tiếng Việt này là bản giới thiệu thực dụng cho người dùng Việt: đủ để hiểu sản phẩm, cài đặt, kiểm tra và quyết định có nên dùng trong workflow của mình không.
+
+D Research biến research bằng agent từ kiểu "tìm nhanh rồi trả lời" thành một quy trình có kiểm chứng: lập kế hoạch câu hỏi, tìm nguồn, thu thập dữ liệu công khai hợp pháp, trích xuất nội dung, ghi evidence ledger, xử lý mâu thuẫn, dựng báo cáo có citation và giữ lại metadata để audit.
+
+## Tổng quan nhanh
+
+| Mục | D Research cung cấp |
+|---|---|
+| Người dùng chính | AI agent, người vận hành agent, researcher, developer hoặc team cần kết quả research có nguồn và có thể kiểm tra lại. |
+| Cách truy cập | Read-only mặc định. Skill có thể dùng web search, browser automation, public API, Wayback/archive, database read-only do user cấp, và file local. |
+| Đầu ra | Evidence ledger, citation file, bảng trích xuất, frontier ledger, coverage map, research plan, report, metadata tái lập. |
+| Kiểm chứng | Self-test offline, internal-reference check, dogfood bench 12 task, frontier bench 50 task / 25 class. |
+| Ranh giới an toàn | Không bypass login, paywall, captcha, rate limit, robots restriction hoặc access control. Nguồn bị chặn thì ghi blocker report. |
+
+## Khi nào nên dùng
+
+Dùng D Research khi bạn muốn agent:
+
+- trả lời bằng nguồn rõ ràng, có quote/value và confidence;
+- thu thập dữ liệu công khai hợp pháp nhưng vẫn giữ audit trail;
+- xử lý PDF, bảng HTML, JSON-LD, API, archive, Wikidata, DOI/PMID/arXiv/ISBN;
+- làm systematic review, fact verification, research kỹ thuật, market/public-data scan hoặc task dài nhiều bước;
+- kiểm tra sau mỗi lần upgrade rằng skill không yếu đi.
+
+Không dùng skill này để bypass access control, thu thập dữ liệu riêng tư, deanonymize người dùng, né restriction của nền tảng, hoặc biến nó thành live monitoring service nếu chưa có một hệ thống vận hành riêng.
+
+## Phạm vi sản phẩm
+
+Đây là **skill package**, không phải app, API server, crawler SaaS hay package Python. Agent đọc `SKILL.md` và làm theo workflow. Các file trong `references/`, `adapters/`, `templates/`, `examples/` và `scripts/` là tài liệu và helper để agent làm research nhất quán hơn.
+
+Các script trong `scripts/` là helper tùy chọn, nhỏ và dễ audit. Chúng hỗ trợ workflow nhưng không thay thế agent.
 
 ## Vòng đời research (v3.0)
 
@@ -25,7 +57,7 @@ Lịch sử release đầy đủ (PR #1–#10) xem [CHANGELOG.md](CHANGELOG.md).
 ## Tính năng chính
 
 - Workflow nghiên cứu cốt lõi: hiểu mục tiêu, chia câu hỏi, tìm nguồn, trích xuất, ledger chứng cứ, kiểm tra mâu thuẫn, tổng hợp.
-- Browser-first research với Playwright mặc định, nhưng vẫn có adapter generic browser/fetch/search.
+- Research đa kênh: web search, browser automation, fetch-only, public API, Wayback/archive, Wikidata, GraphQL và database read-only khi user cấp quyền.
 - Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
 - Citation export/render: BibTeX, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
 - Citation resolver cho academic identifiers: DOI, PMID, arXiv ID, ISBN. `scripts/citation_resolver.py` resolve qua các API công khai miễn phí (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall), emit BibTeX hoặc evidence-ledger row. Là Step 0 fast path khi user paste sẵn DOI/PMID/arXiv ID/ISBN — bỏ qua workflow research đầy đủ vì đã có canonical metadata trong 1 request. Xem `adapters/citation-resolver.md`.
