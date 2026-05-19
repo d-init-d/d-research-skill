@@ -26,7 +26,8 @@
     "ocr-extraction",
     "translation-workflow",
     "semantic-retrieval",
-    "citation-graph"
+    "citation-graph",
+    "multi-format-extraction"
   ],
   "scoring": {
     "tier": "frontier",
@@ -1095,6 +1096,55 @@
         "Answering with cited_by_count or referenced_works misses the actual API filter parameter."
       ],
       "notes": "current_version_status: FAIL - current agents may confuse the filter name with response fields."
+    },
+    {
+      "task_id": "FB-045",
+      "class": "multi-format-extraction",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "Which backend does multi_extract.py text use for DOCX files?",
+      "expected_answer": {
+        "value": "pandoc",
+        "format": "backend-name",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/multi_extract.py",
+          "soft_fail": "prints install message if pandoc missing"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/multi_extract.py",
+        "references/multi-format-extraction.md"
+      ],
+      "negative_signals": [
+        "Answering with python-docx or openpyxl misses the actual pandoc backend."
+      ],
+      "notes": "current_version_status: FAIL - current agents may assume a Python library is used instead of pandoc."
+    },
+    {
+      "task_id": "FB-046",
+      "class": "multi-format-extraction",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "How does multi_extract.py text extract XLSX cell values without external dependencies?",
+      "expected_answer": {
+        "value": "sharedStrings.xml",
+        "format": "implementation-detail",
+        "match_mode": "substring",
+        "case_sensitive": false,
+        "supporting_fields": {
+          "script": "scripts/multi_extract.py",
+          "method": "stdlib zipfile + xl/sharedStrings.xml + xl/worksheets/sheet*.xml"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/multi_extract.py",
+        "references/multi-format-extraction.md"
+      ],
+      "negative_signals": [
+        "Answering with openpyxl or pandas misses the stdlib-only zipfile+XML approach."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know about the stdlib XLSX extraction method."
     }
   ]
 }
