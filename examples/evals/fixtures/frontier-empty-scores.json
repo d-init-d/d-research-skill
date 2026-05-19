@@ -508,6 +508,28 @@
       "recall": 0.0,
       "refusal": null,
       "task_id": "FB-046"
+    },
+    {
+      "accuracy": 0.0,
+      "class": "dedup-and-cache",
+      "difficulty": "medium",
+      "expected_action": null,
+      "ledger_rows": 0,
+      "passed": false,
+      "recall": 0.0,
+      "refusal": null,
+      "task_id": "FB-047"
+    },
+    {
+      "accuracy": 0.0,
+      "class": "dedup-and-cache",
+      "difficulty": "hard",
+      "expected_action": null,
+      "ledger_rows": 0,
+      "passed": false,
+      "recall": 0.0,
+      "refusal": null,
+      "task_id": "FB-048"
     }
   ],
   "tier": "frontier"

@@ -19,11 +19,19 @@ import argparse
 import csv
 import io
 import json
+import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+# Optional shared HTTP cache (opt-in via D_RESEARCH_HTTP_CACHE_PATH).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import http_cache as _http_cache
+except ImportError:  # pragma: no cover
+    _http_cache = None
 
 
 # ---------------------------------------------------------------------------
@@ -41,14 +49,31 @@ class WikidataClient:
     )
 
     def _request(self, url: str, data: bytes | None = None) -> bytes:
-        """Make an HTTP request with User-Agent header. Returns response bytes."""
+        """Make an HTTP request with User-Agent header. Returns response bytes.
+
+        For GET requests (data is None) and when D_RESEARCH_HTTP_CACHE_PATH is
+        set, results are cached. Cache failures are non-fatal.
+        """
+        is_get = data is None
+        request_headers = {"User-Agent": self.USER_AGENT}
+
+        if is_get and _http_cache is not None:
+            try:
+                cached = _http_cache.get("GET", url, request_headers=request_headers)
+                if cached:
+                    return cached["body"]
+            except Exception:  # noqa: BLE001
+                pass
+
         req = urllib.request.Request(url)
         req.add_header("User-Agent", self.USER_AGENT)
         if data is not None:
             req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
             with urllib.request.urlopen(req, data=data) as resp:
-                return resp.read()
+                body = resp.read()
+                resp_headers = dict(resp.headers.items()) if resp.headers else {}
+                status = resp.status
         except urllib.error.HTTPError as exc:
             print(
                 f"Error: Wikidata API returned HTTP {exc.code}: {exc.reason}",
@@ -58,6 +83,16 @@ class WikidataClient:
         except urllib.error.URLError as exc:
             print(f"Error: Network error: {exc.reason}", file=sys.stderr)
             sys.exit(1)
+
+        if is_get and _http_cache is not None and 200 <= status < 300:
+            try:
+                _http_cache.put(
+                    "GET", url, status, resp_headers, body,
+                    request_headers=request_headers,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return body
 
     def search_entities(
         self, term: str, type_filter: str | None = None, limit: int = 5
@@ -344,6 +379,10 @@ def cmd_self_test(_args: argparse.Namespace) -> None:
     """Run offline self-tests with mocked HTTP responses."""
     failures: list[str] = []
 
+    # Isolate the HTTP cache so a stale local cache cannot mask mock HTTP.
+    cache_env = "D_RESEARCH_HTTP_CACHE_PATH"
+    saved_cache = os.environ.pop(cache_env, None)
+
     # --- Mock infrastructure ---
     mock_responses: dict[str, bytes] = {}
     mock_should_fail: dict[str, int] = {}
@@ -356,6 +395,7 @@ def cmd_self_test(_args: argparse.Namespace) -> None:
             self.code = code
             self.status = code
             self.reason = "OK" if code == 200 else "Not Found"
+            self.headers = {"content-type": "application/json"}
 
         def read(self) -> bytes:
             return self._data.read()
@@ -602,6 +642,8 @@ def cmd_self_test(_args: argparse.Namespace) -> None:
     finally:
         # Restore original urlopen
         urllib.request.urlopen = original_urlopen
+        if saved_cache is not None:
+            os.environ[cache_env] = saved_cache
 
     if failures:
         for f in failures:

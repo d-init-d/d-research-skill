@@ -27,7 +27,8 @@
     "translation-workflow",
     "semantic-retrieval",
     "citation-graph",
-    "multi-format-extraction"
+    "multi-format-extraction",
+    "dedup-and-cache"
   ],
   "scoring": {
     "tier": "frontier",
@@ -1145,6 +1146,55 @@
         "Answering with openpyxl or pandas misses the stdlib-only zipfile+XML approach."
       ],
       "notes": "current_version_status: FAIL - current agents may not know about the stdlib XLSX extraction method."
+    },
+    {
+      "task_id": "FB-047",
+      "class": "dedup-and-cache",
+      "difficulty": "medium",
+      "expected_branch": "fact-verification",
+      "question": "What env var enables the shared HTTP cache used by api_fetch.mjs and other scripts?",
+      "expected_answer": {
+        "value": "D_RESEARCH_HTTP_CACHE_PATH",
+        "format": "env-var",
+        "match_mode": "word",
+        "supporting_fields": {
+          "script": "scripts/http_cache.py",
+          "node_helper": "scripts/lib/http_cache.mjs"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/http_cache.py",
+        "references/http-cache.md"
+      ],
+      "negative_signals": [
+        "Answering with a generic CACHE_PATH or skipping the env var name misses the opt-in mechanism."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know the specific env var that enables HTTP caching."
+    },
+    {
+      "task_id": "FB-048",
+      "class": "dedup-and-cache",
+      "difficulty": "hard",
+      "expected_branch": "fact-verification",
+      "question": "Which similarity primitive does dedup_near.py use to detect near-duplicate text?",
+      "expected_answer": {
+        "value": "SimHash",
+        "format": "algorithm-name",
+        "match_mode": "substring",
+        "case_sensitive": false,
+        "supporting_fields": {
+          "script": "scripts/dedup_near.py",
+          "method": "64-bit SimHash + Hamming distance over 3-token shingles"
+        }
+      },
+      "ground_truth_sources": [
+        "scripts/dedup_near.py",
+        "references/deduplication.md"
+      ],
+      "negative_signals": [
+        "Answering with Levenshtein distance or Jaccard similarity misses the SimHash primitive."
+      ],
+      "notes": "current_version_status: FAIL - current agents may not know the specific dedup primitive used."
     }
   ]
 }

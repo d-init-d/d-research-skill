@@ -96,6 +96,20 @@ On resume, validate checkpoint integrity:
 
 ## Adaptive Rate Limiting
 
+For repeated runs during development, enable the shared HTTP cache to avoid hitting public APIs repeatedly:
+
+```bash
+export D_RESEARCH_HTTP_CACHE_PATH=~/.cache/d-research-skill
+```
+
+Cached responses don't count toward rate limits. See `references/http-cache.md`. After a large collection, run near-duplicate detection to consolidate the evidence ledger:
+
+```bash
+python scripts/dedup_near.py ledger --in evidence-ledger.csv --out duplicates.csv
+```
+
+See `references/deduplication.md` for the SimHash workflow.
+
 Rate limits must adapt to server behavior and response quality.
 
 ### Initial Delay

@@ -23,12 +23,21 @@ import hashlib
 import http.server
 import io
 import json
+import os
 import sys
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# Optional shared HTTP cache (opt-in via D_RESEARCH_HTTP_CACHE_PATH).
+# Imported via sys.path manipulation so this script can be run directly.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import http_cache as _http_cache
+except ImportError:  # pragma: no cover
+    _http_cache = None
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -150,21 +159,48 @@ def parse_cdx_response(raw: str) -> list[dict]:
 def _make_request(url: str) -> bytes:
     """Make an HTTP GET request with a polite User-Agent header.
 
+    When D_RESEARCH_HTTP_CACHE_PATH is set, a successful response is cached
+    keyed on the final URL plus the User-Agent. Cache failures are non-fatal.
+
     Raises
     ------
     SystemExit
         On network errors, prints an error message and exits with code 1.
     """
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    request_headers = {"User-Agent": USER_AGENT}
+
+    # Cache lookup (opt-in)
+    if _http_cache is not None:
+        try:
+            cached = _http_cache.get("GET", url, request_headers=request_headers)
+            if cached:
+                return cached["body"]
+        except Exception:  # noqa: BLE001 - cache failures are non-fatal
+            pass
+
+    req = urllib.request.Request(url, headers=request_headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read()
+            body = resp.read()
+            response_headers = dict(resp.headers.items()) if resp.headers else {}
+            status = resp.status
     except urllib.error.HTTPError as e:
         print(f"error: request failed for {url}: HTTP {e.code}", file=sys.stderr)
         sys.exit(1)
     except urllib.error.URLError as e:
         print(f"error: request failed for {url}: {e.reason}", file=sys.stderr)
         sys.exit(1)
+
+    # Cache write (opt-in, non-fatal on failure)
+    if _http_cache is not None and 200 <= status < 300:
+        try:
+            _http_cache.put(
+                "GET", url, status, response_headers, body,
+                request_headers=request_headers,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -270,11 +306,33 @@ def fetch_with_backoff(url: str, method: str = "GET", max_retries: int = MAX_RET
     SystemExit
         On network errors or exhausted retries.
     """
+    request_headers = {"User-Agent": USER_AGENT}
+
+    # Cache lookup for GET requests (opt-in)
+    if method.upper() == "GET" and _http_cache is not None:
+        try:
+            cached = _http_cache.get("GET", url, request_headers=request_headers)
+            if cached:
+                return cached["body"]
+        except Exception:  # noqa: BLE001
+            pass
+
     for attempt in range(max_retries + 1):
-        req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})
+        req = urllib.request.Request(url, method=method, headers=request_headers)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
-                return resp.read()
+                body = resp.read()
+                resp_headers = dict(resp.headers.items()) if resp.headers else {}
+                status = resp.status
+            if method.upper() == "GET" and _http_cache is not None and 200 <= status < 300:
+                try:
+                    _http_cache.put(
+                        "GET", url, status, resp_headers, body,
+                        request_headers=request_headers,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return body
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < max_retries:
                 delay = 2 ** (attempt + 1)
@@ -581,6 +639,10 @@ def cmd_self_test(args: argparse.Namespace) -> int:
     orig_cdx_api = CDX_API
     orig_availability_api = AVAILABILITY_API
 
+    # Isolate the HTTP cache so a stale local cache cannot mask mock HTTP.
+    cache_env = "D_RESEARCH_HTTP_CACHE_PATH"
+    saved_cache = os.environ.pop(cache_env, None)
+
     # Start mock server on random port
     server = http.server.HTTPServer(("127.0.0.1", 0), _MockHandler)
     port = server.server_address[1]
@@ -736,6 +798,9 @@ def cmd_self_test(args: argparse.Namespace) -> int:
         # Restore original constants
         CDX_API = orig_cdx_api
         AVAILABILITY_API = orig_availability_api
+        # Restore cache env if it was set
+        if saved_cache is not None:
+            os.environ[cache_env] = saved_cache
         # Shut down mock server
         server.shutdown()
 

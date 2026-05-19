@@ -19,6 +19,7 @@ import argparse
 import csv
 import http.server
 import json
+import os
 import sys
 import threading
 import time
@@ -27,6 +28,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+# Optional shared HTTP cache (opt-in via D_RESEARCH_HTTP_CACHE_PATH).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import http_cache as _http_cache
+except ImportError:  # pragma: no cover
+    _http_cache = None
 
 OPENALEX_API = "https://api.openalex.org"
 USER_AGENT = (
@@ -51,16 +59,51 @@ FRONTIER_FIELDS = [
 
 
 def _request(url: str, delay: float | None = None) -> dict[str, Any] | None:
-    """Polite GET request to OpenAlex."""
+    """Polite GET request to OpenAlex.
+
+    When D_RESEARCH_HTTP_CACHE_PATH is set, results are cached. Cache
+    failures are non-fatal and never bypass the polite delay on a real fetch.
+    """
+    request_headers = {"User-Agent": USER_AGENT}
+
+    # Cache lookup happens before the polite delay - a hot cache should be fast.
+    if _http_cache is not None:
+        try:
+            cached = _http_cache.get("GET", url, request_headers=request_headers)
+            if cached:
+                try:
+                    return json.loads(cached["body"])
+                except (json.JSONDecodeError, ValueError):
+                    pass  # Fall through to live fetch
+        except Exception:  # noqa: BLE001
+            pass
+
     actual_delay = DEFAULT_DELAY if delay is None else delay
     if actual_delay > 0:
         time.sleep(actual_delay)
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    req = urllib.request.Request(url, headers=request_headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as e:
+            body = resp.read()
+            resp_headers = dict(resp.headers.items()) if resp.headers else {}
+            status = resp.status
+    except (urllib.error.URLError, urllib.error.HTTPError) as e:
         print(f"warning: request failed for {url}: {e}", file=sys.stderr)
+        return None
+
+    if _http_cache is not None and 200 <= status < 300:
+        try:
+            _http_cache.put(
+                "GET", url, status, resp_headers, body,
+                request_headers=request_headers,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as e:
+        print(f"warning: invalid JSON for {url}: {e}", file=sys.stderr)
         return None
 
 
@@ -502,6 +545,10 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
     orig_api, orig_delay = OPENALEX_API, DEFAULT_DELAY
     DEFAULT_DELAY = 0
 
+    # Isolate the HTTP cache so a stale local cache cannot mask mock HTTP.
+    cache_env = "D_RESEARCH_HTTP_CACHE_PATH"
+    saved_cache = os.environ.pop(cache_env, None)
+
     server = http.server.HTTPServer(("127.0.0.1", 0), _MockHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -589,6 +636,8 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
 
     finally:
         OPENALEX_API, DEFAULT_DELAY = orig_api, orig_delay
+        if saved_cache is not None:
+            os.environ[cache_env] = saved_cache
         server.shutdown()
 
     if errors:

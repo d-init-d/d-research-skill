@@ -21,6 +21,7 @@ import argparse
 import csv
 import http.server
 import json
+import os
 import re
 import sys
 import threading
@@ -30,6 +31,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+# Optional shared HTTP cache (opt-in via D_RESEARCH_HTTP_CACHE_PATH).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import http_cache as _http_cache
+except ImportError:  # pragma: no cover
+    _http_cache = None
 
 USER_AGENT = (
     "d-research-skill/0.3.0 "
@@ -54,35 +62,86 @@ BATCH_DELAY_SEC = 1.0
 
 
 def _request(url: str, *, timeout: int = 30) -> bytes:
-    """Make a polite HTTP GET request."""
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    """Make a polite HTTP GET request.
+
+    When D_RESEARCH_HTTP_CACHE_PATH is set, results are cached. Cache
+    failures are non-fatal.
+    """
+    request_headers = {"User-Agent": USER_AGENT}
+
+    if _http_cache is not None:
+        try:
+            cached = _http_cache.get("GET", url, request_headers=request_headers)
+            if cached:
+                return cached["body"]
+        except Exception:  # noqa: BLE001
+            pass
+
+    req = urllib.request.Request(url, headers=request_headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read()
+            body = resp.read()
+            resp_headers = dict(resp.headers.items()) if resp.headers else {}
+            status = resp.status
     except urllib.error.HTTPError as e:
         print(f"error: HTTP {e.code} for {url}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
     except urllib.error.URLError as e:
         print(f"error: {e.reason} for {url}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
+
+    if _http_cache is not None and 200 <= status < 300:
+        try:
+            _http_cache.put(
+                "GET", url, status, resp_headers, body,
+                request_headers=request_headers,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    return body
 
 
 def _request_with_backoff(url: str, *, max_retries: int = MAX_RETRIES) -> bytes:
-    """HTTP GET with exponential backoff on 429."""
+    """HTTP GET with exponential backoff on 429.
+
+    Cache lookup happens once before the first attempt. Successful responses
+    populate the cache. Cache failures are non-fatal.
+    """
+    request_headers = {"User-Agent": USER_AGENT}
+
+    if _http_cache is not None:
+        try:
+            cached = _http_cache.get("GET", url, request_headers=request_headers)
+            if cached:
+                return cached["body"]
+        except Exception:  # noqa: BLE001
+            pass
+
     for attempt in range(max_retries + 1):
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        req = urllib.request.Request(url, headers=request_headers)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
-                return resp.read()
+                body = resp.read()
+                resp_headers = dict(resp.headers.items()) if resp.headers else {}
+                status = resp.status
+            if _http_cache is not None and 200 <= status < 300:
+                try:
+                    _http_cache.put(
+                        "GET", url, status, resp_headers, body,
+                        request_headers=request_headers,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return body
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < max_retries:
                 time.sleep(2 ** (attempt + 1))
                 continue
             print(f"error: HTTP {e.code} for {url}", file=sys.stderr)
-            raise SystemExit(1)
+            raise SystemExit(1) from e
         except urllib.error.URLError as e:
             print(f"error: {e.reason} for {url}", file=sys.stderr)
-            raise SystemExit(1)
+            raise SystemExit(1) from e
     print(f"error: exhausted retries for {url}", file=sys.stderr)
     raise SystemExit(1)
 
@@ -664,6 +723,10 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
 
     orig = (CROSSREF_API, DATACITE_API, UNPAYWALL_API, NCBI_EFETCH, ARXIV_API, OPENLIBRARY_API)
 
+    # Isolate the HTTP cache so a stale local cache cannot mask mock HTTP.
+    cache_env = "D_RESEARCH_HTTP_CACHE_PATH"
+    saved_cache = os.environ.pop(cache_env, None)
+
     server = http.server.HTTPServer(("127.0.0.1", 0), _MockHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -774,6 +837,8 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         errors.append("unexpected SystemExit during self-test")
     finally:
         CROSSREF_API, DATACITE_API, UNPAYWALL_API, NCBI_EFETCH, ARXIV_API, OPENLIBRARY_API = orig
+        if saved_cache is not None:
+            os.environ[cache_env] = saved_cache
         server.shutdown()
 
     if errors:
