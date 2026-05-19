@@ -19,9 +19,11 @@ signing key is held by a single trusted party.
 
 The `prov-export` subcommand emits a PROV-O JSON-LD document describing
 the ledger as a graph of prov:Entity (claims/sources) and prov:Activity
-(extraction events identified by ``prov_activity_id``). It only uses the
-22-column v3.0 schema; legacy and v2.1 ledgers without provenance columns
-are still exported but the activity graph will be sparse.
+(extraction events identified by ``prov_activity_id``). It accepts
+14-column legacy, 19-column v2.1, and 22-column v3.0 ledgers; the
+prov:Activity graph is only populated for rows whose ``prov_activity_id``
+column exists and is non-empty (so legacy and v2.1 exports yield an
+entity-only graph).
 """
 from __future__ import annotations
 

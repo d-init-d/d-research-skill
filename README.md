@@ -19,11 +19,11 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 41 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, …).
+- `references/` — 41 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, …) plus `references/i18n/` refusal templates (en, vi).
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
-- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger, screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
-- `scripts/` — 28 small, self-contained helper scripts (5 Node scripts + 23 Python utilities; `run_python.mjs` is only a wrapper, and `scripts/lib/http_cache.mjs` is a Node helper imported by `api_fetch.mjs`). Each ships with an offline `--self-test`. CI runs all of them on every PR.
+- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.0, 22 columns, optional `license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
+- `scripts/` — 34 small, self-contained files. 32 of them are research helpers with an offline `--self-test` (Python research utilities, 6 top-level Node scripts, plus 1 Node helper at `scripts/lib/http_cache.mjs`; `run_python.mjs` is only a wrapper); the remaining 2 are pre-commit utility scripts (`check_node_syntax.py`, `check_no_plan_files.py`) that run as checks rather than self-tests. CI runs every research helper's self-test on each PR.
 - `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 50-task frontier probe (bench 2.1, 25 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
@@ -35,6 +35,24 @@ There is **no Python package**, **no API server**, **no Docker image**, **no `re
 ## Vietnamese summary
 
 For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays in English for broad compatibility with agent and IDE marketplaces.
+
+---
+
+## Workflow lifecycle (v3.0)
+
+The skill is organised around seven research lifecycle pillars. Each pillar is a small, composable step, and every pillar produces an artifact that the next pillar consumes.
+
+| # | Pillar | What happens | Key files |
+|---|---|---|---|
+| 1 | **discover** | Restate the goal, decompose, build a source map, generate query fanout. | `references/topic-decomposition.md`, `references/source-discovery.md`, `references/query-patterns.md` |
+| 2 | **fetch** | Browser-first probe + lawful fallbacks; opt-in shared HTTP cache; resolve canonical IDs (DOI/PMID/arXiv/ISBN) before broad search. | `adapters/playwright.md`, `references/browser-first-crawl.md`, `references/anti-bot-fallback.md`, `references/http-cache.md`, `scripts/citation_resolver.py` |
+| 3 | **extract** | Pull text, tables, structured data (JSON-LD, microdata, RDFa), PDF / DOCX / EPUB / XLSX / mbox, OCR images. | `references/data-extraction-toolbox.md`, `references/multi-format-extraction.md`, `scripts/extract_tables.py`, `scripts/multi_extract.py`, `scripts/pdf_extract.py`, `scripts/ocr.py` |
+| 4 | **analyze** | Clean, dedup, score sources, traverse citation graphs, run semantic retrieval, detect contradictions. | `scripts/data_clean.py`, `scripts/dedup_near.py`, `scripts/score_source.py`, `scripts/citation_graph.py`, `scripts/embed_corpus.py` |
+| 5 | **synthesize** | Combine evidence into atomic claims; apply synthesis patterns; render citations in the required style. | `references/synthesis-patterns.md`, `references/citation-management.md`, `scripts/citation_render.py`, `scripts/citation_export.py` |
+| 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
+| 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
+
+For the full release history (PR #1–#10) see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -341,34 +359,55 @@ Run the bundled offline self-tests to confirm everything is wired correctly:
 
 ```bash
 npm run self-test
-# or individually:
-node scripts/playwright_probe.mjs --self-test
-node scripts/playwright_extract.mjs --self-test
-node scripts/playwright_crawl.mjs --self-test
-node scripts/api_fetch.mjs --self-test
-node scripts/web_search.mjs --self-test
-python3 scripts/evidence_ledger.py self-test
-python3 scripts/data_clean.py self-test
-python3 scripts/citation_export.py self-test
-python3 scripts/citation_render.py self-test
-python3 scripts/extract_tables.py self-test
-python3 scripts/score_source.py self-test
-python3 scripts/research_plan.py self-test
-python3 scripts/run_dogfood.py self-test
-python3 scripts/pdf_extract.py self-test
-python3 scripts/wayback.py self-test
-python3 scripts/wikidata.py self-test
-python3 scripts/social_snapshot.py self-test
-python3 scripts/citation_resolver.py self-test
-python3 scripts/report_render.py self-test
-python3 scripts/ocr.py self-test
-python3 scripts/translate.py self-test
-python3 scripts/embed_corpus.py self-test
-python3 scripts/bench_harness_check.py self-test
-python3 scripts/check_internal_refs.py
 ```
 
-All twenty-four commands exit `0` and print pass markers (e.g. `ALL TESTS PASSED`, `All self-tests passed!`, `✓ PASS`).
+`npm run self-test` is the canonical full chain. It runs every research helper's `--self-test`, the bench-harness consistency check, the internal-refs check, the decision-tree audit, and the `run_metadata` self-test. Pass criteria: exit code `0` and the final command prints
+`OK: every references/*.md is reachable from the decision tree.`
+
+If you want to isolate a failure, the most useful individual checks are:
+
+```bash
+# All research helpers ship a self-test subcommand:
+node scripts/playwright_probe.mjs   --self-test
+node scripts/playwright_extract.mjs --self-test
+node scripts/playwright_crawl.mjs   --self-test
+node scripts/api_fetch.mjs          --self-test
+node scripts/web_search.mjs         --self-test
+node scripts/lib/http_cache.mjs     --self-test
+python3 scripts/evidence_ledger.py self-test
+python3 scripts/data_clean.py      self-test
+python3 scripts/citation_export.py self-test
+python3 scripts/citation_render.py self-test
+python3 scripts/extract_tables.py  self-test
+python3 scripts/score_source.py    self-test
+python3 scripts/research_plan.py   self-test
+python3 scripts/run_dogfood.py     self-test
+python3 scripts/pdf_extract.py     self-test
+python3 scripts/wayback.py         self-test
+python3 scripts/wikidata.py        self-test
+python3 scripts/social_snapshot.py self-test
+python3 scripts/citation_resolver.py self-test
+python3 scripts/report_render.py   self-test
+python3 scripts/ocr.py             self-test
+python3 scripts/translate.py       self-test
+python3 scripts/embed_corpus.py    self-test
+python3 scripts/citation_graph.py  self-test
+python3 scripts/multi_extract.py   self-test
+python3 scripts/dedup_near.py      self-test
+python3 scripts/http_cache.py      self-test
+python3 scripts/bench_harness_check.py self-test
+python3 scripts/run_metadata.py    self-test
+
+# Documentation graph health (no `--self-test`; these are checks):
+python3 scripts/check_internal_refs.py
+python3 scripts/check_internal_refs.py --decision-tree
+
+# Pre-commit utility scripts (also checks, not self-tests):
+python3 scripts/check_node_syntax.py
+python3 scripts/check_no_plan_files.py README.md   # passes (file is allowed)
+```
+
+Each research helper exits `0` and prints a pass marker such as `ok`, `ALL TESTS PASSED`, `All self-tests passed!`, or `✓ PASS`. The two pre-commit utility scripts (`check_node_syntax.py`, `check_no_plan_files.py`) and the two `check_internal_refs.py` invocations are checks, not self-tests, and exit `0` when there is nothing to flag.
 
 ### npm scripts
 

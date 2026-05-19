@@ -75,6 +75,92 @@ def looks_like_internal_ref(token: str) -> bool:
     return True
 
 
+# ----------------------------------------------------------------------
+# Decision-tree audit
+# ----------------------------------------------------------------------
+
+# Anchor files: every references/*.md should be reachable from one of
+# these. We crawl one extra hop so a reference linked only from a sibling
+# reference is reachable as long as that sibling is on the tree.
+DECISION_TREE_ANCHORS = (
+    "SKILL.md",
+    "AGENTS.md",
+    "README.md",
+    "CONTRIBUTING.md",
+)
+
+# Files that are intentionally supplementary (templates / i18n bundles /
+# deep-dive material) and should not trigger the audit even if they are
+# not directly linked from the anchor list.
+DECISION_TREE_SUPPLEMENTARY = {
+    "references/i18n/refusal.en.json",
+    "references/i18n/refusal.vi.json",
+}
+
+
+def _collect_internal_links(text: str) -> set[str]:
+    """Return every internal repo path referenced in `text`."""
+    out: set[str] = set()
+    cleaned = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    for match in BACKTICK_RE.finditer(cleaned):
+        token = match.group(1).split("#", 1)[0].split("?", 1)[0]
+        if looks_like_internal_ref(token):
+            out.add(token)
+    for match in re.finditer(r"\[[^\]]+\]\(([^)\s]+)\)", cleaned):
+        token = match.group(1).split("#", 1)[0].split("?", 1)[0]
+        if looks_like_internal_ref(token):
+            out.add(token)
+    return out
+
+
+def decision_tree_audit(repo: Path) -> list[str]:
+    """Return references/*.md files that are not reachable from the tree."""
+    refs_dir = repo / "references"
+    if not refs_dir.is_dir():
+        return []
+    all_refs = {
+        str(p.relative_to(repo)).replace("\\", "/")
+        for p in refs_dir.rglob("*.md")
+    }
+    if not all_refs:
+        return []
+
+    reachable: set[str] = set()
+    queue: list[Path] = []
+    for name in DECISION_TREE_ANCHORS:
+        anchor = repo / name
+        if anchor.is_file():
+            queue.append(anchor)
+
+    visited: set[Path] = set()
+    while queue:
+        current = queue.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        try:
+            text = current.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for token in _collect_internal_links(text):
+            if token.startswith("references/") and token.endswith(".md"):
+                reachable.add(token)
+            target = repo / token
+            if (
+                target.is_file()
+                and target.suffix == ".md"
+                and token.startswith("references/")
+                and target not in visited
+            ):
+                queue.append(target)
+
+    return sorted(
+        ref
+        for ref in all_refs
+        if ref not in reachable and ref not in DECISION_TREE_SUPPLEMENTARY
+    )
+
+
 def scan(repo: Path) -> list[tuple[Path, str]]:
     broken: list[tuple[Path, str]] = []
     for md in repo.rglob("*.md"):
@@ -112,16 +198,39 @@ def main() -> int:
         default=".",
         help="Repository root to scan (default: current directory).",
     )
+    parser.add_argument(
+        "--decision-tree",
+        action="store_true",
+        help="Also verify that every references/*.md is reachable from SKILL.md "
+        "or the workflow checklists.",
+    )
     args = parser.parse_args()
     repo = Path(args.repo).resolve()
     broken = scan(repo)
+    rc = 0
     if broken:
         print(f"FAIL: {len(broken)} broken internal reference(s):", file=sys.stderr)
         for md, token in broken:
             print(f"  {md}: `{token}`", file=sys.stderr)
-        return 1
-    print("OK: all backticked internal refs resolve.")
-    return 0
+        rc = 1
+    else:
+        print("OK: all backticked internal refs resolve.")
+
+    if args.decision_tree:
+        unreachable = decision_tree_audit(repo)
+        if unreachable:
+            print(
+                f"FAIL: {len(unreachable)} reference(s) not reachable from "
+                "SKILL.md or AGENTS.md:",
+                file=sys.stderr,
+            )
+            for ref in unreachable:
+                print(f"  {ref}", file=sys.stderr)
+            rc = 1
+        else:
+            print("OK: every references/*.md is reachable from the decision tree.")
+
+    return rc
 
 
 if __name__ == "__main__":

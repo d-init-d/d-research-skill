@@ -1,0 +1,14 @@
+{
+  "_meta": {
+    "schema_version": "1.0",
+    "locale": "en",
+    "description": "English refusal templates for d-research-skill scripts. Used when a request crosses the privacy boundary defined in references/safety-and-access-policy.md and references/social-media-archival.md."
+  },
+  "minor": "refused: account appears to belong to a minor",
+  "third_party_mirror": "refused: third-party mirror URLs are not allowed",
+  "harassment_or_doxxing": "refused: request framing violates privacy boundary",
+  "private_individual": "refused: target appears to be a private individual; public-role anchor required",
+  "personal_data_aggregation": "refused: aggregating personal data (home address / contact / health / financial / orientation / whereabouts) is out of scope",
+  "login_bypass": "refused: skill is read-only and does not bypass login walls",
+  "robots_disallowed": "refused: robots.txt for this host disallows automated access for this User-Agent"
+}

@@ -1,0 +1,54 @@
+# Pre-commit hooks for d-research-skill.
+#
+# Install once on your machine:
+#     pip install pre-commit
+#     pre-commit install
+#
+# Run all hooks manually against the whole tree:
+#     pre-commit run --all-files
+#
+# Every hook runs through Python or `ruff` directly, so contributors on
+# Windows / macOS / Linux all run the same checks without needing bash
+# (Git Bash / WSL / sh). The Node-syntax hook still needs a working
+# `node` on PATH; that is the only non-Python dependency.
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-scripts
+        name: ruff check scripts/
+        description: Lint Python helper scripts with ruff.
+        entry: ruff check scripts/
+        language: system
+        pass_filenames: false
+        types_or: [python]
+
+      - id: node-syntax-mjs
+        name: node --check on every .mjs (via Python wrapper)
+        description: Syntax-check every .mjs script. Cross-platform; uses node on PATH.
+        entry: python scripts/check_node_syntax.py
+        language: system
+        files: ^scripts/(lib/)?[^/]+\.mjs$
+
+      - id: internal-refs
+        name: scripts/check_internal_refs.py
+        description: Verify backticked in-repo references resolve.
+        entry: python scripts/check_internal_refs.py
+        language: system
+        pass_filenames: false
+        types_or: [markdown]
+
+      - id: internal-refs-decision-tree
+        name: scripts/check_internal_refs.py --decision-tree
+        description: Verify every references/*.md is reachable from SKILL.md.
+        entry: python scripts/check_internal_refs.py --decision-tree
+        language: system
+        pass_filenames: false
+        types_or: [markdown]
+
+      - id: no-plan-files
+        name: refuse to commit PLAN-*.md files
+        description: PLAN-*.md files are local roadmap docs and must not be committed.
+        entry: python scripts/check_no_plan_files.py
+        language: system
+        files: ^PLAN-.*\.md$

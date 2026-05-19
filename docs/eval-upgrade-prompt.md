@@ -17,7 +17,7 @@ Scope and safety:
 
 Bench files:
 - Tier 1 regression bench: `examples/evals/dogfood-bench.json`
-- Tier 2 frontier bench 2.1: `examples/evals/frontier-bench.json` (32 tasks, 16 classes including v2.1-coverage classes: pdf-extraction, wayback-archive, wikidata-disambiguation, social-tier-a, social-tier-b, social-refusal)
+- Tier 2 frontier bench 2.1: `examples/evals/frontier-bench.json` (50 tasks, 25 classes covering all v3.0 frontier capabilities — hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, API drift, systematic review, large-scale collection, monitoring, multilingual research, anti-bot fallback, PDF extraction, Wayback archive, Wikidata disambiguation, social-tier-a, social-tier-b, social-refusal, citation resolution, report generation, OCR extraction, translation, semantic retrieval, citation-graph, multi-format extraction, dedup-and-cache, provenance-compliance)
 
 Output layout:
 - Put baseline ledgers under `runs/baseline/tier1-ledgers/` and `runs/baseline/tier2-ledgers/`.

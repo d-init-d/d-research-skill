@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "d-research-skill"
+version = "3.0.0"
+description = "Browser-first deep research, data collection, and academic research skill for AI agents."
+readme = "README.md"
+license = { text = "CC-BY-NC-4.0" }
+requires-python = ">=3.10"
+keywords = [
+    "research",
+    "evidence-ledger",
+    "agents",
+    "scraping",
+    "academic",
+    "wayback",
+    "wikidata",
+    "openalex",
+    "prov-o",
+]
+authors = [
+    { name = "d-init-d" },
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+
+# The bundled scripts are stdlib-only by design. We deliberately do not
+# pin any runtime dependency here. Optional features that *can* use a
+# third-party library (sentence-transformers, deepl, libretranslate,
+# argostranslate, lxml, pdfplumber, openpyxl, beautifulsoup4) are
+# advertised as extras below; install the extra you need explicitly,
+# e.g. `pip install -e .[embeddings]`.
+dependencies = []
+
+[project.optional-dependencies]
+embeddings = [
+    "sentence-transformers>=2.2",
+    "numpy>=1.24",
+]
+translation = [
+    "argostranslate>=1.9",
+]
+extraction = [
+    "pdfplumber>=0.11",
+    "openpyxl>=3.1",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+]
+dev = [
+    "ruff==0.15.13",
+    "pre-commit>=3.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/d-init-d/d-research-skill"
+Issues = "https://github.com/d-init-d/d-research-skill/issues"
+Changelog = "https://github.com/d-init-d/d-research-skill/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+# This package is consumed primarily as an agent-skill source tree, not as
+# an installable Python package. The pyproject metadata exists so external
+# tooling (Renovate, security scanners, dependabot) can read accurate
+# metadata, and so optional extras have a clean install surface.
+py-modules = []
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [
+    ".ruff_cache",
+    "PLAN-*.md",
+    "examples",
+]
+
+[tool.ruff.lint]
+# Keep the default rule set (E + F + small built-ins) so existing scripts
+# continue to lint clean. Add additional rules in a follow-up PR.
+ignore = [
+    "E501",  # line length is enforced by the formatter, not lint
+    "E402",  # late imports are deliberate where they coexist with sys.path edits
+]

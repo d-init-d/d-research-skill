@@ -53,6 +53,38 @@ _NITTER_PATTERNS = ["nitter.", "nitter-"]
 _MINOR_KEYWORDS = ["/minor", "teen", "child", "underage", "kid"]
 _HARASSMENT_KEYWORDS = ["stalk", "doxx", "harass", "bully", "revenge"]
 
+# In-process refusal locale, set by main(); defaults to English.
+_REFUSAL_LOCALE = "en"
+
+# Fallback English templates if the JSON file is missing.
+_REFUSAL_FALLBACK = {
+    "minor": "refused: account appears to belong to a minor",
+    "third_party_mirror": "refused: third-party mirror URLs are not allowed",
+    "harassment_or_doxxing": "refused: request framing violates privacy boundary",
+}
+
+
+def _load_refusal_templates(locale: str) -> dict[str, str]:
+    """Load refusal templates from references/i18n/refusal.<locale>.json.
+
+    Returns the fallback English dict if the file is missing or malformed.
+    """
+    repo_root = SCRIPTS_DIR.parent
+    candidate = repo_root / "references" / "i18n" / f"refusal.{locale}.json"
+    try:
+        data = json.loads(candidate.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return dict(_REFUSAL_FALLBACK)
+    return {k: v for k, v in data.items() if not k.startswith("_") and isinstance(v, str)}
+
+
+def _refusal(key: str) -> str:
+    """Look up a refusal message by key in the active locale."""
+    templates = _load_refusal_templates(_REFUSAL_LOCALE)
+    if key in templates:
+        return templates[key]
+    return _REFUSAL_FALLBACK.get(key, f"refused: {key}")
+
 
 def check_privacy_boundary(url: str, platform: str) -> None:
     """Refuse requests that violate privacy rules.
@@ -64,19 +96,19 @@ def check_privacy_boundary(url: str, platform: str) -> None:
     # Refuse Nitter-style mirrors
     for pat in _NITTER_PATTERNS:
         if pat in url_lower:
-            print("refused: third-party mirror URLs are not allowed", file=sys.stderr)
+            print(_refusal("third_party_mirror"), file=sys.stderr)
             sys.exit(2)
 
     # Refuse minor account indicators
     for kw in _MINOR_KEYWORDS:
         if kw in url_lower:
-            print("refused: account appears to belong to a minor", file=sys.stderr)
+            print(_refusal("minor"), file=sys.stderr)
             sys.exit(2)
 
     # Refuse harassment framing
     for kw in _HARASSMENT_KEYWORDS:
         if kw in url_lower:
-            print("refused: request framing violates privacy boundary", file=sys.stderr)
+            print(_refusal("harassment_or_doxxing"), file=sys.stderr)
             sys.exit(2)
 
 
@@ -1077,9 +1109,17 @@ def self_test() -> int:
 
 
 def main() -> int:
+    global _REFUSAL_LOCALE  # noqa: PLW0603
+
     parser = argparse.ArgumentParser(
         prog="social_snapshot.py",
         description="Social media archival: snapshot, verify, to-ledger, self-test.",
+    )
+    parser.add_argument(
+        "--locale",
+        default="en",
+        choices=("en", "vi"),
+        help="Locale for refusal messages (default: en).",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -1103,6 +1143,7 @@ def main() -> int:
     subparsers.add_parser("self-test", help="Run offline self-tests")
 
     args = parser.parse_args()
+    _REFUSAL_LOCALE = args.locale
 
     if args.command == "snapshot":
         platform = args.platform.lower()

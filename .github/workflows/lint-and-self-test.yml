@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          mjs=(scripts/*.mjs)
+          mjs=(scripts/*.mjs scripts/lib/*.mjs)
           if [ ${#mjs[@]} -eq 0 ]; then
             echo "no .mjs scripts found"
             exit 0
@@ -85,10 +85,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pandoc and poppler-utils
+      - name: Install pandoc, poppler-utils, and tesseract (en + vi)
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc poppler-utils
+          sudo apt-get install -y \
+            pandoc \
+            poppler-utils \
+            tesseract-ocr \
+            tesseract-ocr-vie
 
       - name: Install Node dependencies (Playwright)
         run: npm ci --no-audit --no-fund

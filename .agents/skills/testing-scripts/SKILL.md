@@ -37,9 +37,9 @@ This is the same chain CI runs. It executes every script's offline self-test in 
 
 ## Quick validation: individual scripts
 
-If you want to isolate a failure, run scripts one at a time. There are **28 helper scripts** with self-tests (5 top-level Node + 23 Python + 1 Node helper at `scripts/lib/http_cache.mjs` imported by `api_fetch.mjs`). `run_python.mjs` is a thin wrapper.
+If you want to isolate a failure, run scripts one at a time. The repo ships **34 files** in total: 32 research helpers (each with an offline `--self-test`: Python research utilities, 6 top-level Node scripts, plus 1 Node helper at `scripts/lib/http_cache.mjs`) plus 2 pre-commit utility scripts (`check_node_syntax.py`, `check_no_plan_files.py`) that run as checks rather than self-tests. `run_python.mjs` is a thin wrapper.
 
-### Node scripts (5 top-level + 1 helper)
+### Node scripts (6 top-level + 1 helper)
 
 ```bash
 node scripts/playwright_probe.mjs   --self-test   # → "playwright_probe self-test ok"
@@ -75,7 +75,19 @@ python3 scripts/multi_extract.py       self-test   # → "multi_extract self-tes
 python3 scripts/dedup_near.py          self-test   # → "dedup_near self-test ok"
 python3 scripts/http_cache.py          self-test   # → "http_cache self-test ok"
 python3 scripts/bench_harness_check.py self-test   # → "bench_harness_check self-test ok"
+python3 scripts/run_metadata.py        self-test   # → "run_metadata self-test ok"
 python3 scripts/check_internal_refs.py             # → "OK: all backticked internal refs resolve."
+python3 scripts/check_internal_refs.py --decision-tree   # → "OK: every references/*.md is reachable from the decision tree."
+```
+
+### Pre-commit utility scripts (checks, not self-tests)
+
+Two stdlib helpers exist solely to drive cross-platform pre-commit hooks. They have no `self-test` subcommand because they are checks themselves.
+
+```bash
+python3 scripts/check_node_syntax.py                       # → runs `node --check` on every .mjs; exit 0 on success
+python3 scripts/check_no_plan_files.py README.md package.json   # → exit 0 (no PLAN file in the list)
+python3 scripts/check_no_plan_files.py PLAN-foo.md         # → exit 1, prints "blocked: PLAN-foo.md"
 ```
 
 On Windows, use `python` if `python3` is not on PATH.
@@ -135,7 +147,7 @@ Two GitHub Actions workflows replicate these checks on every pull request:
   - `lychee --offline` on all markdown — standard `[text](url)` link integrity
   - A weekly `lychee-external` job (non-blocking) validates external URLs
 
-If any of the 28 self-tests fail locally, the same failure will block the PR. Fix locally before pushing.
+If any of the 32 research-helper self-tests (or the four supplementary checks: `check_internal_refs.py`, `check_internal_refs.py --decision-tree`, `check_node_syntax.py`, `check_no_plan_files.py`) fail locally, the same failure will block the PR. Fix locally before pushing.
 
 ## Common failure modes
 

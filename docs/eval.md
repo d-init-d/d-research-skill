@@ -254,11 +254,23 @@ as `drift_note` for API drift probes.
 ## Bench Version Policy
 
 The `bench_version` field in frontier-bench.json follows additive semver:
-- **Minor bump** (e.g. 2.0 → 2.1): new tasks or classes added, no existing
-  tasks changed. Score artifacts from the previous version remain valid for
+- **Minor bump** (e.g. 2.0 → 2.1): new tasks or classes added, optional
+  schema fields added, no existing tasks changed, no existing field removed
+  or repurposed. Score artifacts from the previous version remain valid for
   comparison on the shared task subset.
-- **Major bump** (e.g. 2.x → 3.0): existing tasks modified or removed, or
-  scoring semantics changed. Old score artifacts are not directly comparable.
+- **Major bump** (e.g. 2.x → 3.0): existing tasks modified or removed, an
+  existing field removed or repurposed, scoring semantics changed, or the
+  pass criterion changed. Old score artifacts are **not** directly
+  comparable; regenerate the empty-score fixture with `score-all`.
+
+The current bench is `2.1` and stays at `2.1` as long as PR additions are
+purely additive (new classes, new tasks, new optional schema fields).
+
+The 22-column evidence-ledger schema added in v3.0 is **additive**: the new
+`license_spdx`, `robots_status`, and `prov_activity_id` columns are optional
+and the validator still accepts 14-column legacy and 19-column v2.1 files.
+That is why `bench_version` did not bump to 3.0 when the v3.0 release went
+out.
 
 ## Bench-Harness Consistency Check
 

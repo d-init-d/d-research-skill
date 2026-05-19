@@ -1,0 +1,14 @@
+{
+  "_meta": {
+    "schema_version": "1.0",
+    "locale": "vi",
+    "description": "Mẫu từ chối tiếng Việt cho các script trong d-research-skill. Dùng khi yêu cầu vượt giới hạn quyền riêng tư đã định nghĩa trong references/safety-and-access-policy.md và references/social-media-archival.md."
+  },
+  "minor": "từ chối: tài khoản dường như thuộc về người chưa đủ tuổi",
+  "third_party_mirror": "từ chối: không sử dụng URL mirror của bên thứ ba",
+  "harassment_or_doxxing": "từ chối: cách đặt yêu cầu vi phạm giới hạn quyền riêng tư",
+  "private_individual": "từ chối: đối tượng có vẻ là cá nhân riêng tư; cần một anchor public-role",
+  "personal_data_aggregation": "từ chối: tổng hợp dữ liệu cá nhân (địa chỉ nhà / liên hệ / sức khỏe / tài chính / xu hướng / hành trình) nằm ngoài phạm vi",
+  "login_bypass": "từ chối: skill chỉ đọc và không bypass login wall",
+  "robots_disallowed": "từ chối: robots.txt của host từ chối truy cập tự động với User-Agent này"
+}

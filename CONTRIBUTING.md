@@ -42,8 +42,46 @@ docs/                     Internal planning / release notes (not user-facing)
    and a `date_accessed`.
 5. **Lint and self-test before opening a PR.** Run
    `npm run self-test` (covers Node + Python self-tests +
-   internal-ref check) and, if you touched a Python file,
-   `ruff check scripts/`.
+   internal-ref check + decision-tree audit) and, if you touched a
+   Python file, `ruff check scripts/`. Optionally install
+   pre-commit (`pip install pre-commit && pre-commit install`)
+   so these checks run automatically on every `git commit`.
+6. **Never commit roadmap docs.** PLAN-`*`.md files in the repo root
+   are local roadmap notes; the pre-commit `no-plan-files` hook
+   refuses them. Use a `docs/` page for material that belongs in
+   git.
+
+## v3.0 commands at a glance
+
+```bash
+# Full self-test chain (Node + Python + bench harness)
+npm run self-test
+
+# Python lint
+ruff check scripts/
+
+# Bench validation
+python scripts/run_dogfood.py validate --file examples/evals/frontier-bench.json
+python scripts/run_dogfood.py classes  --file examples/evals/frontier-bench.json
+python scripts/bench_harness_check.py check-all --strict
+python scripts/bench_harness_check.py orphans \
+    --bench    examples/evals/frontier-bench.json \
+    --fixtures examples/evals/fixtures/frontier-empty-scores.json
+
+# Documentation graph health
+python scripts/check_internal_refs.py
+python scripts/check_internal_refs.py --decision-tree
+
+# Evidence ledger lifecycle
+python scripts/evidence_ledger.py validate --file evidence-ledger.csv
+python scripts/evidence_ledger.py sign     --file evidence-ledger.csv
+python scripts/evidence_ledger.py verify   --file evidence-ledger.csv
+python scripts/evidence_ledger.py prov-export --file evidence-ledger.csv --out prov.jsonld
+
+# Capture local run metadata (never uploaded)
+python scripts/run_metadata.py record --out runs.jsonl --command "npm run self-test"
+```
+
 
 ## Adding a reference (`references/<topic>.md`)
 

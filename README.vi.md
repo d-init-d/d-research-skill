@@ -6,6 +6,22 @@ D Research là một skill dạng markdown cho AI agent. Nó dạy agent cách l
 
 Đây không phải app, API server hay package Python. Agent đọc `SKILL.md` và làm theo workflow; các script trong `scripts/` chỉ là helper tùy chọn.
 
+## Vòng đời research (v3.0)
+
+Skill được tổ chức theo bảy trụ vòng đời. Mỗi trụ là một bước nhỏ, kết quả của trụ này là đầu vào cho trụ kế tiếp.
+
+| # | Trụ | Việc gì xảy ra | File chính |
+|---|---|---|---|
+| 1 | **discover** | Hiểu mục tiêu, chia câu hỏi, tạo source map, sinh fanout query. | `references/topic-decomposition.md`, `references/source-discovery.md`, `references/query-patterns.md` |
+| 2 | **fetch** | Probe browser-first + lawful fallback; HTTP cache opt-in dùng chung; resolve canonical ID (DOI/PMID/arXiv/ISBN) trước khi search rộng. | `adapters/playwright.md`, `references/anti-bot-fallback.md`, `references/http-cache.md`, `scripts/citation_resolver.py` |
+| 3 | **extract** | Lấy text, table, structured data (JSON-LD, microdata, RDFa), PDF / DOCX / EPUB / XLSX / mbox, OCR ảnh. | `references/data-extraction-toolbox.md`, `references/multi-format-extraction.md`, `scripts/multi_extract.py`, `scripts/pdf_extract.py`, `scripts/ocr.py` |
+| 4 | **analyze** | Clean, dedup, score nguồn, đi citation graph, semantic retrieval, dò contradiction. | `scripts/data_clean.py`, `scripts/dedup_near.py`, `scripts/score_source.py`, `scripts/citation_graph.py`, `scripts/embed_corpus.py` |
+| 5 | **synthesize** | Tổng hợp claim atomic; apply synthesis pattern; render citation theo style yêu cầu. | `references/synthesis-patterns.md`, `references/citation-management.md`, `scripts/citation_render.py` |
+| 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
+| 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
+
+Lịch sử release đầy đủ (PR #1–#10) xem [CHANGELOG.md](CHANGELOG.md).
+
 ## Tính năng chính
 
 - Workflow nghiên cứu cốt lõi: hiểu mục tiêu, chia câu hỏi, tìm nguồn, trích xuất, ledger chứng cứ, kiểm tra mâu thuẫn, tổng hợp.
