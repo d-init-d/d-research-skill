@@ -621,6 +621,10 @@ The skill is framework-agnostic. It has been written against the conventions of:
 
 The optional scripts need Node.js 18+ (for `api_fetch.mjs` and the Playwright scripts) and Python 3.9+ (for the Python utilities). Playwright is the only npm dependency.
 
+If you want to try this skill through ready-made agent presets, see the
+[`d-research-agent-pack`](https://github.com/d-init-d/d-research-agent-pack),
+which provides platform-specific agent adapters built on top of this skill.
+
 ---
 
 ## License
