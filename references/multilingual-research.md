@@ -47,6 +47,12 @@ Different search engines dominate in different regions and often provide better 
 
 For **multilingual academic searches**, use Google Scholar with language filters in settings, or combine with specialized regional engines.
 
+For Vietnamese or Vietnam-local source discovery, also read
+`references/vietnamese-source-discovery.md`. It provides query matrices,
+diacritic/no-diacritic alias handling, local source basins, and date/identity
+discipline for Vietnamese news, public institutions, and public community
+sources.
+
 ## Translation Strategy
 
 Effective translation preserves meaning while enabling analysis:

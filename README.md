@@ -9,7 +9,7 @@
 
 Vietnamese docs: [README.vi.md](README.vi.md)
 
-> D Research turns ad hoc agent research into an auditable workflow: plan the question, discover sources, collect public evidence, extract structured data, resolve citations, write a ledger, synthesize claims, and verify the result with offline benchmarks.
+> D Research turns ad hoc agent research into an auditable workflow: plan the question, discover sources, collect public evidence, extract structured data, resolve citations, write a ledger, pass synthesis-readiness gates, and verify the result with offline benchmarks.
 
 ---
 
@@ -48,7 +48,7 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 41 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, …) plus `references/i18n/` refusal templates (en, vi).
+- `references/` — 43 deep-dive guides (evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **portable execution gates**, **Vietnamese source discovery**, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, …) plus `references/i18n/` refusal templates (en, vi).
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.0, 22 columns, optional `license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
@@ -67,7 +67,7 @@ For Vietnamese users, see [README.vi.md](README.vi.md). The default README stays
 
 ---
 
-## Workflow lifecycle (v3.0)
+## Workflow lifecycle (v3.x)
 
 The skill is organised around seven research lifecycle pillars. Each pillar is a small, composable step, and every pillar produces an artifact that the next pillar consumes.
 
@@ -81,7 +81,12 @@ The skill is organised around seven research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-For the full release history (PR #1–#10) see [CHANGELOG.md](CHANGELOG.md).
+v3.0.1 adds a portable execution-gate layer between analysis and final
+synthesis. The gates harden source mapping, recall, basin coverage,
+date/identity discipline, claim verification, and final readiness while keeping
+subagents optional and domain-specific discovery opt-in.
+
+For the full release history see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -109,6 +114,8 @@ For the full release history (PR #1–#10) see [CHANGELOG.md](CHANGELOG.md).
 20. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
 21. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
 22. **Social-media archival** — capture public social-media posts from 12 platforms (Reddit, HN, Mastodon, Bluesky, Lemmy, X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) plus a generic fallback. Tier A platforms use direct public API fetch with SHA-256 content hashing for high verifiability; Tier B platforms use archive-only via Wayback Machine. Every capture carries a mandatory verifiability label and plain-language note. See `references/social-media-archival.md` and `scripts/social_snapshot.py`.
+23. **Portable execution gates** — before non-trivial synthesis, agents run source-map, coverage/recall, identity/date/inference, evidence-verification, and synthesis-readiness gates. Subagents can accelerate the checks, but the main agent can perform them manually in any runtime. See `references/execution-gates.md`.
+24. **Vietnamese source discovery companion** — opt-in guidance for Vietnamese and Vietnam-local research: diacritic/no-diacritic aliases, local source basins, public-source privacy discipline, and compact coverage tables. See `references/vietnamese-source-discovery.md`.
 
 ---
 
@@ -117,6 +124,7 @@ For the full release history (PR #1–#10) see [CHANGELOG.md](CHANGELOG.md).
 | Area | What users get | Main files / commands |
 |---|---|---|
 | Agent workflow | A complete browser-first research workflow for evidence-backed answers | `SKILL.md`, `AGENTS.md` |
+| Execution gates | Portable pre-synthesis gates for recall, basin coverage, identity/date discipline, and evidence verification | `references/execution-gates.md` |
 | Browser extraction | Playwright probing, extraction, bounded crawl, blocker screenshots | `adapters/playwright.md`, `scripts/playwright_*.mjs` |
 | API and databases | REST/GraphQL/SPARQL/API pagination plus read-only database guidance | `references/api-access-workflow.md`, `adapters/graphql.md`, `adapters/database-readonly.md` |
 | Academic research | OpenAlex/CrossRef/PubMed/Semantic Scholar/arXiv/CORE guidance | `references/academic-databases.md` |
@@ -131,6 +139,7 @@ For the full release history (PR #1–#10) see [CHANGELOG.md](CHANGELOG.md).
 | Subagent planning | Portable execution contract: slots, max parallel, context budgets, task assignment | `plan:configure-execution`, `plan:set-execution` |
 | Context safety | Split work before context overflow; checkpoint findings to files immediately | `references/research-plan-protocol.md` |
 | Anti-bot fallback | Lawful fallback chain for blocked public tier-1 sources before blocker reports | `references/anti-bot-fallback.md`, `references/blocker-report.md` |
+| Vietnamese discovery | Opt-in Vietnamese/Vietnam-local source matrix and public-source discipline | `references/vietnamese-source-discovery.md` |
 | Compatibility | Works as a markdown skill; runtime-specific models/API keys stay in the CLI/IDE | `research.config.example.json` |
 
 ---
@@ -178,7 +187,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
 │   └── translation.md                    # new — machine-translation adapter
 │
-├── references/                           # 37 deep-dive guides
+├── references/                           # 43 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources
@@ -191,6 +200,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── data-processing-pipeline.md
 │   ├── data-visualization.md
 │   ├── evidence-ledger.md
+│   ├── execution-gates.md                # new — portable pre-synthesis quality gates
 │   ├── extraction-methods.md
 │   ├── fact-verification.md              # new — atomic-fact fast path
 │   ├── final-report-template.md
@@ -215,6 +225,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── systematic-review-protocol.md     # new — PRISMA 2020
 │   ├── tool-adapter-policy.md
 │   ├── topic-decomposition.md
+│   ├── vietnamese-source-discovery.md    # new — opt-in Vietnamese/local source discovery
 │   ├── wayback-archive.md                # new — Wayback Machine archive access
 │   └── social-media-archival.md          # new — social-media post archival (two-tier)
 │
@@ -550,6 +561,12 @@ Precedence for plan-related settings is: explicit CLI flags (for example `--work
 | `research.preferPrimarySources` | `true` | Prefer official/primary sources over summaries. |
 | `research.minSourcesForStrongClaim` | `2` | Minimum supporting sources for high-confidence claims. |
 | `research.searchLogRequired` | `true` | Keep a search/query log for reproducibility. |
+| `research.executionGates.enabled` | `true` | Run portable quality gates before non-trivial synthesis. |
+| `research.executionGates.lowRecallGuard` | `true` | Trigger an additional recall pass when evidence is thin. |
+| `research.executionGates.noSingleBasinStop` | `true` | Avoid claiming broad coverage from one narrow source basin. |
+| `research.executionGates.finalVerificationGate` | `true` | Require claim/evidence/readiness checks before final output. |
+| `research.executionGates.subagentsOptional` | `true` | Treat subagents as accelerators, not required dependencies. |
+| `research.executionGates.minIndependentBasinsForCompleteness` | `3` | Target basin diversity before calling broad work complete. |
 | `researchPlan.context.mainContextLength` | `null` | Main agent context length. If set, task budgets derive from it. |
 | `researchPlan.context.taskBudgetRatio` | `0.5` | Task budget = context length x ratio. |
 | `researchPlan.context.writeFindingsImmediately` | `true` | Write findings to task output files as soon as they are found. |

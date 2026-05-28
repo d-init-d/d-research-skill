@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [3.0.1] - 2026-05-28
+
+v3.0.1 is a focused workflow-hardening release. It promotes the strongest
+agent-orchestration patterns from the MiniMax expert backup into the portable
+core skill without making D Research narrower, runtime-specific, or
+Vietnamese/social-source-first by default.
+
+### Added
+
+- **Portable execution gates** in `references/execution-gates.md`: source map,
+  coverage/recall, identity/date/inference, evidence verification, and
+  synthesis-readiness gates for non-trivial research tasks.
+- **Subagent-optional worker contract** for Source Mapper, Recall Auditor,
+  Public Source Hunter, Data Extractor, Evidence Verifier, and Report
+  Synthesizer roles. Hosts with subagents can parallelize the checks; hosts
+  without subagents can run the same checklists manually.
+- **Vietnamese source discovery companion** in
+  `references/vietnamese-source-discovery.md`: opt-in guidance for
+  diacritic/no-diacritic aliases, Vietnam-local source basins, public social
+  source discipline, and date/identity checks.
+- **Execution-gate configuration defaults** in
+  `research.config.example.json` under `research.executionGates`.
+- **Release note artifact** at `docs/release-v3.0.1.md` for downstream
+  maintainers preparing GitHub releases or marketplace listings.
+
+### Changed
+
+- `SKILL.md` now routes non-trivial branches through the execution gates before
+  synthesis, while preserving fast paths for atomic facts, public social-post
+  capture, and safety refusals.
+- `AGENTS.md` mirrors the new gate flow and clarifies that subagents are
+  accelerators, not required dependencies.
+- `README.md` and `README.vi.md` now describe v3.0.1 as a portable
+  pre-synthesis quality layer rather than a domain-specific expansion.
+- Package metadata now reports version `3.0.1` in `pyproject.toml`,
+  `package.json`, and `package-lock.json`.
+
+### Security
+
+- The new gates explicitly reinforce no-bypass behavior: failed coverage,
+  recall, or verification gates require better lawful search, lower confidence,
+  a blocker report, or a partial-result label, never login/paywall/captcha/rate
+  limit evasion.
+- Vietnamese/public-source discovery inherits the person-aggregation privacy
+  boundary and treats public social/community sources as leads unless identity
+  and context are independently supported.
+
+### Compatibility
+
+- No new runtime dependencies.
+- No evidence-ledger schema changes.
+- No script CLI changes.
+- Existing v3.0 workspaces, ledgers, eval fixtures, and reports remain valid.
+
 ## [3.0.0] - 2026-05-19
 
 This release finalises the v3.0 production-grade core. It is the cumulative
@@ -202,7 +256,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.1
 [3.0.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.0
 [2.1.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v2.1.0
 [2.0.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v2.0.0

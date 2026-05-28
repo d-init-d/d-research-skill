@@ -8,7 +8,7 @@
 
 Tài liệu tiếng Anh đầy đủ nhất nằm ở [README.md](README.md). Bản tiếng Việt này là bản giới thiệu thực dụng cho người dùng Việt: đủ để hiểu sản phẩm, cài đặt, kiểm tra và quyết định có nên dùng trong workflow của mình không.
 
-D Research biến research bằng agent từ kiểu "tìm nhanh rồi trả lời" thành một quy trình có kiểm chứng: lập kế hoạch câu hỏi, tìm nguồn, thu thập dữ liệu công khai hợp pháp, trích xuất nội dung, ghi evidence ledger, xử lý mâu thuẫn, dựng báo cáo có citation và giữ lại metadata để audit.
+D Research biến research bằng agent từ kiểu "tìm nhanh rồi trả lời" thành một quy trình có kiểm chứng: lập kế hoạch câu hỏi, tìm nguồn, thu thập dữ liệu công khai hợp pháp, trích xuất nội dung, ghi evidence ledger, chạy quality gate trước khi kết luận, xử lý mâu thuẫn, dựng báo cáo có citation và giữ lại metadata để audit.
 
 ## Tổng quan nhanh
 
@@ -38,7 +38,7 @@ Không dùng skill này để bypass access control, thu thập dữ liệu riê
 
 Các script trong `scripts/` là helper tùy chọn, nhỏ và dễ audit. Chúng hỗ trợ workflow nhưng không thay thế agent.
 
-## Vòng đời research (v3.0)
+## Vòng đời research (v3.x)
 
 Skill được tổ chức theo bảy trụ vòng đời. Mỗi trụ là một bước nhỏ, kết quả của trụ này là đầu vào cho trụ kế tiếp.
 
@@ -52,11 +52,17 @@ Skill được tổ chức theo bảy trụ vòng đời. Mỗi trụ là một 
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
-Lịch sử release đầy đủ (PR #1–#10) xem [CHANGELOG.md](CHANGELOG.md).
+v3.0.1 bổ sung lớp execution gate portable trước bước tổng hợp cuối: kiểm
+source map, độ phủ nguồn, low-recall, single-basin, ngày/tháng/danh tính,
+evidence verification và synthesis readiness. Subagent vẫn là tùy chọn; nếu
+runtime không có subagent thì main agent tự chạy checklist.
+
+Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 
 ## Tính năng chính
 
 - Workflow nghiên cứu cốt lõi: hiểu mục tiêu, chia câu hỏi, tìm nguồn, trích xuất, ledger chứng cứ, kiểm tra mâu thuẫn, tổng hợp.
+- Execution gates portable: trước khi trả lời các task không tầm thường, agent kiểm source map, coverage/recall, no-single-basin, identity/date/inference, evidence verification và synthesis readiness. Xem `references/execution-gates.md`.
 - Research đa kênh: web search, browser automation, fetch-only, public API, Wayback/archive, Wikidata, GraphQL và database read-only khi user cấp quyền.
 - Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
 - Citation export/render: BibTeX, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
@@ -71,6 +77,7 @@ Lịch sử release đầy đủ (PR #1–#10) xem [CHANGELOG.md](CHANGELOG.md).
 - Person aggregation cho yêu cầu tìm thông tin public-role về 1 người cụ thể (maintainer, tác giả, speaker, nhà báo, public figure): anchor vào 1 nguồn canonical (GitHub profile, ORCID, package author, faculty page, byline đã xác minh), cross-aggregate các claim public-role có ít nhất 1 nguồn, disambiguate homonym bằng tín hiệu positive. **Privacy boundary là hard stop, không phải hướng dẫn trừu tượng**: địa chỉ nhà, người thân/gia đình, tài khoản social riêng tư, số điện thoại / email cá nhân, ảnh cá nhân, thông tin y tế / tài chính / pháp lý / xu hướng / hành trình, re-identify pseudonym sang real name, và mọi item người đó đã đánh dấu private đều OUT-OF-SCOPE bất kể có tìm được trên web hay không. Refuse với minors, private individuals, và mọi framing harassment / stalking / doxxing. Saturate ở 25 dòng ledger hoặc khi 3 nguồn liên tiếp không add claim mới đã verified. Xem `references/person-aggregation.md`.
 - Eval harness offline hai tầng để bắt regression và đo upgrade: `examples/evals/dogfood-bench.json` là Tier 1 regression guard (12 task), `examples/evals/frontier-bench.json` là Tier 2 frontier probe bench 2.1 (50 task, 25 class), harness stdlib-only là `scripts/run_dogfood.py` với `self-test`, `validate`, `list`, `render`, `score`, `score-all`, `compare`, `baseline`. CI chỉ chạy schema/self-test offline. Để score 1 ledger chạy `npm run eval:score -- DF-001 path/to/ledger.csv`; để so sánh bản cũ/mới dùng `score-all` rồi `compare`. Đây không phải leaderboard và không ship điểm số per-agent. Xem `docs/eval.md`.
 - Anti-bot fallback chain cho nguồn public quan trọng bị Cloudflare, JS challenge, captcha, 403, 429 hoặc lỗi browser/fetch lặp lại: thử đúng một chuỗi hợp pháp API/static form -> public archive -> cache/snippet nếu có -> fetch-only/no-JS -> blocker report. Không dùng để bypass access control; attempt fail được ghi như process row confidence thấp. Xem `references/anti-bot-fallback.md`.
+- Vietnamese source discovery companion: hướng dẫn opt-in cho research nguồn Việt Nam, gồm alias có dấu/không dấu, ma trận báo chí/official/archive/public-community, và kỷ luật ngày-tháng/danh tính. Xem `references/vietnamese-source-discovery.md`.
 - Lập kế hoạch subagent portable: slot, context length, max parallel, task budget, không khóa cứng vào CLI/IDE cụ thể.
 - Chống tràn context: task phải fit `execution.context_budget`, findings phải ghi ra file ngay.
 
@@ -114,6 +121,10 @@ npm run self-test
 
 ## Config quan trọng
 
+- `research.executionGates.enabled`: bật quality gates trước khi tổng hợp các task không tầm thường.
+- `research.executionGates.lowRecallGuard`: chạy recall pass khi nguồn còn mỏng.
+- `research.executionGates.noSingleBasinStop`: tránh kết luận "đủ rộng" nếu mới có một source basin.
+- `research.executionGates.subagentsOptional`: subagent là tùy chọn, không phải dependency bắt buộc.
 - `researchPlan.workspace.baseDir`: thư mục cha để tạo workspace nghiên cứu. Mặc định là thư mục hiện tại.
 - `researchPlan.workspace.fallbackToCwdOnError`: nếu output dir lỗi, fallback về thư mục hiện tại và báo cho user.
 - `researchPlan.context.mainContextLength`: context length của main agent.

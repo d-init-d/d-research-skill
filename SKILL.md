@@ -1,6 +1,6 @@
 ---
 name: d-research
-description: Browser-first deep research and lawful public-data collection for AI agents. Triggers: web research, source discovery, scraping public data, literature reviews, market or technical research, evidence ledgers, blocker reports. Read-only; never bypasses logins, paywalls, captchas, or rate limits.
+description: Browser-first deep research and lawful public-data collection for AI agents. Triggers: web research, source discovery, scraping public data, literature reviews, market or technical research, evidence ledgers, execution gates, blocker reports. Read-only; never bypasses logins, paywalls, captchas, or rate limits.
 ---
 
 # D Research
@@ -39,6 +39,11 @@ Run every research task as a layered investigation:
 10. search for contradictions
 11. report unreachable or blocked data with manual instructions
 12. synthesize the final answer
+
+For non-trivial work, run the portable quality gates in
+`references/execution-gates.md` before final synthesis. The gates are
+domain-neutral: use them to prevent thin, single-basin, under-verified, or
+overclaimed answers without forcing every task into a person/social workflow.
 
 ## Tool priority
 
@@ -105,6 +110,13 @@ The full safety and access policy (legal/ethical framing, what counts as a publi
 ## Workflow decision tree
 
 **Before picking a branch:** if the task is long-horizon (more than 5 sub-questions, more than 50 sources, multi-context-window runtime, or audit-grade output), apply the **research plan protocol** from `references/research-plan-protocol.md` as an outer loop *around* whichever branch fits the topic. The agent creates one workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writes `research-plan.json` (from `templates/research-plan.json`), renders `PLAN.md`, gets approval with `scripts/research_plan.py approve`, dispatches parallel-safe tasks (optionally to sub-agents if config allows), gates the synthesize step, and only then composes the final report. See `examples/long-horizon-research-plan.md`. The branches below describe the *content* of the work; the protocol describes the *flow control* that keeps the work surviving across context resets.
+
+**Before final synthesis:** for any non-trivial branch, apply
+`references/execution-gates.md` unless a narrower fast path explicitly says to
+skip it. If subagents exist, use the gate roles as independent reviewers; if
+they do not, perform the same checklists manually. Do not present a result as
+complete until source mapping, recall/coverage, evidence verification, blockers,
+and confidence have been handled or explicitly marked out of scope.
 
 ### If the user asks to verify or look up one specific atomic fact
 
@@ -191,6 +203,12 @@ Use `references/monitoring-change-detection.md`. Take baseline snapshots, detect
 ### If the user needs research across multiple languages
 
 Use `references/multilingual-research.md`. Translate queries per language, search local-language sources, extract in original language, and cross-validate findings across languages.
+
+If Vietnamese sources, Vietnam-local institutions, Vietnamese news, or
+Vietnamese public/community sources are materially relevant, use
+`references/vietnamese-source-discovery.md` as a companion. It adds
+diacritic/no-diacritic alias handling, local source basins, and date/identity
+discipline without making Vietnamese discovery a global default.
 
 ### If the first pass leaves evidence gaps, obscure / long-tail facts, or contested claims
 
@@ -340,6 +358,12 @@ Before final output:
 
 Score every source on the rubric in `references/source-quality-rubric.md` (primary vs. secondary, authority, recency, methodology, independence). Use the rubric scores to set the `confidence` column in the evidence ledger and to break ties between contradicting sources.
 
+For non-trivial tasks, also run the execution gates in
+`references/execution-gates.md`: source map gate, coverage/recall gate,
+identity/date/inference gate, evidence verification gate, and synthesis
+readiness gate. If a gate fails, continue research, downgrade confidence, or
+mark the output as partial instead of overclaiming completeness.
+
 ### 10. Report blockers
 
 Use `references/blocker-report.md`.
@@ -358,6 +382,10 @@ If a likely useful source cannot be extracted, report:
 ### 11. Synthesize
 
 Before composing the final answer, scan the evidence ledger and (if maintained) `templates/coverage-map.json` for unresolved gaps. If a key sub-question still has `missing` entries or only low-confidence non-primary sources, escalate one pass with `references/frontier-search.md` instead of synthesising over thin evidence.
+
+If the task is non-trivial, do not synthesize until
+`references/execution-gates.md` has been satisfied or any unmet gate is clearly
+reported as a limitation.
 
 Use `references/final-report-template.md`.
 
@@ -425,6 +453,12 @@ Important config fields:
 - crawl.respectRobots
 - research.requireEvidenceLedger
 - research.requireContradictionPass
+- research.executionGates.enabled
+- research.executionGates.lowRecallGuard
+- research.executionGates.noSingleBasinStop
+- research.executionGates.finalVerificationGate
+- research.executionGates.subagentsOptional
+- research.executionGates.minIndependentBasinsForCompleteness
 - researchPlan.context.mainContextLength
 - researchPlan.context.taskBudgetRatio
 - researchPlan.context.writeFindingsImmediately

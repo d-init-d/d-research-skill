@@ -19,7 +19,15 @@
     "requireContradictionPass": true,
     "preferPrimarySources": true,
     "minSourcesForStrongClaim": 2,
-    "searchLogRequired": true
+    "searchLogRequired": true,
+    "executionGates": {
+      "enabled": true,
+      "lowRecallGuard": true,
+      "noSingleBasinStop": true,
+      "finalVerificationGate": true,
+      "subagentsOptional": true,
+      "minIndependentBasinsForCompleteness": 3
+    }
   },
   "researchPlan": {
     "context": {
