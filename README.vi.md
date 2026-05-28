@@ -40,10 +40,11 @@ Các script trong `scripts/` là helper tùy chọn, nhỏ và dễ audit. Chún
 
 ## Vòng đời research (v3.x)
 
-Skill được tổ chức theo bảy trụ vòng đời. Mỗi trụ là một bước nhỏ, kết quả của trụ này là đầu vào cho trụ kế tiếp.
+Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một bước nhỏ, kết quả của trụ này là đầu vào cho trụ kế tiếp.
 
 | # | Trụ | Việc gì xảy ra | File chính |
 |---|---|---|---|
+| 0 | **intake** | Phân loại dạng research, độ sâu, safety posture, output artifact, authority/source basin và route trước khi mở nguồn. | `references/research-intake.md` |
 | 1 | **discover** | Hiểu mục tiêu, chia câu hỏi, tạo source map, sinh fanout query. | `references/topic-decomposition.md`, `references/source-discovery.md`, `references/query-patterns.md` |
 | 2 | **fetch** | Probe browser-first + lawful fallback; HTTP cache opt-in dùng chung; resolve canonical ID (DOI/PMID/arXiv/ISBN) trước khi search rộng. | `adapters/playwright.md`, `references/anti-bot-fallback.md`, `references/http-cache.md`, `scripts/citation_resolver.py` |
 | 3 | **extract** | Lấy text, table, structured data (JSON-LD, microdata, RDFa), PDF / DOCX / EPUB / XLSX / mbox, OCR ảnh. | `references/data-extraction-toolbox.md`, `references/multi-format-extraction.md`, `scripts/multi_extract.py`, `scripts/pdf_extract.py`, `scripts/ocr.py` |
@@ -51,6 +52,12 @@ Skill được tổ chức theo bảy trụ vòng đời. Mỗi trụ là một 
 | 5 | **synthesize** | Tổng hợp claim atomic; apply synthesis pattern; render citation theo style yêu cầu. | `references/synthesis-patterns.md`, `references/citation-management.md`, `scripts/citation_render.py` |
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
+
+v3.0.3 nâng Step 0 thành controller phân loại mạnh hơn: due diligence /
+investigation, policy / standards analysis, và creative / cultural research trở
+thành các research shape hạng nhất. Agent cũng có chế độ completeness-first cho
+các task audit-grade, nhiều rủi ro, red-flag hoặc khi user nói tốc độ không quan
+trọng bằng độ chắc.
 
 v3.0.2 bổ sung Step 0 research intake: agent phân loại request theo nhiều nhãn
 trước khi mở nguồn, ví dụ fact / URL / người / academic / systematic review /
@@ -67,7 +74,7 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 ## Tính năng chính
 
 - Workflow nghiên cứu cốt lõi: hiểu mục tiêu, chia câu hỏi, tìm nguồn, trích xuất, ledger chứng cứ, kiểm tra mâu thuẫn, tổng hợp.
-- Research intake Step 0: phân loại dạng nghiên cứu, safety posture, output artifact, freshness/language scope và route trước khi mở nguồn. Xem `references/research-intake.md`.
+- Research intake Step 0: phân loại dạng nghiên cứu, research depth (fast / standard / completeness-first), safety posture, authority/source basin, output artifact, freshness/language scope và route trước khi mở nguồn. Bao gồm due diligence / investigation, policy / standards analysis và creative / cultural research. Xem `references/research-intake.md`.
 - Execution gates portable: trước khi trả lời các task không tầm thường, agent kiểm source map, coverage/recall, no-single-basin, identity/date/inference, evidence verification và synthesis readiness. Xem `references/execution-gates.md`.
 - Research đa kênh: web search, browser automation, fetch-only, public API, Wayback/archive, Wikidata, GraphQL và database read-only khi user cấp quyền.
 - Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
@@ -130,6 +137,9 @@ npm run self-test
 - `research.intake.enabled`: bật Step 0 phân loại request trước khi mở nguồn.
 - `research.intake.multiLabel`: cho phép nhiều nhãn cùng lúc, ví dụ academic review + dataset extraction.
 - `research.intake.defaultToConservativeBranch`: khi mơ hồ thì chọn nhánh an toàn/chặt hơn.
+- `research.intake.defaultDepth`: độ sâu mặc định, thường là `standard`.
+- `research.intake.allowCompletenessFirst`: cho phép agent ưu tiên độ chắc, recall và auditability hơn tốc độ.
+- `research.intake.completenessFirstOnRiskOrAudit`: tự nâng lên completeness-first cho due diligence, red flag, audit-grade, high-stakes hoặc task nhiều rủi ro.
 - `research.executionGates.enabled`: bật quality gates trước khi tổng hợp các task không tầm thường.
 - `research.executionGates.lowRecallGuard`: chạy recall pass khi nguồn còn mỏng.
 - `research.executionGates.noSingleBasinStop`: tránh kết luận "đủ rộng" nếu mới có một source basin.

@@ -20,7 +20,17 @@
       "emitClassificationCard": false,
       "multiLabel": true,
       "askOnSafetyOrOutputAmbiguity": true,
-      "defaultToConservativeBranch": true
+      "defaultToConservativeBranch": true,
+      "defaultDepth": "standard",
+      "allowCompletenessFirst": true,
+      "completenessFirstOnRiskOrAudit": true,
+      "completenessFirstTriggers": [
+        "due_diligence_or_investigation",
+        "systematic_review",
+        "long_horizon",
+        "high_stakes",
+        "user_requests_thoroughness"
+      ]
     },
     "requireEvidenceLedger": true,
     "requireContradictionPass": true,

@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [3.0.3] - 2026-05-28
+
+v3.0.3 is a classification-strengthening release for teams that prioritize
+correct routing, evidence coverage, and auditability over speed. It expands
+Step 0 research intake with first-class due diligence, policy/standards, and
+creative/cultural research shapes while preserving the open multi-label design:
+the new labels compose with market, technical, academic, dataset, multilingual,
+high-stakes, and long-horizon workflows instead of replacing them.
+
+### Added
+
+- **Completeness-first research depth** in `references/research-intake.md` for
+  audit-grade, risk-heavy, red-flag, due-diligence, and "speed is not important"
+  requests. The mode requires source mapping, search logs, evidence ledgers for
+  key claims, independent recall expansion, contradiction search, no
+  single-basin completion claims, execution gates, and explicit gap/blocker
+  notes.
+- **`due_diligence_or_investigation` intake label** for company, project,
+  vendor, package, claim, provenance, credibility, and red-flag checks, with
+  dedicated source basins and red-flag classes.
+- **`policy_or_standards_analysis` intake label** for standards, RFCs, policies,
+  governance docs, compliance rules, and versioned normative texts, with
+  clause-level verification requirements.
+- **`creative_or_cultural_research` intake label** for creative works, media,
+  culture, trend, reception, archive, and public-discourse research, with a
+  domain-specific authority model.
+- **Depth-control configuration defaults** under `research.intake` in
+  `research.config.example.json`.
+- **Release note artifact** at `docs/release-v3.0.3.md`.
+
+### Changed
+
+- `SKILL.md` and `AGENTS.md` now require agents to capture research depth,
+  authority model/source basins, and red-flag or contradiction focus during
+  intake.
+- `README.md` and `README.vi.md` now present v3.0.3 as a production-ready
+  classification upgrade and document completeness-first configuration.
+- Package metadata now reports version `3.0.3` in `pyproject.toml`,
+  `package.json`, and `package-lock.json`.
+
+### Compatibility
+
+- No new runtime dependencies.
+- No evidence-ledger schema changes.
+- No script CLI changes.
+- Existing v3.0, v3.0.1, and v3.0.2 workspaces, ledgers, reports, and eval
+  fixtures remain valid.
+
 ## [3.0.2] - 2026-05-28
 
 v3.0.2 adds a Step 0 research-intake layer so agents classify the request
@@ -295,7 +343,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.2...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.3...HEAD
+[3.0.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.3
 [3.0.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.2
 [3.0.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.1
 [3.0.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.0

@@ -82,6 +82,11 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
+v3.0.3 expands Step 0 into a stronger classification controller. Agents can now
+route due diligence / investigation, policy / standards analysis, and creative /
+cultural research as first-class research shapes, with completeness-first depth
+for audit-grade, risk-heavy, or "speed is not important" work.
+
 v3.0.2 adds a Step 0 research-intake layer before discovery. Agents classify
 the request with multi-label routing before they search, so person, scientific,
 dataset, URL, high-stakes, multilingual, and long-horizon tasks enter the right
@@ -98,7 +103,7 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 
 ## Core capabilities
 
-1. **Research intake and task classification** — Step 0 multi-label routing for fact / URL / person / academic / systematic review / dataset / API / technical / high-stakes / multilingual / long-horizon tasks before source access. See `references/research-intake.md`.
+1. **Research intake and task classification** — Step 0 multi-label routing for fact / URL / person / academic / systematic review / dataset / API / technical / market / due diligence / policy-standards / creative-cultural / high-stakes / multilingual / long-horizon tasks before source access. Includes fast, standard, and completeness-first depth selection. See `references/research-intake.md`.
 2. **Core deep research workflow** — restate goal → decompose topic → source map → query fanout → browser-first probe → extract → expand → evidence ledger → contradiction pass → blocker report → synthesize. See `SKILL.md`.
 3. **Browser-first crawl** with Playwright defaults: probe access state, extract visible text/tables/links/files, classify pages, capture evidence/blocker screenshots. See `adapters/playwright.md` and `references/browser-first-crawl.md`.
 4. **Public API workflow** for REST / GraphQL / SPARQL endpoints, with pagination patterns, rate-limit handling, and retry/backoff guidance. See `references/api-access-workflow.md` and `adapters/graphql.md`.
@@ -130,7 +135,7 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 
 | Area | What users get | Main files / commands |
 |---|---|---|
-| Research intake | Step 0 multi-label routing before source access | `references/research-intake.md` |
+| Research intake | Step 0 multi-label routing, authority-model selection, and fast/standard/completeness-first depth before source access | `references/research-intake.md` |
 | Agent workflow | A complete browser-first research workflow for evidence-backed answers | `SKILL.md`, `AGENTS.md` |
 | Execution gates | Portable pre-synthesis gates for recall, basin coverage, identity/date discipline, and evidence verification | `references/execution-gates.md` |
 | Browser extraction | Playwright probing, extraction, bounded crawl, blocker screenshots | `adapters/playwright.md`, `scripts/playwright_*.mjs` |
@@ -570,6 +575,10 @@ Precedence for plan-related settings is: explicit CLI flags (for example `--work
 | `research.intake.multiLabel` | `true` | Allow overlapping labels such as academic review + dataset extraction. |
 | `research.intake.askOnSafetyOrOutputAmbiguity` | `true` | Ask only when ambiguity changes safety, legality, scope, or deliverable. |
 | `research.intake.defaultToConservativeBranch` | `true` | Prefer the safer/stricter branch when classification is uncertain. |
+| `research.intake.defaultDepth` | `standard` | Default research depth when no fast path or completeness-first trigger applies. |
+| `research.intake.allowCompletenessFirst` | `true` | Allow deeper routing when accuracy, auditability, risk review, or recall matter more than speed. |
+| `research.intake.completenessFirstOnRiskOrAudit` | `true` | Prefer completeness-first for due diligence, red flags, high-stakes, audit-grade, and risk-heavy tasks. |
+| `research.intake.completenessFirstTriggers` | See config | Label/user-intent triggers that promote the task from standard depth to completeness-first. |
 | `research.requireEvidenceLedger` | `true` | Require claim-level evidence ledger for important claims. |
 | `research.requireContradictionPass` | `true` | Require a contradiction search/pass before synthesis. |
 | `research.preferPrimarySources` | `true` | Prefer official/primary sources over summaries. |

@@ -1,6 +1,6 @@
 ---
 name: d-research
-description: Browser-first deep research and lawful public-data collection for AI agents. Triggers: web research, source discovery, scraping public data, literature reviews, market or technical research, research intake, evidence ledgers, execution gates, blocker reports. Read-only; never bypasses logins, paywalls, captchas, or rate limits.
+description: Browser-first deep research and lawful public-data collection for AI agents. Triggers: web research, source discovery, scraping public data, literature reviews, market or technical research, due diligence, policy/standards analysis, creative/cultural research, research intake, evidence ledgers, execution gates, blocker reports. Read-only; never bypasses logins, paywalls, captchas, or rate limits.
 ---
 
 # D Research
@@ -17,6 +17,9 @@ Use this skill for:
 - source discovery
 - academic and literature review
 - market, competitor, product, and technical research
+- due diligence, public investigation, claim verification, and red-flag review
+- policy, standards, RFC, governance, and compliance analysis
+- creative, cultural, media, trend, reception, and archive research
 - collecting evidence for reports, essays, theses, and projects
 - researching dynamic websites that require browser interaction
 - reporting blocked sources so the user can retrieve data manually
@@ -27,7 +30,7 @@ Do not use this skill to bypass access controls, login walls, paywalls, captchas
 
 Run every research task as a layered investigation:
 
-0. classify the research shape, safety posture, output artifact, and route
+0. classify the research shape, depth, safety posture, output artifact, and route
 1. define the question
 2. decompose the topic
 3. map likely sources
@@ -113,10 +116,12 @@ The full safety and access policy (legal/ethical framing, what counts as a publi
 **Step 0: Research intake.** Before choosing any branch or opening sources,
 classify the request with `references/research-intake.md`. Assign one or more
 shape labels (atomic fact, URL, person/public role, academic review, systematic
-review, dataset/extraction, API/database, technical/market, high-stakes,
-multilingual/local, long-horizon, etc.), set the safety posture, choose the
-expected output artifact, and list the references/gates that apply. Use
-multi-label routing when tasks overlap. If the classification changes safety,
+review, dataset/extraction, API/database, technical/market, due diligence,
+policy/standards, creative/cultural, high-stakes, multilingual/local,
+long-horizon, etc.), set research depth (fast, standard, or
+completeness-first), set the safety posture, choose the expected output
+artifact, and list the references/gates that apply. Use multi-label routing
+when tasks overlap. If the classification changes safety,
 legality, scope, or deliverable and cannot be resolved conservatively, ask the
 user before proceeding; otherwise state the assumption and continue.
 
@@ -148,6 +153,33 @@ Use `references/semantic-retrieval.md` when a corpus is large enough that keywor
 ### If the user asks for a broad research answer
 
 Use the full deep research workflow. Produce a source-backed synthesis with evidence, confidence, caveats, and next steps.
+
+### If the user asks for due diligence, public investigation, risk review, or red flags
+
+Use `references/research-intake.md` with `due_diligence_or_investigation`.
+Default to completeness-first unless the user explicitly asks for a quick scan.
+Build a source map, keep a search log, maintain an evidence ledger for verified
+claims and red flags, run a contradiction pass, and apply execution gates before
+synthesis. Separate verified facts, red flags, unresolved risks, benign
+unknowns, confidence, and recommended manual checks. Do not gather private
+personal data or phrase allegations beyond what the evidence supports.
+
+### If the user asks for policy, standards, RFC, governance, or compliance analysis
+
+Use `references/research-intake.md` with `policy_or_standards_analysis`.
+Prioritize canonical text, version/status, effective dates, errata, issuing-body
+guidance, and exact clause evidence. Distinguish normative from informative
+language, draft from final or superseded text, and obligations from permissions
+or implementation notes. Add `references/specialized-domains.md` only when the
+question is legal/government/financial or jurisdiction-specific.
+
+### If the user asks for creative, cultural, media, trend, reception, or archive research
+
+Use `references/research-intake.md` with `creative_or_cultural_research`.
+Anchor on primary works, official releases, creator/publisher/studio/label
+records, archives, criticism, cultural scholarship, trade press, and public
+reception metrics when available. Treat fan/community/social sources as
+reception evidence, not as verified factual authority about private people.
 
 ### If the user asks to collect a dataset
 
@@ -231,9 +263,10 @@ Escalate to `references/frontier-search.md`. Build a small best-first frontier o
 
 Use `references/research-intake.md` before source access. Produce or internally
 maintain a short intake card covering the user goal, primary object, shape
-labels, safety posture, freshness requirement, geography/language scope, source
-expectations, output artifact, required references, required ledgers/templates,
-execution gates, ambiguities, and route.
+labels, research depth, safety posture, freshness requirement,
+geography/language scope, authority model/source basins, source expectations,
+output artifact, required references, required ledgers/templates, execution
+gates, red-flag or contradiction focus, ambiguities, and route.
 
 Hard-stop safety/privacy/access checks happen here. Do not continue to broad
 research if the intake indicates a refusal, access-control bypass attempt,
