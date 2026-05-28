@@ -15,6 +15,13 @@
     "followExternalLinks": false
   },
   "research": {
+    "intake": {
+      "enabled": true,
+      "emitClassificationCard": false,
+      "multiLabel": true,
+      "askOnSafetyOrOutputAmbiguity": true,
+      "defaultToConservativeBranch": true
+    },
     "requireEvidenceLedger": true,
     "requireContradictionPass": true,
     "preferPrimarySources": true,

@@ -8,7 +8,7 @@
 
 Tài liệu tiếng Anh đầy đủ nhất nằm ở [README.md](README.md). Bản tiếng Việt này là bản giới thiệu thực dụng cho người dùng Việt: đủ để hiểu sản phẩm, cài đặt, kiểm tra và quyết định có nên dùng trong workflow của mình không.
 
-D Research biến research bằng agent từ kiểu "tìm nhanh rồi trả lời" thành một quy trình có kiểm chứng: lập kế hoạch câu hỏi, tìm nguồn, thu thập dữ liệu công khai hợp pháp, trích xuất nội dung, ghi evidence ledger, chạy quality gate trước khi kết luận, xử lý mâu thuẫn, dựng báo cáo có citation và giữ lại metadata để audit.
+D Research biến research bằng agent từ kiểu "tìm nhanh rồi trả lời" thành một quy trình có kiểm chứng: phân loại dạng research trước khi tìm nguồn, lập kế hoạch câu hỏi, thu thập dữ liệu công khai hợp pháp, trích xuất nội dung, ghi evidence ledger, chạy quality gate trước khi kết luận, xử lý mâu thuẫn, dựng báo cáo có citation và giữ lại metadata để audit.
 
 ## Tổng quan nhanh
 
@@ -52,6 +52,11 @@ Skill được tổ chức theo bảy trụ vòng đời. Mỗi trụ là một 
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
+v3.0.2 bổ sung Step 0 research intake: agent phân loại request theo nhiều nhãn
+trước khi mở nguồn, ví dụ fact / URL / người / academic / systematic review /
+dataset / API / kỹ thuật / high-stakes / multilingual / long-horizon. Mục tiêu
+là tránh chọn sai workflow ngay từ đầu.
+
 v3.0.1 bổ sung lớp execution gate portable trước bước tổng hợp cuối: kiểm
 source map, độ phủ nguồn, low-recall, single-basin, ngày/tháng/danh tính,
 evidence verification và synthesis readiness. Subagent vẫn là tùy chọn; nếu
@@ -62,6 +67,7 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 ## Tính năng chính
 
 - Workflow nghiên cứu cốt lõi: hiểu mục tiêu, chia câu hỏi, tìm nguồn, trích xuất, ledger chứng cứ, kiểm tra mâu thuẫn, tổng hợp.
+- Research intake Step 0: phân loại dạng nghiên cứu, safety posture, output artifact, freshness/language scope và route trước khi mở nguồn. Xem `references/research-intake.md`.
 - Execution gates portable: trước khi trả lời các task không tầm thường, agent kiểm source map, coverage/recall, no-single-basin, identity/date/inference, evidence verification và synthesis readiness. Xem `references/execution-gates.md`.
 - Research đa kênh: web search, browser automation, fetch-only, public API, Wayback/archive, Wikidata, GraphQL và database read-only khi user cấp quyền.
 - Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
@@ -121,6 +127,9 @@ npm run self-test
 
 ## Config quan trọng
 
+- `research.intake.enabled`: bật Step 0 phân loại request trước khi mở nguồn.
+- `research.intake.multiLabel`: cho phép nhiều nhãn cùng lúc, ví dụ academic review + dataset extraction.
+- `research.intake.defaultToConservativeBranch`: khi mơ hồ thì chọn nhánh an toàn/chặt hơn.
 - `research.executionGates.enabled`: bật quality gates trước khi tổng hợp các task không tầm thường.
 - `research.executionGates.lowRecallGuard`: chạy recall pass khi nguồn còn mỏng.
 - `research.executionGates.noSingleBasinStop`: tránh kết luận "đủ rộng" nếu mới có một source basin.

@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [3.0.2] - 2026-05-28
+
+v3.0.2 adds a Step 0 research-intake layer so agents classify the request
+before opening sources or choosing a workflow branch. The change is designed to
+prevent early route drift: person-related tasks hit privacy boundaries first,
+scientific reviews enter academic/systematic workflows, data tasks produce
+schemas and coverage notes, and high-stakes or multilingual tasks get the right
+source posture from the start.
+
+### Added
+
+- **Research intake controller** in `references/research-intake.md` with a
+  multi-label classification card, hard-stop safety layer, shape-label matrix,
+  routing priority, output-artifact selection, ambiguity policy, and common
+  failure modes.
+- **Step 0 routing in `SKILL.md` and `AGENTS.md`** before any branch selection
+  or source access.
+- **Intake configuration defaults** under `research.intake` in
+  `research.config.example.json`.
+- **Release note artifact** at `docs/release-v3.0.2.md`.
+
+### Changed
+
+- `SKILL.md` now requires agents to classify research shape, safety posture,
+  expected artifact, freshness/geography/language scope, required references,
+  and execution gates before source discovery.
+- `README.md` and `README.vi.md` now describe the lifecycle as eight pillars
+  with `intake` as pillar 0.
+- Package metadata now reports version `3.0.2` in `pyproject.toml`,
+  `package.json`, and `package-lock.json`.
+
+### Compatibility
+
+- No new runtime dependencies.
+- No evidence-ledger schema changes.
+- No script CLI changes.
+- Existing v3.0 and v3.0.1 workspaces, ledgers, reports, and eval fixtures
+  remain valid.
+
 ## [3.0.1] - 2026-05-28
 
 v3.0.1 is a focused workflow-hardening release. It promotes the strongest
@@ -256,7 +295,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.2...HEAD
+[3.0.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.2
 [3.0.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.1
 [3.0.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.0
 [2.1.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v2.1.0

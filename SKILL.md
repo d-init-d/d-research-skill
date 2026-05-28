@@ -1,6 +1,6 @@
 ---
 name: d-research
-description: Browser-first deep research and lawful public-data collection for AI agents. Triggers: web research, source discovery, scraping public data, literature reviews, market or technical research, evidence ledgers, execution gates, blocker reports. Read-only; never bypasses logins, paywalls, captchas, or rate limits.
+description: Browser-first deep research and lawful public-data collection for AI agents. Triggers: web research, source discovery, scraping public data, literature reviews, market or technical research, research intake, evidence ledgers, execution gates, blocker reports. Read-only; never bypasses logins, paywalls, captchas, or rate limits.
 ---
 
 # D Research
@@ -27,6 +27,7 @@ Do not use this skill to bypass access controls, login walls, paywalls, captchas
 
 Run every research task as a layered investigation:
 
+0. classify the research shape, safety posture, output artifact, and route
 1. define the question
 2. decompose the topic
 3. map likely sources
@@ -108,6 +109,16 @@ When blocked, do not force access. Produce a blocker report.
 The full safety and access policy (legal/ethical framing, what counts as a public source, escalation steps) is in `references/safety-and-access-policy.md`. Read it before doing anything that touches authenticated or rate-limited surfaces.
 
 ## Workflow decision tree
+
+**Step 0: Research intake.** Before choosing any branch or opening sources,
+classify the request with `references/research-intake.md`. Assign one or more
+shape labels (atomic fact, URL, person/public role, academic review, systematic
+review, dataset/extraction, API/database, technical/market, high-stakes,
+multilingual/local, long-horizon, etc.), set the safety posture, choose the
+expected output artifact, and list the references/gates that apply. Use
+multi-label routing when tasks overlap. If the classification changes safety,
+legality, scope, or deliverable and cannot be resolved conservatively, ask the
+user before proceeding; otherwise state the assumption and continue.
 
 **Before picking a branch:** if the task is long-horizon (more than 5 sub-questions, more than 50 sources, multi-context-window runtime, or audit-grade output), apply the **research plan protocol** from `references/research-plan-protocol.md` as an outer loop *around* whichever branch fits the topic. The agent creates one workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writes `research-plan.json` (from `templates/research-plan.json`), renders `PLAN.md`, gets approval with `scripts/research_plan.py approve`, dispatches parallel-safe tasks (optionally to sub-agents if config allows), gates the synthesize step, and only then composes the final report. See `examples/long-horizon-research-plan.md`. The branches below describe the *content* of the work; the protocol describes the *flow control* that keeps the work surviving across context resets.
 
@@ -215,6 +226,19 @@ discipline without making Vietnamese discovery a global default.
 Escalate to `references/frontier-search.md`. Build a small best-first frontier over candidate queries, URLs, files, APIs, citations, repos, aliases, and archives; score each node against the unresolved sub-question; expand the highest-priority node; and stop on evidence saturation rather than node count. Maintain `templates/frontier-ledger.csv` and `templates/coverage-map.json` alongside `templates/evidence-ledger.csv`. Never use this as a way to bypass access controls — blocked nodes still go to `references/blocker-report.md`.
 
 ## Standard deep research workflow
+
+### 0. Classify and route
+
+Use `references/research-intake.md` before source access. Produce or internally
+maintain a short intake card covering the user goal, primary object, shape
+labels, safety posture, freshness requirement, geography/language scope, source
+expectations, output artifact, required references, required ledgers/templates,
+execution gates, ambiguities, and route.
+
+Hard-stop safety/privacy/access checks happen here. Do not continue to broad
+research if the intake indicates a refusal, access-control bypass attempt,
+private-person profiling request, or high-stakes advice request that must be
+reframed as evidence synthesis.
 
 ### 1. Restate the task
 
@@ -451,6 +475,11 @@ Important config fields:
 - crawl.maxTotalPages
 - crawl.delayMs
 - crawl.respectRobots
+- research.intake.enabled
+- research.intake.emitClassificationCard
+- research.intake.multiLabel
+- research.intake.askOnSafetyOrOutputAmbiguity
+- research.intake.defaultToConservativeBranch
 - research.requireEvidenceLedger
 - research.requireContradictionPass
 - research.executionGates.enabled
