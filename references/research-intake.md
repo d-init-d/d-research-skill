@@ -107,6 +107,7 @@ Assign one or more labels. Prefer the most specific labels first.
 | `monitoring_change` | Track changes over time, compare snapshots, watch updates. | `references/monitoring-change-detection.md` |
 | `multilingual_local` | Non-English/local sources materially affect recall or authority. | `references/multilingual-research.md` |
 | `vietnamese_local` | Vietnamese or Vietnam-local sources are materially relevant. | `references/vietnamese-source-discovery.md` |
+| `register_jargon_recall` | A clinical/legal/standards/academic query under-recalls because the evidence basin uses lay terms, community jargon, or vernacular slang. | `references/register-and-jargon-expansion.md` |
 | `large_corpus_semantic` | Many documents/ledger rows; conceptual search needed. | `references/semantic-retrieval.md` |
 | `long_horizon` | >5 sub-questions, >50 sources, audit-grade, or context risk. | `references/research-plan-protocol.md` |
 | `visualization_report` | Charts, rendered reports, PDF/DOCX/HTML output. | `references/data-visualization.md`, `references/report-generation.md` |
@@ -136,8 +137,10 @@ When labels conflict, route in this order:
     archives, criticism, reception, or cultural records rather than scientific
     or technical consensus.
 12. `long_horizon` protocol around whichever content branch applies.
-13. `multilingual_local` / `vietnamese_local` as recall companions, not global
-    defaults.
+13. `multilingual_local` / `vietnamese_local` / `register_jargon_recall` as recall
+    companions, not global defaults. Activate `register_jargon_recall` only when
+    the evidence basin demonstrably uses vernacular, subculture, or domain
+    jargon — never on ordinary technical or global tasks.
 14. `execution-gates` before synthesis for non-trivial work.
 
 Use multiple routes when needed. Example: a PRISMA review that extracts study

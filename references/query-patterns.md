@@ -58,12 +58,15 @@ For every sub-question, generate these query types:
    - `{topic} not working`
    - `{topic} outdated`
 
-9. alternate terms
+9. alternate terms and register ladder
    - synonyms
    - abbreviations
    - translations
    - old product names
    - standards identifiers
+   - register variants: canonical/clinical/legal/technical ↔ lay ↔ community jargon ↔ emergent slang
+   - run the ladder both ways — formal → vernacular to open recall, vernacular → formal to anchor community terms back to a primary source
+   - when a query under-recalls because the evidence basin speaks a different register, see `references/register-and-jargon-expansion.md` (harvest terms from fresh results only; keep only terms recurring across ≥2 independent community sources; vocabulary is discovery, never evidence)
 
 10. site search
    - `site:{domain} {topic}`

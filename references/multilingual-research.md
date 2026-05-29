@@ -53,6 +53,13 @@ diacritic/no-diacritic alias handling, local source basins, and date/identity
 discipline for Vietnamese news, public institutions, and public community
 sources.
 
+When recall stays thin because the evidence basin uses lay terms, community
+jargon, or vernacular slang rather than canonical vocabulary, also read
+`references/register-and-jargon-expansion.md`. It adds a bidirectional register
+ladder (formal ↔ vernacular) as a layer on top of this native-language
+workflow — extract original-language terms first, then expand register; never
+let an English slang pivot overwrite the native register.
+
 ## Translation Strategy
 
 Effective translation preserves meaning while enabling analysis:

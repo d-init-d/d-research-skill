@@ -9,6 +9,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [3.0.5] - 2026-05-29
+
+v3.0.5 is a recall-strengthening release. It adds a register- and
+jargon-aware discovery layer so an agent can match the vocabulary of the people
+who actually hold the evidence — clinical vs. lay, legal vs. street, standards
+vs. shop-floor, academic vs. community jargon, emergent slang — without
+maintaining any frozen word list. The skill stores a *process for harvesting and
+verifying register-matched vocabulary at runtime*, not a dictionary, so it stays
+zero-maintenance as slang changes. The new layer is an additive, opt-in
+companion: it composes with multilingual, broad, due-diligence, and
+creative/cultural research instead of replacing native-language search.
+
+### Added
+
+- **Register & jargon expansion companion** in
+  `references/register-and-jargon-expansion.md`: a bidirectional register ladder
+  (formal → vernacular to open recall, vernacular → formal to anchor every
+  community term to a primary source), a discover → filter → expand → verify
+  loop, harvesting and filtering rules, query-expansion patterns, a
+  reproducibility log contract, and a guardrail table covering the five main
+  failure modes (memory-invented slang, typo/noise/brigading inflation, treating
+  community sources as truth, getting stuck in the community basin, and
+  English-pivot breaking native-speaker recall).
+- **`register_jargon_recall` intake label** in `references/research-intake.md`,
+  added as a recall companion (like `multilingual_local` / `vietnamese_local`)
+  that activates only when the evidence basin demonstrably uses vernacular,
+  subculture, or domain jargon.
+- **`templates/register-vocab-log.csv`** — an audit-grade vocabulary log
+  (`term`, `language`, `register_level`, `source_basin`, `first_seen_url`,
+  `supporting_source_urls`, `independent_source_count`, `status`,
+  `rejection_reason`, `used_in_queries`, `resulting_claim_ids`, `notes`) so a
+  reviewer can replay which vocabulary was trusted, why, and which claims it
+  produced.
+- **Release note artifact** at `docs/release-v3.0.5.md`.
+
+### Changed
+
+- `SKILL.md` adds a new decision-tree branch for thin recall / vernacular
+  evidence basins and lists register/jargon variants in the Step 4 query fanout.
+- `AGENTS.md` core workflow now decomposes register/jargon variants (step 2),
+  fans out register variants both ways (step 4), and can enqueue confirmed
+  register variants as `alias`-type frontier nodes (step 11a).
+- `references/query-patterns.md` (section 9), `references/topic-decomposition.md`
+  (section 3), `references/frontier-search.md` (integration + see also), and
+  `references/multilingual-research.md` (cross-link companion) now reference the
+  register ladder.
+- `README.md` and `README.vi.md` document the new companion (capability #26,
+  feature matrix, repository layout, template list, and the guide count 44 → 45).
+- Package metadata now reports version `3.0.5` in `pyproject.toml`,
+  `package.json`, and `package-lock.json`.
+
+### Security
+
+- The new layer explicitly reinforces no-bypass and no-harm behavior: harvested
+  vocabulary is a discovery layer only and never evidence; every claim still
+  passes `references/source-quality-rubric.md` and the contradiction pass;
+  person-related slang inherits the `references/person-aggregation.md` privacy
+  boundary; and slurs, harassment vocabulary, and brigading terms are explicitly
+  excluded from recall.
+
+### Compatibility
+
+- No new runtime dependencies.
+- No evidence-ledger schema changes.
+- No script CLI changes.
+- Existing v3.0, v3.0.1, v3.0.2, and v3.0.3 workspaces, ledgers, reports, and
+  eval fixtures remain valid.
+
 ## [3.0.3] - 2026-05-28
 
 v3.0.3 is a classification-strengthening release for teams that prioritize
@@ -343,7 +411,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.3...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.5...HEAD
+[3.0.5]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.5
 [3.0.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.3
 [3.0.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.2
 [3.0.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.1

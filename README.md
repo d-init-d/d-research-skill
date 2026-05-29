@@ -48,10 +48,10 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 44 deep-dive guides (research intake, evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **portable execution gates**, **Vietnamese source discovery**, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, …) plus `references/i18n/` refusal templates (en, vi).
+- `references/` — 45 deep-dive guides (research intake, evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **portable execution gates**, **Vietnamese source discovery**, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, **register & jargon expansion**, …) plus `references/i18n/` refusal templates (en, vi).
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
-- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.0, 22 columns, optional `license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**.
+- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.0, 22 columns, optional `license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**, **register vocab log**.
 - `scripts/` — 34 small, self-contained files. 32 of them are research helpers with an offline `--self-test` (Python research utilities, 6 top-level Node scripts, plus 1 Node helper at `scripts/lib/http_cache.mjs`; `run_python.mjs` is only a wrapper); the remaining 2 are pre-commit utility scripts (`check_node_syntax.py`, `check_no_plan_files.py`) that run as checks rather than self-tests. CI runs every research helper's self-test on each PR.
 - `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 50-task frontier probe (bench 2.1, 25 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
@@ -128,6 +128,7 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 23. **Social-media archival** — capture public social-media posts from 12 platforms (Reddit, HN, Mastodon, Bluesky, Lemmy, X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) plus a generic fallback. Tier A platforms use direct public API fetch with SHA-256 content hashing for high verifiability; Tier B platforms use archive-only via Wayback Machine. Every capture carries a mandatory verifiability label and plain-language note. See `references/social-media-archival.md` and `scripts/social_snapshot.py`.
 24. **Portable execution gates** — before non-trivial synthesis, agents run source-map, coverage/recall, identity/date/inference, evidence-verification, and synthesis-readiness gates. Subagents can accelerate the checks, but the main agent can perform them manually in any runtime. See `references/execution-gates.md`.
 25. **Vietnamese source discovery companion** — opt-in guidance for Vietnamese and Vietnam-local research: diacritic/no-diacritic aliases, local source basins, public-source privacy discipline, and compact coverage tables. See `references/vietnamese-source-discovery.md`.
+26. **Register & jargon expansion companion** — opt-in recall layer for when the evidence basin speaks a different register than the query (clinical vs. lay, legal vs. street, standards vs. shop-floor, academic vs. community jargon, emergent slang). Walks a bidirectional register ladder — formal → vernacular to open recall, vernacular → formal to anchor every community term to a primary source. Harvests vocabulary from fresh results at runtime (never from model memory), keeps only terms recurring across ≥2 independent community sources, and treats the harvested vocabulary as a discovery layer, never as evidence — every claim still passes the source-quality rubric and contradiction pass. Audit-grade runs log vocabulary in `templates/register-vocab-log.csv`. See `references/register-and-jargon-expansion.md`.
 
 ---
 
@@ -153,6 +154,7 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 | Context safety | Split work before context overflow; checkpoint findings to files immediately | `references/research-plan-protocol.md` |
 | Anti-bot fallback | Lawful fallback chain for blocked public tier-1 sources before blocker reports | `references/anti-bot-fallback.md`, `references/blocker-report.md` |
 | Vietnamese discovery | Opt-in Vietnamese/Vietnam-local source matrix and public-source discipline | `references/vietnamese-source-discovery.md` |
+| Register & jargon recall | Opt-in bidirectional register ladder (formal ↔ vernacular) to match the evidence basin's vocabulary; discovery layer only, never evidence | `references/register-and-jargon-expansion.md` |
 | Compatibility | Works as a markdown skill; runtime-specific models/API keys stay in the CLI/IDE | `research.config.example.json` |
 
 ---
@@ -200,7 +202,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
 │   └── translation.md                    # new — machine-translation adapter
 │
-├── references/                           # 44 deep-dive guides
+├── references/                           # 45 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources
@@ -225,6 +227,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── pdf-extraction.md                 # new — PDF extraction reference
 │   ├── person-aggregation.md              # new — public-role aggregation w/ privacy boundary
 │   ├── query-patterns.md
+│   ├── register-and-jargon-expansion.md  # new — register/jargon recall companion
 │   ├── report-generation.md              # new — final report generation
 │   ├── reproducibility-checklist.md      # new — pre-release audit
 │   ├── research-bibliography.md
@@ -267,6 +270,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── evidence-ledger.csv
 │   ├── frontier-ledger.csv               # new — frontier-search trace
 │   ├── prisma-flow.json                  # new — PRISMA 2020 flow diagram
+│   ├── register-vocab-log.csv            # new — register/jargon vocabulary audit log
 │   ├── research-plan.json                # new — research-plan schema
 │   ├── screening-log.csv
 │   └── search-log.csv

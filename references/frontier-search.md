@@ -102,6 +102,7 @@ Never claim total Internet coverage. Report only reachable-evidence coverage, as
 - **First pass**: run `SKILL.md` steps 1–11 normally. Frontier search is step 11.5, not a replacement.
 - **Long-horizon tasks**: when `scripts/research_plan.py` is in use, treat `coverage-map.json` and `frontier-ledger.csv` as additional workspace artefacts. They sit alongside `research-plan.json` and the evidence ledger inside the run folder. Do not merge them with `research-plan.json`; they answer different questions (gap vs. task status).
 - **Multilingual research**: feed alias and local-language variants in as `alias`-type frontier nodes. See `references/multilingual-research.md`.
+- **Register/jargon gaps**: when a gap persists because the basin uses lay, community, or vernacular terms, feed confirmed register variants in as `alias`-type frontier nodes (no new node type needed). See `references/register-and-jargon-expansion.md`.
 - **Time-sensitive claims**: use `archive`-type nodes to chase changelogs, release notes, and prior versions. See `references/monitoring-change-detection.md`.
 - **Academic gaps**: prefer `citation`-type nodes via OpenAlex / CrossRef / Semantic Scholar. See `references/academic-databases.md`.
 - **API-shaped data**: prefer `api`-type nodes when a page exposes a network endpoint. See `references/api-access-workflow.md`.
@@ -118,6 +119,8 @@ Never claim total Internet coverage. Report only reachable-evidence coverage, as
 - `SKILL.md` — entry point and decision tree.
 - `references/source-discovery.md` — how to build the initial source map.
 - `references/query-patterns.md` — query fanout for `query`-type frontier nodes.
+- `references/register-and-jargon-expansion.md` — register variants for `alias`-type nodes when the basin uses vernacular terms.
+- `references/register-and-jargon-expansion.md` — register variants for `alias`-type nodes when the basin uses vernacular terms.
 - `references/evidence-ledger.md` — claim-level evidence schema.
 - `references/source-quality-rubric.md` — scoring rubric reused for `authority` and `relevance`.
 - `references/blocker-report.md` — what to record when a node is blocked.

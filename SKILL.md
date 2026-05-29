@@ -253,6 +253,20 @@ Vietnamese public/community sources are materially relevant, use
 diacritic/no-diacritic alias handling, local source basins, and date/identity
 discipline without making Vietnamese discovery a global default.
 
+### If recall is thin or the evidence lives in community, vernacular, or jargon-heavy registers
+
+Use `references/register-and-jargon-expansion.md`. Applies when a clinical,
+legal, standards, or academic query under-recalls because the people who hold
+the evidence use lay terms, community jargon, or emergent slang. Walk the
+register ladder in both directions: formal -> vernacular to open recall, and
+vernacular -> formal to anchor every community term back to a primary source.
+Harvest vocabulary from fresh results only (never from model memory), keep only
+terms that recur across two or more independent community sources, and treat the
+harvested vocabulary as a discovery layer — never as evidence. Every claim still
+passes `references/source-quality-rubric.md` and the contradiction pass. This is
+an additive layer on top of `references/multilingual-research.md`, not a
+replacement for native-language search.
+
 ### If the first pass leaves evidence gaps, obscure / long-tail facts, or contested claims
 
 Escalate to `references/frontier-search.md`. Build a small best-first frontier over candidate queries, URLs, files, APIs, citations, repos, aliases, and archives; score each node against the unresolved sub-question; expand the highest-priority node; and stop on evidence saturation rather than node count. Maintain `templates/frontier-ledger.csv` and `templates/coverage-map.json` alongside `templates/evidence-ledger.csv`. Never use this as a way to bypass access controls — blocked nodes still go to `references/blocker-report.md`.
@@ -336,6 +350,7 @@ For every important sub-question, generate:
 - recent query
 - contradiction query
 - alternate-language query when useful
+- register/jargon variant query when the evidence basin uses lay, community, or vernacular terms (see `references/register-and-jargon-expansion.md`)
 
 Do not conclude "not found" until broad, exact, official, primary, filetype, and contradiction searches have been attempted or are clearly irrelevant.
 

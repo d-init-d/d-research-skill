@@ -42,6 +42,7 @@ For each entity, list:
 - project names
 - ticker or registry identifiers when applicable
 - domain names and repository names
+- register/jargon variants: lay, community, and vernacular terms for the same concept when the evidence basin uses them (see `references/register-and-jargon-expansion.md`)
 
 ### 4. Question graph
 
