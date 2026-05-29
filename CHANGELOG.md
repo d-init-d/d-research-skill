@@ -9,6 +9,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [3.0.6] - 2026-05-29
+
+v3.0.6 completes the register/jargon recall work started in v3.0.5 by turning
+the cross-source recurrence rule into a runnable tool and adding bench coverage
+so the capability is protected against regression. It is purely additive: no
+existing behavior, schema, or CLI changes.
+
+### Added
+
+- **`scripts/harvest_terms.py`** — a deterministic, stdlib-only helper that
+  implements the "keep only terms recurring across ≥2 independent community
+  sources" rule from `references/register-and-jargon-expansion.md`. It reads
+  tagged `source<delimiter>term` occurrences, counts distinct sources per
+  candidate term, and labels each `confirmed` or `candidate`. It never invents
+  vocabulary. Includes a `harvest` subcommand, a `--threshold` flag (default
+  `>=2`), JSON/text output, and an offline `self-test`. Wired into the
+  `npm run self-test` chain and exposed as `npm run terms:harvest`.
+- **`register-jargon-recall` frontier eval class** in
+  `examples/evals/frontier-bench.json` with two ground-truth tasks (FB-051,
+  FB-052) that probe the bidirectional register ladder and the
+  discovery-layer-not-evidence boundary, plus the matching empty-score fixture
+  entries in `examples/evals/fixtures/frontier-empty-scores.json`. Frontier
+  bench bumps from `2.1` (50 tasks / 25 classes) to `2.2` (52 tasks / 26
+  classes) under the additive bench-version policy.
+- **Release note artifact** at `docs/release-v3.0.6.md`.
+
+### Changed
+
+- `references/register-and-jargon-expansion.md` now links the new
+  `scripts/harvest_terms.py` helper from the filtering rules and See also.
+- `scripts/run_dogfood.py` registers `register-jargon-recall` in
+  `FRONTIER_CLASSES` so the ≥2-tasks-per-class rule governs it.
+- `README.md`, `README.vi.md`, `docs/eval.md`, `docs/eval-upgrade-prompt.md`,
+  and `.agents/skills/testing-scripts/SKILL.md` updated for the new bench counts
+  (52 tasks / 26 classes / bench 2.2) and the added helper script.
+- Package metadata now reports version `3.0.6` in `pyproject.toml`,
+  `package.json`, and `package-lock.json`.
+
+### Fixed
+
+- Removed three stale `placeholder for task 2.x` comments in
+  `scripts/pdf_extract.py` (the `tables`, `to-ledger`, and `self-test`
+  subcommands they annotated were already fully implemented).
+
+### Compatibility
+
+- No new runtime dependencies.
+- No evidence-ledger schema changes.
+- No script CLI changes to existing scripts.
+- Frontier bench `2.2` is additive; `2.1` score artifacts remain comparable on
+  the shared task subset.
+- Existing v3.0.x workspaces, ledgers, reports, and eval fixtures remain valid.
+
 ## [3.0.5] - 2026-05-29
 
 v3.0.5 is a recall-strengthening release. It adds a register- and
@@ -411,7 +464,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.5...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.6...HEAD
+[3.0.6]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.6
 [3.0.5]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.5
 [3.0.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.3
 [3.0.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.2

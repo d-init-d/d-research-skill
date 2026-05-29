@@ -92,6 +92,11 @@ This is a thin loop on top of the standard workflow, not a replacement for it.
   wide fanout or appear in output as established vocabulary until confirmed.
 - When a term is rejected, record why; the rejection is itself useful audit data.
 
+To make the cross-source recurrence rule deterministic, feed your tagged
+`source<TAB>term` occurrences to `scripts/harvest_terms.py` (subcommand
+`harvest`, default threshold `>=2`). It counts distinct sources per candidate
+term and labels each `confirmed` or `candidate`; it never invents vocabulary.
+
 ## Query expansion patterns
 
 Reuse the fanout syntax from `references/query-patterns.md`, adding both ladder
@@ -159,3 +164,4 @@ the evidence ledger.
 - `references/safety-and-access-policy.md` — non-negotiable access boundaries.
 - `templates/search-log.csv` — lightweight term logging.
 - `templates/register-vocab-log.csv` — audit-grade register vocabulary log.
+- `scripts/harvest_terms.py` — deterministic cross-source recurrence filter for candidate terms.

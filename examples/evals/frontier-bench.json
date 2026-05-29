@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
-  "bench_version": "2.1",
+  "bench_version": "2.2",
   "tier": "frontier",
   "name": "d-research frontier upgrade probe",
-  "description": "Tier 2 frontier probe for upgrade verification. Bench 2.1 keeps the original hard research probes and expands coverage to twenty-five classes with at least two tasks per class, so a single lucky pass does not overstate improvement. It covers hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, API/tool drift, systematic review discipline, large-scale collection, monitoring/change detection, multilingual research, anti-bot fallback handling, PDF extraction, Wayback archive access, Wikidata disambiguation, social-media Tier A capture, social-media Tier B archival, social-media refusal probes, citation resolution, report generation, OCR extraction, translation workflows, semantic retrieval, citation-graph traversal, multi-format extraction, dedup-and-cache, and provenance/compliance metadata.",
+  "description": "Tier 2 frontier probe for upgrade verification. Bench 2.2 keeps the original hard research probes and expands coverage to twenty-six classes with at least two tasks per class, so a single lucky pass does not overstate improvement. It covers hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, API/tool drift, systematic review discipline, large-scale collection, monitoring/change detection, multilingual research, anti-bot fallback handling, PDF extraction, Wayback archive access, Wikidata disambiguation, social-media Tier A capture, social-media Tier B archival, social-media refusal probes, citation resolution, report generation, OCR extraction, translation workflows, semantic retrieval, citation-graph traversal, multi-format extraction, dedup-and-cache, provenance/compliance metadata, and register/jargon-aware recall.",
   "classes": [
     "hard-atomic-fact",
     "subtle-multiway-contradiction",
@@ -29,7 +29,8 @@
     "citation-graph",
     "multi-format-extraction",
     "dedup-and-cache",
-    "provenance-compliance"
+    "provenance-compliance",
+    "register-jargon-recall"
   ],
   "scoring": {
     "tier": "frontier",
@@ -1249,6 +1250,54 @@
         "Mentioning only prov:Entity without prov:Activity misses half of the graph."
       ],
       "notes": "current_version_status: FAIL - current agents may not have seen the new prov-export subcommand or its PROV-O class set."
+    },
+    {
+      "task_id": "FB-051",
+      "class": "register-jargon-recall",
+      "difficulty": "hard",
+      "expected_branch": "broad-research",
+      "question": "In the register & jargon expansion companion, what is the name of the two-directional construct an agent must walk so that community/vernacular terms are anchored back to a primary source rather than left as community chatter?",
+      "expected_answer": {
+        "value": "register ladder",
+        "format": "concept-name",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "directions": "formal -> vernacular opens recall; vernacular -> formal anchors every community term to a primary source",
+          "rule": "harvested vocabulary is a discovery layer, never evidence"
+        }
+      },
+      "ground_truth_sources": [
+        "references/register-and-jargon-expansion.md"
+      ],
+      "negative_signals": [
+        "Answering with a one-directional synonym list misses the mandatory vernacular -> formal anchoring step.",
+        "Treating community jargon as evidence instead of a discovery layer is wrong."
+      ],
+      "notes": "current_version_status: FAIL - current agents tend to expand synonyms one way and stop in the community basin without anchoring terms back to a primary source."
+    },
+    {
+      "task_id": "FB-052",
+      "class": "register-jargon-recall",
+      "difficulty": "medium",
+      "expected_branch": "broad-research",
+      "question": "In the register & jargon expansion companion, harvested vocabulary is explicitly classified as what kind of layer that must never be treated as evidence, with every claim still passing the source-quality rubric and contradiction pass?",
+      "expected_answer": {
+        "value": "discovery layer",
+        "format": "concept-name",
+        "match_mode": "substring",
+        "supporting_fields": {
+          "filter_rule": "keep only terms recurring across at least two independent community sources",
+          "harvest_rule": "harvest from fresh results, never from model memory"
+        }
+      },
+      "ground_truth_sources": [
+        "references/register-and-jargon-expansion.md"
+      ],
+      "negative_signals": [
+        "Claiming harvested slang can directly support a claim violates the discovery-only boundary.",
+        "Promoting a single-source term to a query driver skips the >=2 independent-source filter."
+      ],
+      "notes": "current_version_status: FAIL - current agents often blur discovery vocabulary with evidence and skip the cross-source recurrence filter."
     }
   ]
 }

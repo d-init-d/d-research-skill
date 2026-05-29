@@ -499,7 +499,7 @@ def main() -> int:
         "--out", default=None, help="Write JSON to this file (default: stdout)."
     )
 
-    # --- tables subcommand (placeholder for task 2.1) ---
+    # --- tables subcommand ---
     tables_p = sub.add_parser(
         "tables", help="Extract tables as CSV files (requires pdfplumber)."
     )
@@ -510,7 +510,7 @@ def main() -> int:
         "--out-dir", required=True, help="Directory to write CSV files."
     )
 
-    # --- to-ledger subcommand (placeholder for task 2.2) ---
+    # --- to-ledger subcommand ---
     ledger_p = sub.add_parser(
         "to-ledger", help="Generate an evidence-ledger CSV row from a PDF."
     )
@@ -522,7 +522,7 @@ def main() -> int:
         "--out-row", required=True, help="CSV file to append the ledger row to."
     )
 
-    # --- self-test subcommand (placeholder for task 2.4) ---
+    # --- self-test subcommand ---
     sub.add_parser("self-test", help="Run offline self-tests.")
 
     args = p.parse_args()

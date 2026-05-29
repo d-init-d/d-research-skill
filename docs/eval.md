@@ -13,7 +13,7 @@ outside the harness.
 - `examples/evals/dogfood-bench.json` - Tier 1 regression bench. It has 12
   ground-truth tasks across `atomic-fact`, `api-workflow`, `contradiction`, and
   `person-aggregation`.
-- `examples/evals/frontier-bench.json` - Tier 2 frontier bench 2.1. It has 32
+- `examples/evals/frontier-bench.json` - Tier 2 frontier bench 2.2. It has 32
   harder tasks across sixteen classes: hard atomic facts, subtle contradictions,
   hidden refusal triggers, long-horizon planning, API/tool drift, systematic
   review discipline, large-scale collection, monitoring/change detection,
@@ -246,7 +246,7 @@ For Tier 2, add tasks only when the current skill version fails or partially
 passes. Include `current_version_status:` in `notes` so future maintainers know
 why the task belongs in the frontier bench.
 
-Frontier bench 2.1 enforces at least two tasks per frontier class. New class
+Frontier bench 2.2 enforces at least two tasks per frontier class. New class
 validators should make the branch contract explicit: required references,
 minimum source count when needed, and any class-specific supporting field such
 as `drift_note` for API drift probes.
@@ -263,8 +263,11 @@ The `bench_version` field in frontier-bench.json follows additive semver:
   pass criterion changed. Old score artifacts are **not** directly
   comparable; regenerate the empty-score fixture with `score-all`.
 
-The current bench is `2.1` and stays at `2.1` as long as PR additions are
-purely additive (new classes, new tasks, new optional schema fields).
+The current bench is `2.2` and stays at `2.2` as long as PR additions are
+purely additive (new classes, new tasks, new optional schema fields). Bench
+`2.2` added the `register-jargon-recall` class (two tasks) on top of the
+`2.1` set; score artifacts from `2.1` remain comparable on the shared task
+subset.
 
 The 22-column evidence-ledger schema added in v3.0 is **additive**: the new
 `license_spdx`, `robots_status`, and `prov_activity_id` columns are optional

@@ -128,6 +128,7 @@ FRONTIER_CLASSES = {
     "multi-format-extraction",
     "dedup-and-cache",
     "provenance-compliance",
+    "register-jargon-recall",
 }
 
 LEAK_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)

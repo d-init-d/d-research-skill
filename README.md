@@ -21,7 +21,7 @@ Vietnamese docs: [README.vi.md](README.vi.md)
 | Access model | Read-only by default. It uses search, browser automation, public APIs, web archives, user-provided read-only databases, and local files. |
 | Evidence model | Every meaningful claim should land in an evidence ledger with source, quote/value, access method, confidence, contradictions, provenance, and optional HMAC signature. |
 | Outputs | Evidence ledgers, citation files, extracted tables, frontier ledgers, coverage maps, research plans, reports, and reproducibility metadata. |
-| Verification | Offline self-tests, internal-reference checks, a 12-task regression bench, and a 50-task frontier bench covering 25 capability classes. |
+| Verification | Offline self-tests, internal-reference checks, a 12-task regression bench, and a 52-task frontier bench covering 26 capability classes. |
 | Safety posture | Never bypass login, paywalls, captchas, rate limits, robots restrictions, or access controls. Blocked sources become blocker reports, not escalation attempts. |
 
 ## When to use it
@@ -52,8 +52,8 @@ Concretely, the repo contains:
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.0, 22 columns, optional `license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**, **register vocab log**.
-- `scripts/` — 34 small, self-contained files. 32 of them are research helpers with an offline `--self-test` (Python research utilities, 6 top-level Node scripts, plus 1 Node helper at `scripts/lib/http_cache.mjs`; `run_python.mjs` is only a wrapper); the remaining 2 are pre-commit utility scripts (`check_node_syntax.py`, `check_no_plan_files.py`) that run as checks rather than self-tests. CI runs every research helper's self-test on each PR.
-- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 50-task frontier probe (bench 2.1, 25 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `scripts/` — 35 small, self-contained files. 33 of them are research helpers with an offline `--self-test` (Python research utilities, 6 top-level Node scripts, plus 1 Node helper at `scripts/lib/http_cache.mjs`; `run_python.mjs` is only a wrapper); the remaining 2 are pre-commit utility scripts (`check_node_syntax.py`, `check_no_plan_files.py`) that run as checks rather than self-tests. CI runs every research helper's self-test on each PR.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 52-task frontier probe (bench 2.2, 26 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -253,7 +253,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── dataset-collection.md
 │   ├── evals/
 │   │   ├── dogfood-bench.json            # 12-task regression eval set
-│   │   ├── frontier-bench.json           # 50-task frontier eval set (bench 2.1, 25 classes)
+│   │   ├── frontier-bench.json           # 52-task frontier eval set (bench 2.2, 26 classes)
 │   │   └── fixtures/                     # deterministic empty-score fixtures
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
