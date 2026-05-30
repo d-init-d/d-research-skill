@@ -53,6 +53,18 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
+v3.1.0 làm sạch bề mặt release công khai: release notes dùng thống nhất pattern
+tiêu đề sản phẩm + subtitle `vX.Y.Z Release Notes`, tài liệu eval khớp bench
+52 task / 26 class, và loại bỏ nhiễu duplicate reference nhỏ.
+
+v3.0.6 biến register/jargon recall thành capability có công cụ và có bench:
+`scripts/harvest_terms.py` thực thi rule lặp qua ≥2 nguồn độc lập, và frontier
+bench có class `register-jargon-recall` gồm 2 task để chống regression.
+
+v3.0.5 thêm register- and jargon-aware recall companion: quy trình
+zero-maintenance để harvest vocabulary sống từ kết quả tươi, đi register ladder
+hai chiều, và coi term đã học là lead chứ không phải evidence.
+
 v3.0.3 nâng Step 0 thành controller phân loại mạnh hơn: due diligence /
 investigation, policy / standards analysis, và creative / cultural research trở
 thành các research shape hạng nhất. Agent cũng có chế độ completeness-first cho

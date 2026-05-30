@@ -1,4 +1,6 @@
-# D Research v3.0.5: Register- and Jargon-Aware Recall
+# Register- and Jargon-Aware Recall
+
+v3.0.5 Release Notes
 
 D Research v3.0.5 strengthens the recall layer of an agentic research run. It
 adds a register- and jargon-aware discovery companion so the agent can match the

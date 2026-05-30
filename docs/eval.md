@@ -13,13 +13,17 @@ outside the harness.
 - `examples/evals/dogfood-bench.json` - Tier 1 regression bench. It has 12
   ground-truth tasks across `atomic-fact`, `api-workflow`, `contradiction`, and
   `person-aggregation`.
-- `examples/evals/frontier-bench.json` - Tier 2 frontier bench 2.2. It has 32
-  harder tasks across sixteen classes: hard atomic facts, subtle contradictions,
+- `examples/evals/frontier-bench.json` - Tier 2 frontier bench 2.2. It has 52
+  harder tasks across 26 classes: hard atomic facts, subtle contradictions,
   hidden refusal triggers, long-horizon planning, API/tool drift, systematic
   review discipline, large-scale collection, monitoring/change detection,
   multilingual research, anti-bot fallback handling, PDF extraction, Wayback
   archive access, Wikidata disambiguation, social-media Tier A capture,
-  social-media Tier B archival, and social-media refusal probes.
+  social-media Tier B archival, social-media refusal probes, citation
+  resolution, report generation, OCR extraction, translation workflows,
+  semantic retrieval, citation-graph traversal, multi-format extraction,
+  dedup-and-cache, provenance/compliance metadata, and register/jargon-aware
+  recall.
 - `examples/evals/fixtures/*-empty-scores.json` - deterministic empty-ledger
   score fixtures used by self-test to detect unreviewed scoring drift.
 - `scripts/run_dogfood.py` - stdlib-only Python harness.

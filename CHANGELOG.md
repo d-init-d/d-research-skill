@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [3.1.0] - 2026-05-30
+
+v3.1.0 is a release-consistency and documentation-polish release. It keeps the
+register/jargon workflow shipped in v3.0.5 and v3.0.6 unchanged while tightening
+the public release surface for a ready-to-ship product package.
+
+### Changed
+
+- Standardized release-note artifacts around a concise title followed by a
+  `vX.Y.Z Release Notes` subtitle. `docs/release-v3.0.5.md` and
+  `docs/release-v3.0.6.md` were updated to match the public release-note style.
+- `docs/eval.md` now describes frontier bench 2.2 as 52 tasks across 26 classes,
+  matching `examples/evals/frontier-bench.json`, the empty-score fixtures, and
+  the self-test output.
+- `README.md` and `README.vi.md` now include the v3.0.5, v3.0.6, and v3.1.0
+  release sequence so users can understand the register/jargon upgrade path from
+  method, to tool and bench, to release polish.
+- Package metadata now reports version `3.1.0` in `pyproject.toml`,
+  `package.json`, and `package-lock.json`.
+
+### Fixed
+
+- Removed a duplicate `references/register-and-jargon-expansion.md` See also row
+  from `references/frontier-search.md`.
+
+### Compatibility
+
+- No runtime behavior changes.
+- No new dependencies.
+- No evidence-ledger schema changes.
+- No script CLI changes.
+- Existing v3.0.x workspaces, ledgers, reports, release tags, and eval fixtures
+  remain valid.
+
 ## [3.0.6] - 2026-05-29
 
 v3.0.6 completes the register/jargon recall work started in v3.0.5 by turning
@@ -464,7 +498,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.0.6...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.0
 [3.0.6]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.6
 [3.0.5]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.5
 [3.0.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.3

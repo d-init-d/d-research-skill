@@ -82,6 +82,19 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
+v3.1.0 polishes the public release surface: release notes now use a consistent
+product-title plus `vX.Y.Z Release Notes` subtitle pattern, eval documentation
+matches the 52-task / 26-class frontier bench, and small duplicate-reference
+noise has been removed.
+
+v3.0.6 turns register/jargon recall into an executable, regression-protected
+capability with `scripts/harvest_terms.py` and a two-task
+`register-jargon-recall` frontier bench class.
+
+v3.0.5 adds the register- and jargon-aware recall companion: a zero-maintenance
+process for harvesting live vocabulary from fresh results, walking the register
+ladder both ways, and treating discovered terms as leads rather than evidence.
+
 v3.0.3 expands Step 0 into a stronger classification controller. Agents can now
 route due diligence / investigation, policy / standards analysis, and creative /
 cultural research as first-class research shapes, with completeness-first depth

@@ -1,4 +1,6 @@
-# D Research v3.0.6: Register Recall, Tooled and Benched
+# Register Recall, Tooled and Benched
+
+v3.0.6 Release Notes
 
 D Research v3.0.6 finishes the register- and jargon-aware recall work introduced
 in v3.0.5. v3.0.5 shipped the *method* — a bidirectional register ladder and a

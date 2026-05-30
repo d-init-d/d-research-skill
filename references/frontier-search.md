@@ -120,7 +120,6 @@ Never claim total Internet coverage. Report only reachable-evidence coverage, as
 - `references/source-discovery.md` — how to build the initial source map.
 - `references/query-patterns.md` — query fanout for `query`-type frontier nodes.
 - `references/register-and-jargon-expansion.md` — register variants for `alias`-type nodes when the basin uses vernacular terms.
-- `references/register-and-jargon-expansion.md` — register variants for `alias`-type nodes when the basin uses vernacular terms.
 - `references/evidence-ledger.md` — claim-level evidence schema.
 - `references/source-quality-rubric.md` — scoring rubric reused for `authority` and `relevance`.
 - `references/blocker-report.md` — what to record when a node is blocked.
