@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [3.1.1] - 2026-06-01
+
+v3.1.1 is a skill-metadata compatibility patch. It keeps the full D Research
+workflow unchanged while making the `SKILL.md` YAML frontmatter safer for
+strict parsers that can misread colon-bearing plain scalar descriptions.
+
+### Changed
+
+- `SKILL.md` now expresses the long `description` field as a folded block scalar
+  (`>-`) instead of a single plain scalar line. The trigger text and skill body
+  are unchanged.
+- `README.md` and `README.vi.md` now mention the metadata-hardening patch in the
+  v3.x release sequence.
+- Package metadata now reports version `3.1.1` in `pyproject.toml`,
+  `package.json`, and `package-lock.json`.
+
+### Compatibility
+
+- No workflow behavior changes.
+- No trigger text changes.
+- No new dependencies.
+- No evidence-ledger schema changes.
+- No script CLI changes.
+- Existing v3.1.0 workspaces, ledgers, reports, eval fixtures, and release tags
+  remain valid.
+
 ## [3.1.0] - 2026-05-30
 
 v3.1.0 is a release-consistency and documentation-polish release. It keeps the
@@ -498,7 +524,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.1.1...HEAD
+[3.1.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.1
 [3.1.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.0
 [3.0.6]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.6
 [3.0.5]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.5

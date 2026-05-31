@@ -53,6 +53,11 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
+v3.1.1 làm chắc hơn bề mặt metadata của skill bằng cách biểu diễn
+`description` trong `SKILL.md` theo cú pháp YAML block scalar. Nội dung trigger
+không đổi, nhưng các parser nghiêm ngặt với plain scalar có dấu hai chấm sẽ đọc
+frontmatter ổn định hơn.
+
 v3.1.0 làm sạch bề mặt release công khai: release notes dùng thống nhất pattern
 tiêu đề sản phẩm + subtitle `vX.Y.Z Release Notes`, tài liệu eval khớp bench
 52 task / 26 class, và loại bỏ nhiễu duplicate reference nhỏ.

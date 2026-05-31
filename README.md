@@ -82,6 +82,11 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
+v3.1.1 hardens the skill metadata surface by expressing the `SKILL.md`
+description as YAML block scalar syntax. The trigger text is unchanged, but
+parsers that are strict about colon-bearing plain scalars can now read the
+frontmatter more reliably.
+
 v3.1.0 polishes the public release surface: release notes now use a consistent
 product-title plus `vX.Y.Z Release Notes` subtitle pattern, eval documentation
 matches the 52-task / 26-class frontier bench, and small duplicate-reference

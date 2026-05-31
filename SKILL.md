@@ -1,6 +1,12 @@
 ---
 name: d-research
-description: Browser-first deep research and lawful public-data collection for AI agents. Triggers: web research, source discovery, scraping public data, literature reviews, market or technical research, due diligence, policy/standards analysis, creative/cultural research, research intake, evidence ledgers, execution gates, blocker reports. Read-only; never bypasses logins, paywalls, captchas, or rate limits.
+description: >-
+  Browser-first deep research and lawful public-data collection for AI agents.
+  Triggers: web research, source discovery, scraping public data, literature
+  reviews, market or technical research, due diligence, policy/standards
+  analysis, creative/cultural research, research intake, evidence ledgers,
+  execution gates, blocker reports. Read-only; never bypasses logins,
+  paywalls, captchas, or rate limits.
 ---
 
 # D Research
