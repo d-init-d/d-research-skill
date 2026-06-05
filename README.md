@@ -11,6 +11,11 @@ Vietnamese docs: [README.vi.md](README.vi.md)
 
 > D Research turns ad hoc agent research into an auditable workflow: plan the question, discover sources, collect public evidence, extract structured data, resolve citations, write a ledger, pass synthesis-readiness gates, and verify the result with offline benchmarks.
 
+Looking for the prebuilt multi-agent version? See
+[D Research Ultra](https://github.com/d-init-d/d-research-ultra-skill),
+which builds on this core skill and adds a runtime-neutral orchestrator
+plus six ready-to-register worker roles.
+
 ---
 
 ## At a glance
