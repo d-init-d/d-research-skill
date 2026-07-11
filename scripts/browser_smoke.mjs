@@ -251,11 +251,17 @@ async function testRealChromiumLaunch() {
   return 'chromium_launch';
 }
 
+function ensureSmokeTmp(prefix) {
+  const base = path.join(ROOT, 'research-output');
+  fs.mkdirSync(base, { recursive: true });
+  return fs.mkdtempSync(path.join(base, prefix));
+}
+
 async function testProbeExtractCrawl(base) {
   const probe = path.join(ROOT, 'scripts', 'playwright_probe.mjs');
   const extract = path.join(ROOT, 'scripts', 'playwright_extract.mjs');
   const crawl = path.join(ROOT, 'scripts', 'playwright_crawl.mjs');
-  const tmp = fs.mkdtempSync(path.join(ROOT, 'research-output', 'smoke-'));
+  const tmp = ensureSmokeTmp('smoke-');
   try {
     const probeOut = path.join(tmp, 'probe.json');
     const extractOut = path.join(tmp, 'extract.json');
@@ -296,7 +302,7 @@ async function testRobotsRedirect(fixture) {
   // merely omitted from the written extraction.
   const { base, hits } = fixture;
   const crawl = path.join(ROOT, 'scripts', 'playwright_crawl.mjs');
-  const tmp = fs.mkdtempSync(path.join(ROOT, 'research-output', 'smoke-robots-'));
+  const tmp = ensureSmokeTmp('smoke-robots-');
   const hitStart = hits.length;
   try {
     const crawlDir = path.join(tmp, 'crawl');
@@ -338,7 +344,7 @@ async function testBrowserResponseLimits(base) {
   const probe = path.join(ROOT, 'scripts', 'playwright_probe.mjs');
   const extract = path.join(ROOT, 'scripts', 'playwright_extract.mjs');
   const crawl = path.join(ROOT, 'scripts', 'playwright_crawl.mjs');
-  const tmp = fs.mkdtempSync(path.join(ROOT, 'research-output', 'smoke-limits-'));
+  const tmp = ensureSmokeTmp('smoke-limits-');
   const assertStructuredLimit = (result, label) => {
     assert(result.code === 3, `${label} must exit 3, got ${result.code}: ${result.stderr}`);
     assert(
@@ -401,7 +407,7 @@ async function testRobotsStatuses() {
   ];
   for (const item of cases) {
     const fixture = await startRobotsStatusServer(item.status);
-    const tmp = fs.mkdtempSync(path.join(ROOT, 'research-output', `smoke-robots-${item.status}-`));
+    const tmp = ensureSmokeTmp(`smoke-robots-${item.status}-`);
     try {
       const result = await runNode(crawl, [
         '--seed', `${fixture.base}/ok`,
@@ -467,7 +473,7 @@ async function testTlsDefaultFailureAndOptIn() {
   const extract = path.join(ROOT, 'scripts', 'playwright_extract.mjs');
   const probe = path.join(ROOT, 'scripts', 'playwright_probe.mjs');
   const crawl = path.join(ROOT, 'scripts', 'playwright_crawl.mjs');
-  const tmp = fs.mkdtempSync(path.join(ROOT, 'research-output', 'smoke-tls-'));
+  const tmp = ensureSmokeTmp('smoke-tls-');
   const fixture = await startTlsFixtureServer();
   try {
     const defaultOut = path.join(tmp, 'default.json');

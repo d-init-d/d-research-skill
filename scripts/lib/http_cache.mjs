@@ -4,8 +4,9 @@
 //
 // Atomic generation protocol:
 //   - unique per-writer temp files: {key}.{gen}.body.tmp / {key}.{gen}.json.tmp
-//   - publish body then meta via rename
-//   - metadata carries body_sha256 + body_size + generation_id
+//   - publish body to generation-scoped {key}.{gen}.body (no shared body path)
+//   - atomically publish meta pointing at body_file
+//   - metadata carries body_sha256 + body_size + generation_id + body_file
 //   - readers validate hash/size and never mix generations
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -162,9 +163,9 @@ export function getCached(method, url, opts = {}) {
   const extra = opts.extraKeyHeaders || [];
   const requestKey = opts.requestKey ?? canonicalHeaderKey(opts.requestHeaders, extra);
   const key = cacheKey(method, url, { requestKey, bodyKey: opts.bodyKey });
-  const metaPath = join(cacheDir, 'entries', `${key}.json`);
-  const bodyPath = join(cacheDir, 'entries', `${key}.body`);
-  if (!existsSync(metaPath) || !existsSync(bodyPath)) return null;
+  const entriesDir = join(cacheDir, 'entries');
+  const metaPath = join(entriesDir, `${key}.json`);
+  if (!existsSync(metaPath)) return null;
   let meta;
   try {
     meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
@@ -174,6 +175,16 @@ export function getCached(method, url, opts = {}) {
   const maxAge = opts.maxAge ?? DEFAULT_MAX_AGE_SECONDS;
   const age = Date.now() / 1000 - (meta.created_at || 0);
   if (age > maxAge) return null;
+  let bodyPath;
+  if (typeof meta.body_file === 'string' && meta.body_file && !meta.body_file.includes('..')) {
+    bodyPath = join(entriesDir, meta.body_file);
+  } else if (meta.generation_id) {
+    const genPath = join(entriesDir, `${key}.${meta.generation_id}.body`);
+    bodyPath = existsSync(genPath) ? genPath : join(entriesDir, `${key}.body`);
+  } else {
+    bodyPath = join(entriesDir, `${key}.body`);
+  }
+  if (!existsSync(bodyPath)) return null;
   const bodyBytes = readFileSync(bodyPath);
   if (meta.body_sha256 && meta.body_sha256 !== bodySha256(bodyBytes)) return null;
   if (meta.body_size != null && Number(meta.body_size) !== bodyBytes.length) return null;
@@ -217,6 +228,7 @@ export function putCache(method, url, status, responseHeaders, body, opts = {}) 
   const bodyBuf = typeof body === 'string' ? Buffer.from(body, 'utf-8') : Buffer.from(body);
   const genId = randomBytes(16).toString('hex');
   const hash = bodySha256(bodyBuf);
+  const bodyFile = `${key}.${genId}.body`;
   const meta = {
     key,
     url: redactUrl(url),
@@ -227,15 +239,17 @@ export function putCache(method, url, status, responseHeaders, body, opts = {}) 
     body_sha256: hash,
     body_size: bodyBuf.length,
     generation_id: genId,
+    body_file: bodyFile,
   };
   const entries = join(cacheDir, 'entries');
   const metaPath = join(entries, `${key}.json`);
-  const bodyPath = join(entries, `${key}.body`);
+  const bodyPath = join(entries, bodyFile);
   const tmpBody = join(entries, `${key}.${genId}.body.tmp`);
   const tmpMeta = join(entries, `${key}.${genId}.json.tmp`);
   try {
     writeFileSync(tmpBody, bodyBuf);
     writeFileSync(tmpMeta, JSON.stringify(meta, null, 2), 'utf-8');
+    // Generation-scoped body first, then atomic meta publish.
     renameSync(tmpBody, bodyPath);
     renameSync(tmpMeta, metaPath);
     try {

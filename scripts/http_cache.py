@@ -193,9 +193,9 @@ def get(
         request_headers, extra_key_headers=extra_key_headers
     )
     key = cache_key(method, url, request_key=request_key, body_key=body_key)
-    meta_path = cd / "entries" / f"{key}.json"
-    body_path = cd / "entries" / f"{key}.body"
-    if not meta_path.is_file() or not body_path.is_file():
+    entries = cd / "entries"
+    meta_path = entries / f"{key}.json"
+    if not meta_path.is_file():
         return None
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -205,6 +205,20 @@ def get(
     age_limit = max_age if max_age is not None else DEFAULT_MAX_AGE_SECONDS
     age = time.time() - meta.get("created_at", 0)
     if age > age_limit:
+        return None
+
+    # Prefer generation-scoped body path (atomic publish); fall back to legacy key.body.
+    body_rel = meta.get("body_file")
+    if isinstance(body_rel, str) and body_rel and ".." not in Path(body_rel).parts:
+        body_path = entries / body_rel
+    else:
+        gen = meta.get("generation_id")
+        if isinstance(gen, str) and gen:
+            candidate = entries / f"{key}.{gen}.body"
+            body_path = candidate if candidate.is_file() else entries / f"{key}.body"
+        else:
+            body_path = entries / f"{key}.body"
+    if not body_path.is_file():
         return None
 
     body_bytes = body_path.read_bytes()
@@ -339,6 +353,9 @@ def put(
         body = body.encode("utf-8")
     gen_id = uuid.uuid4().hex
     body_hash = _body_sha256(body)
+    # Generation-scoped body path so concurrent writers never interleave
+    # body and meta of different generations on a shared {key}.body file.
+    body_file = f"{key}.{gen_id}.body"
     meta = {
         "key": key,
         "url": _redact_url(url),
@@ -349,10 +366,11 @@ def put(
         "body_sha256": body_hash,
         "body_size": len(body),
         "generation_id": gen_id,
+        "body_file": body_file,
     }
     entries = cd / "entries"
     meta_path = entries / f"{key}.json"
-    body_path = entries / f"{key}.body"
+    body_path = entries / body_file
     # Unique temps per writer — never shared .tmp names
     tmp_body = entries / f"{key}.{gen_id}.body.tmp"
     tmp_meta = entries / f"{key}.{gen_id}.json.tmp"
@@ -361,12 +379,13 @@ def put(
         tmp_meta.write_text(
             json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        # Publish complete generation: body then meta (retry for Windows locks)
+        # 1) Publish body to a unique generation path (no cross-writer collision).
+        # 2) Atomically publish meta pointing at that body. Losers of the meta
+        # race leave orphan generation bodies; the live entry always matches.
         last_err: Exception | None = None
         for attempt in range(12):
             try:
                 os.replace(str(tmp_body), str(body_path))
-                os.replace(str(tmp_meta), str(meta_path))
                 last_err = None
                 break
             except OSError as exc:
@@ -378,6 +397,21 @@ def put(
                     p.unlink(missing_ok=True)
                 except OSError:
                     pass
+            return key
+        last_err = None
+        for attempt in range(12):
+            try:
+                os.replace(str(tmp_meta), str(meta_path))
+                last_err = None
+                break
+            except OSError as exc:
+                last_err = exc
+                time.sleep(0.02 * (attempt + 1))
+        if last_err is not None:
+            try:
+                tmp_meta.unlink(missing_ok=True)
+            except OSError:
+                pass
             # Contended concurrent writers: another generation may already be live.
             return key
         try:
