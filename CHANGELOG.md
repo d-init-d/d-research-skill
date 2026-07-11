@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `setup-node@v4.4.0`, `upload-artifact@v4.6.2`, `lychee-action@v2.9.0`,
   `attest-build-provenance@v2.4.0`).
 
+### Evidence
+
+- Live dogfood Tier1+Tier2 vs `v3.1.1` for dogfooded RC commit
+  `661230a7bf90346eef77158aced988442edb8735` recorded under
+  `release-evidence/v3.2.0/` (`not_run=0`, compare **SAME**, independent
+  stable sign-off approved).
+
 ## [3.2.0-rc.1] - 2026-07-10
 
 Production-hardening **release candidate** (not Production/Stable). Implements

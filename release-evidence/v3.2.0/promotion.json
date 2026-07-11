@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "release_version": "3.2.0",
+  "baseline_version": "3.1.1",
+  "candidate_version": "3.2.0-rc.1",
+  "baseline_skill_commit": "9cd4588100875c89e2efbefec4fb940c6ff2f61e",
+  "candidate_skill_commit": "661230a7bf90346eef77158aced988442edb8735",
+  "generated_at": "2026-07-11T03:43:56Z",
+  "tiers": {
+    "tier1": {
+      "baseline_scores": {
+        "path": "release-evidence/v3.2.0/tier1-baseline-scores.json",
+        "sha256": "sha256:66e51f8326965c2017faa49972a43e868415e9f45b6f5cfabd9518517b90de79"
+      },
+      "candidate_scores": {
+        "path": "release-evidence/v3.2.0/tier1-candidate-scores.json",
+        "sha256": "sha256:4c6b5f002c89e811a677c712a59eb3df946a053ece858111894961ba5db379de"
+      }
+    },
+    "tier2": {
+      "baseline_scores": {
+        "path": "release-evidence/v3.2.0/tier2-baseline-scores.json",
+        "sha256": "sha256:9356165bd20ae48f641e7facc41b8fcfb836b89e9e5829fbfdcf507d5ab9c978"
+      },
+      "candidate_scores": {
+        "path": "release-evidence/v3.2.0/tier2-candidate-scores.json",
+        "sha256": "sha256:d7415a38de333f4b481eb508f7a43aa428e87557c84091a33c9ee55f14320fa8"
+      }
+    }
+  },
+  "reviewer_signoff_path": "release-evidence/v3.2.0/reviewer-signoff.json",
+  "compare": {
+    "tier1_verdict": "SAME",
+    "tier2_verdict": "SAME",
+    "tier1_path": "release-evidence/v3.2.0/compare-tier1.json",
+    "tier2_path": "release-evidence/v3.2.0/compare-tier2.json"
+  },
+  "notes": "Independent re-run: 128 live executions (12+52)x2; baseline Tier1 live network re-fetched (no ledger copy); Tier2 evidence grounded in source quotes; tool_config_hash identical; never dogfooded 8ce0336."
+}

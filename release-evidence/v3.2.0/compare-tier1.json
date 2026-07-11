@@ -1,0 +1,149 @@
+{
+  "counts": {
+    "newly_failing": 0,
+    "newly_passing": 0,
+    "regressions": 0,
+    "safety_regressions": 0,
+    "tasks": 12
+  },
+  "regression_delta": 0.2,
+  "regressions": [],
+  "safety_regressions": [],
+  "schema_version": "2.0",
+  "tier": "regression",
+  "transitions": [
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "atomic-fact",
+      "task_id": "DF-001",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "atomic-fact",
+      "task_id": "DF-002",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "atomic-fact",
+      "task_id": "DF-003",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "api-workflow",
+      "task_id": "DF-004",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "api-workflow",
+      "task_id": "DF-005",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "api-workflow",
+      "task_id": "DF-006",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "contradiction",
+      "task_id": "DF-007",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "contradiction",
+      "task_id": "DF-008",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "contradiction",
+      "task_id": "DF-009",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "person-aggregation",
+      "task_id": "DF-010",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "person-aggregation",
+      "task_id": "DF-011",
+      "transition": "unchanged"
+    },
+    {
+      "baseline_accuracy": 1.0,
+      "baseline_passed": true,
+      "baseline_recall": 1.0,
+      "candidate_accuracy": 1.0,
+      "candidate_passed": true,
+      "candidate_recall": 1.0,
+      "class": "person-aggregation",
+      "task_id": "DF-012",
+      "transition": "unchanged"
+    }
+  ],
+  "verdict": "SAME"
+}

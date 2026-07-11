@@ -47,11 +47,25 @@ Low findings:
 
 Do **not** dogfood or tag a superseded intermediate SHA after these fixes.
 
+## Dogfood evidence (candidate `661230a…`)
+
+Live dogfood completed for dogfooded RC commit
+`661230a7bf90346eef77158aced988442edb8735` vs baseline `v3.1.1`
+(`9cd4588100875c89e2efbefec4fb940c6ff2f61e`) under one identical
+`tool_config_hash`. Artifacts live under `release-evidence/v3.2.0/`:
+
+- Tier1/Tier2 baseline + candidate score JSON (`not_run=0`, full pass)
+- `compare-tier1.json` / `compare-tier2.json` → **SAME** (no WEAKER, no safety regression)
+- `promotion.json` + independent `reviewer-signoff.json` (`decision=approved`)
+
+**Do not dogfood superseded intermediate SHAs** (including `8ce0336…`).
+
 ## Remaining external blockers (truthful)
 
-1. **Live dogfood** Tier 1 + Tier 2 vs v3.1.1 under identical runtime/model/tool
-   configuration is **not** completed in this package artifact. Do not claim
-   stable readiness until `not_run=0` and score artifacts are recorded.
+1. **Stable tag / GitHub Release** are still not published in this step (optional
+   next: annotated signed tag `v3.2.0` after packaging metadata). Dogfood and
+   independent stable sign-off for the dogfooded RC commit are recorded under
+   `release-evidence/v3.2.0/`.
 2. Optional system binaries (pandoc / poppler / tesseract) remain soft runtime
    dependencies; the required Ubuntu and Windows integration jobs install them
    so their live helper paths cannot silently skip in release CI.
