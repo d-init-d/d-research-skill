@@ -1,3 +1,7 @@
+---
+example_status: fixture
+---
+
 # Long-horizon research with a context-safe plan
 
 This example walks through using `references/research-plan-protocol.md`

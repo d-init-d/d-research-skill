@@ -37,7 +37,7 @@ import re
 import sys
 from pathlib import Path
 
-FIELDS = [
+FIELDS_BASE = [
     "claim_id",
     "claim",
     "sub_question",
@@ -62,21 +62,29 @@ FIELDS = [
     "prov_activity_id",
 ]
 
+# v3.1 optional column (schema-compatible extension).
+FIELDS = FIELDS_BASE + ["record_type"]
+
 # The original 14 columns (pre-v2.1) for backward compatibility.
-FIELDS_LEGACY = FIELDS[:14]
+FIELDS_LEGACY = FIELDS_BASE[:14]
 
 # v2.1 social-media archival schema (19 columns).
-FIELDS_V2_1 = FIELDS[:19]
+FIELDS_V2_1 = FIELDS_BASE[:19]
+
+# v3.0 provenance (22 columns) without record_type.
+FIELDS_V3_0 = FIELDS_BASE[:]
 
 # New columns added in v2.1 for social-media archival support.
-FIELDS_SOCIAL = FIELDS[14:19]
+FIELDS_SOCIAL = FIELDS_BASE[14:19]
 
 # Optional v3.0 provenance/compliance columns appended at the end.
-FIELDS_PROVENANCE = FIELDS[19:]
+FIELDS_PROVENANCE = FIELDS_BASE[19:]
 
 # All currently-accepted header sets, in the order validate_ledger /
 # canonicalise / sign / verify try to match them. Newest first.
-ACCEPTED_FIELD_SETS = [FIELDS, FIELDS_V2_1, FIELDS_LEGACY]
+ACCEPTED_FIELD_SETS = [FIELDS, FIELDS_V3_0, FIELDS_V2_1, FIELDS_LEGACY]
+
+VALID_RECORD_TYPES = {"claim", "process", "blocker", ""}
 
 VALID_SOURCE_TYPES = {
     "primary",
@@ -103,7 +111,17 @@ VALID_VERIFIABILITY = {
     "",
 }
 
-VALID_SNAPSHOT_STATUS = {"intact", "edited", "deleted", "unknown", ""}
+VALID_SNAPSHOT_STATUS = {
+    "intact",
+    "edited",
+    "deleted",
+    "access_denied",
+    "rate_limited",
+    "unavailable",
+    "malformed",
+    "unknown",
+    "",
+}
 
 # v3.0 optional provenance/compliance column rules.
 VALID_ROBOTS_STATUS = {
@@ -155,26 +173,32 @@ def init_ledger(out: Path) -> None:
     print(f"created {out}")
 
 
+def _match_fieldnames(fieldnames: list[str] | None) -> list[str] | None:
+    if fieldnames is None:
+        return None
+    names = list(fieldnames)
+    for candidate in ACCEPTED_FIELD_SETS:
+        if names == candidate:
+            return candidate
+    return None
+
+
 def validate_ledger(file: Path) -> int:
     errors: list[str] = []
     with file.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        # Accept legacy (14), v2.1 social (19), and v3.0 provenance (22).
-        if reader.fieldnames == FIELDS:
-            active_fields = FIELDS
-        elif reader.fieldnames == FIELDS_V2_1:
-            active_fields = FIELDS_V2_1
-        elif reader.fieldnames == FIELDS_LEGACY:
-            active_fields = FIELDS_LEGACY
-        else:
+        # Accept legacy (14), v2.1 (19), v3.0 (22), and v3.1 (23 with record_type).
+        active_fields = _match_fieldnames(list(reader.fieldnames) if reader.fieldnames else None)
+        if active_fields is None:
             errors.append(
-                "header mismatch: expected 14, 19, or 22 column header; "
+                "header mismatch: expected 14, 19, 22, or 23 column header; "
                 f"got {reader.fieldnames}"
             )
             print("\n".join(errors), file=sys.stderr)
             return 1
         has_social_cols = len(active_fields) >= 19
         has_prov_cols = len(active_fields) >= 22
+        has_record_type = "record_type" in active_fields
         seen_ids: set[str] = set()
         for i, row in enumerate(reader, start=2):
             claim_id = row.get("claim_id", "").strip()
@@ -183,10 +207,49 @@ def validate_ledger(file: Path) -> int:
             elif claim_id in seen_ids:
                 errors.append(f"line {i}: duplicate claim_id {claim_id}")
             seen_ids.add(claim_id)
+            record_type = (row.get("record_type") or "").strip().lower()
+            if not has_record_type or not record_type:
+                record_type = "claim"  # default for pre-3.1 ledgers
+            if record_type not in {"claim", "process", "blocker"}:
+                errors.append(
+                    f"line {i}: invalid record_type {record_type!r} "
+                    "(expected claim, process, blocker, or empty)"
+                )
             if not row.get("claim", "").strip():
                 errors.append(f"line {i}: missing claim")
-            if not row.get("source_url", "").strip():
+            # Process/blocker rows are exempt from narrative claim coverage, but
+            # still need auditable source context, a reason, and a status.  A
+            # public URL is optional for failures that happened before a stable
+            # URL was reached; source_title then names the attempted source.
+            source_url = row.get("source_url", "").strip()
+            if not source_url and record_type == "claim":
                 errors.append(f"line {i}: missing source_url")
+            if record_type in {"process", "blocker"}:
+                source_title = (row.get("source_title") or "").strip()
+                notes = (row.get("notes") or "").strip()
+                evidence = (row.get("evidence") or "").strip()
+                if not (source_url or source_title):
+                    errors.append(
+                        f"line {i}: {record_type} row needs source_url or source_title"
+                    )
+                if not (notes or evidence):
+                    errors.append(
+                        f"line {i}: {record_type} row needs a reason in evidence or notes"
+                    )
+                status_fields = (
+                    (row.get("snapshot_status") or "").strip(),
+                    (row.get("robots_status") or "").strip(),
+                    (row.get("verifiability") or "").strip(),
+                )
+                structured_status = re.search(
+                    r"\b(?:status|result|reason|fallback_result)\s*=\s*\S+",
+                    notes,
+                    flags=re.IGNORECASE,
+                )
+                if not any(status_fields) and structured_status is None:
+                    errors.append(
+                        f"line {i}: {record_type} row needs a status field or structured status/result in notes"
+                    )
             source_type = row.get("source_type", "").strip().lower()
             if source_type and source_type not in VALID_SOURCE_TYPES:
                 errors.append(f"line {i}: invalid source_type {source_type}")
@@ -249,15 +312,12 @@ def canonicalise(file: Path) -> bytes:
     """
     with file.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        if reader.fieldnames == FIELDS:
-            active_fields = FIELDS
-        elif reader.fieldnames == FIELDS_V2_1:
-            active_fields = FIELDS_V2_1
-        elif reader.fieldnames == FIELDS_LEGACY:
-            active_fields = FIELDS_LEGACY
-        else:
+        active_fields = _match_fieldnames(
+            list(reader.fieldnames) if reader.fieldnames else None
+        )
+        if active_fields is None:
             raise ValueError(
-                "header mismatch: expected 14, 19, or 22 column header; "
+                "header mismatch: expected 14, 19, 22, or 23 column header; "
                 f"got {reader.fieldnames}"
             )
         rows = list(reader)
@@ -348,9 +408,12 @@ def prov_export(file: Path, out: Path | None) -> int:
     try:
         with file.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            if reader.fieldnames not in (FIELDS, FIELDS_V2_1, FIELDS_LEGACY):
+            active = _match_fieldnames(
+                list(reader.fieldnames) if reader.fieldnames else None
+            )
+            if active is None:
                 print(
-                    "error: prov-export requires a 14, 19, or 22 column ledger; "
+                    "error: prov-export requires a 14, 19, 22, or 23 column ledger; "
                     f"got {reader.fieldnames}",
                     file=sys.stderr,
                 )
@@ -475,6 +538,10 @@ def self_test() -> int:
                     "snapshot_status": "intact",
                     "verifiability": "direct_api",
                     "verifiability_note": "Fetched directly from public API.",
+                    "license_spdx": "",
+                    "robots_status": "",
+                    "prov_activity_id": "",
+                    "record_type": "claim",
                 }
             )
         sig_path = path.with_suffix(".csv.hmac")
@@ -587,6 +654,71 @@ def self_test() -> int:
             )
         if validate_ledger(bad_path) == 0:
             print("validation should have rejected invalid verifiability/snapshot_status", file=sys.stderr)
+            return 1
+
+        # --- Social schema 1.1 statuses and process/blocker row discipline ---
+        social_status_path = Path(d) / "social_statuses.csv"
+        with social_status_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer.writeheader()
+            for index, status in enumerate(sorted(VALID_SNAPSHOT_STATUS - {""}), start=1):
+                writer.writerow(
+                    {
+                        "claim_id": f"S{index:03d}",
+                        "claim": f"social status {status}",
+                        "source_title": "Public social fixture",
+                        "source_url": "https://example.com/post",
+                        "source_type": "primary",
+                        "access_method": "api",
+                        "evidence": "status mapping fixture",
+                        "contradiction": "none",
+                        "confidence": "low",
+                        "snapshot_status": status,
+                        "verifiability": "direct_api",
+                        "record_type": "claim",
+                    }
+                )
+        if validate_ledger(social_status_path) != 0:
+            print("social schema 1.1 statuses should validate", file=sys.stderr)
+            return 1
+
+        weak_process_path = Path(d) / "weak_process.csv"
+        with weak_process_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "claim_id": "P001",
+                    "claim": "attempted fetch",
+                    "source_type": "unknown",
+                    "confidence": "low",
+                    "record_type": "process",
+                }
+            )
+        if validate_ledger(weak_process_path) == 0:
+            print("weak process row should require source, reason, and status", file=sys.stderr)
+            return 1
+
+        blocker_path = Path(d) / "blocker.csv"
+        with blocker_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "claim_id": "B001",
+                    "claim": "public source could not be reached",
+                    "source_title": "Attempted canonical source",
+                    "source_type": "official",
+                    "access_method": "fetch",
+                    "evidence": "Access failed after the bounded fallback chain.",
+                    "contradiction": "none",
+                    "confidence": "low",
+                    "notes": "status=blocked; reason=access_control",
+                    "record_type": "blocker",
+                }
+            )
+        if validate_ledger(blocker_path) != 0:
+            print("well-formed blocker row should validate without source_url", file=sys.stderr)
             return 1
 
         # --- Test v3.0 (22-column) ledger validates/signs/verifies ---

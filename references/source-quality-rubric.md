@@ -15,15 +15,64 @@ Use this file to rank sources and resolve conflicts.
 
 ## Score dimensions
 
-Score 0 to 5:
+### Automated dimensions (implemented by `scripts/score_source.py`)
 
-- authority: source is official or primary
-- relevance: directly answers the question
-- freshness: current enough for the claim
-- method transparency: explains data and method
-- reproducibility: can be checked by another person
-- independence: not simply copying another source
-- access quality: full content accessible, not just snippet
+Each automated axis is scored 0–5 (except type which uses a fixed map). The
+script sums these into `base_total`, optionally adds `social_bonus`, and
+reports `adjusted_total` (alias: `total`):
+
+| Dimension | Field | Range | Meaning |
+|---|---|---|---|
+| source type | `type_score` | 0–5 | primary / official / paper / secondary / community / … |
+| authority | `authority` | 0–5 | host is official or primary for the claim |
+| freshness | `freshness` | 0–5 | publication date is current enough (never uses `date_accessed` as published) |
+| traceability | `traceability` | 0–5 | exact anchor, source URL, reproducible access path, and usable evidence context |
+| independence | `independence` | 0–5 | not merely copying another source |
+
+`recency` and `methodology` remain deprecated v3 aliases of `freshness` and
+`traceability`, respectively. Method transparency is deliberately a manual
+gate; the automated scorer does not pretend to infer it from row length.
+
+**Automated band** (`automated_band`, alias `band`):
+
+- `high` if `adjusted_total >= 20`
+- `medium` if `adjusted_total >= 13`
+- `low` otherwise
+
+Automated band is **not** final reviewed confidence.
+
+### Manual review gates (not auto-high-confidence)
+
+These gates are scored only by a human reviewer. Unresolved gates must never
+be reported as final reviewed high confidence:
+
+| Gate | Field | Meaning |
+|---|---|---|
+| relevance | `review_gates.relevance` | directly answers the question |
+| method transparency | `review_gates.method_transparency` | explains data and method in enough detail |
+| access quality | `review_gates.access_quality` | full content accessible, not just snippet |
+
+`scripts/score_source.py score` accepts the same decisions as flat CSV fields:
+`review_relevance`, `review_method_transparency`, and `review_access_quality`;
+a `review_gates` JSON object is also accepted. The earlier RC field
+`review_reproducibility` remains an optional compatibility gate: when supplied,
+an explicit failure still blocks reviewed confidence, but its absence never
+keeps the three required gates pending. Valid
+decisions are `pass` and `fail` (`passed`/`ok`
+and `failed`/`reject` are normalized aliases). The script preserves valid
+human decisions in its output. Missing or invalid required input keeps the row
+at `pending_manual_review`; an explicit failed gate produces `review_failed`;
+partial reviews never become `reviewed`.
+
+### Separated confidence fields
+
+| Field | Meaning |
+|---|---|
+| `automated_band` | Score-derived band only (`high` / `medium` / `low`) |
+| `review_status` | `unreviewed` · `pending_manual_review` · `review_failed` · `reviewed`; `reviewed` means all three required gates passed and no supplied compatibility gate failed |
+| `final_reviewed_confidence` | Equals `automated_band` **only** when `review_status == reviewed`. Missing or unresolved review caps high at `medium_pending_review`; an explicit failure returns `low_review_failed`. |
+
+Do **not** treat an unresolved review gate row as final reviewed high confidence.
 
 ## Conflict resolution
 

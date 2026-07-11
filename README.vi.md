@@ -53,6 +53,15 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
+v3.2.0-rc.1 là release candidate hardening cho production: plan schema 2.0,
+release gate chống sửa ledger, lint coverage cho claim, hardening credential và
+robots, resource limit có cấu trúc, scoring/citation mới và integration Chromium
+thật trên Ubuntu/Windows. Bản này vẫn là Beta cho tới khi hoàn tất live dogfood
+Tier 1/Tier 2 so với v3.1.1. Xem
+[`docs/release-v3.2.0-rc.1.md`](docs/release-v3.2.0-rc.1.md).
+Workspace v3.1.1 nên nâng cấp theo hướng dẫn đã có fixture kiểm thử tại
+[`docs/upgrade-v3.1.1-to-v3.2.0.md`](docs/upgrade-v3.1.1-to-v3.2.0.md).
+
 v3.1.1 làm chắc hơn bề mặt metadata của skill bằng cách biểu diễn
 `description` trong `SKILL.md` theo cú pháp YAML block scalar. Nội dung trigger
 không đổi, nhưng các parser nghiêm ngặt với plain scalar có dấu hai chấm sẽ đọc
@@ -95,6 +104,7 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 - Execution gates portable: trước khi trả lời các task không tầm thường, agent kiểm source map, coverage/recall, no-single-basin, identity/date/inference, evidence verification và synthesis readiness. Xem `references/execution-gates.md`.
 - Research đa kênh: web search, browser automation, fetch-only, public API, Wayback/archive, Wikidata, GraphQL và database read-only khi user cấp quyền.
 - Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
+- Source scoring v2 tách năm trục tự động (type, authority, freshness, traceability, independence) khỏi ba gate review bắt buộc do người đánh giá quyết định (relevance, method transparency, access quality); xem `scripts/score_source.py` và `references/source-quality-rubric.md`.
 - Citation export/render: BibTeX, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
 - Citation resolver cho academic identifiers: DOI, PMID, arXiv ID, ISBN. `scripts/citation_resolver.py` resolve qua các API công khai miễn phí (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall), emit BibTeX hoặc evidence-ledger row. Là Step 0 fast path khi user paste sẵn DOI/PMID/arXiv ID/ISBN — bỏ qua workflow research đầy đủ vì đã có canonical metadata trong 1 request. Xem `adapters/citation-resolver.md`.
 - Report generator: `scripts/report_render.py` tạo báo cáo Markdown có cấu trúc từ workspace nghiên cứu (plan + evidence ledger + screening log). Hỗ trợ init skeleton, render final report, lint kiểm tra claim coverage, và export PDF/DOCX/HTML qua pandoc. Xem `references/report-generation.md`.
@@ -105,7 +115,7 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 - Frontier search cho follow-up theo evidence gap: khi pass đầu để lại sub-question chưa đủ chứng cứ hoặc thông tin obscure/long-tail, agent dựng một priority queue nhỏ trên các node ứng viên (query, URL, file, API, citation, repo, alias, archive), chấm điểm theo gap còn lại, đào nhánh ưu tiên cao trước, và dừng khi evidence saturation. Không phải pathfinding theo nghĩa CS (không A*/Dijkstra); chỉ là best-first search có ràng buộc. Có `frontier-ledger.csv` và `coverage-map.json` đi kèm `evidence-ledger.csv`. Vẫn không bypass access control. Xem `references/frontier-search.md`.
 - Fact-verification fast path cho câu hỏi atomic (1 entity, 1 attribute, có primary source xác định, đáp án 1 câu/1 quote): SHA commit, version package, giới hạn pagination của API, 1 điều khoản license. Bỏ qua decompose/source map/query fanout/crawl; gọi primary source 1 lần, quote nguyên văn, ghi 1 dòng ledger với 1 lần re-check độc lập, rồi report. Nếu primary source trả non-2xx, hai mirror mâu thuẫn, hoặc user hỏi tiếp "tại sao/như thế nào" thì bail về workflow broad. Không nhảy sang `references/frontier-search.md` từ branch này. Xem `references/fact-verification.md`.
 - Person aggregation cho yêu cầu tìm thông tin public-role về 1 người cụ thể (maintainer, tác giả, speaker, nhà báo, public figure): anchor vào 1 nguồn canonical (GitHub profile, ORCID, package author, faculty page, byline đã xác minh), cross-aggregate các claim public-role có ít nhất 1 nguồn, disambiguate homonym bằng tín hiệu positive. **Privacy boundary là hard stop, không phải hướng dẫn trừu tượng**: địa chỉ nhà, người thân/gia đình, tài khoản social riêng tư, số điện thoại / email cá nhân, ảnh cá nhân, thông tin y tế / tài chính / pháp lý / xu hướng / hành trình, re-identify pseudonym sang real name, và mọi item người đó đã đánh dấu private đều OUT-OF-SCOPE bất kể có tìm được trên web hay không. Refuse với minors, private individuals, và mọi framing harassment / stalking / doxxing. Saturate ở 25 dòng ledger hoặc khi 3 nguồn liên tiếp không add claim mới đã verified. Xem `references/person-aggregation.md`.
-- Eval harness offline hai tầng để bắt regression và đo upgrade: `examples/evals/dogfood-bench.json` là Tier 1 regression guard (12 task), `examples/evals/frontier-bench.json` là Tier 2 frontier probe bench 2.2 (52 task, 26 class), harness stdlib-only là `scripts/run_dogfood.py` với `self-test`, `validate`, `list`, `render`, `score`, `score-all`, `compare`, `baseline`. CI chỉ chạy schema/self-test offline. Để score 1 ledger chạy `npm run eval:score -- DF-001 path/to/ledger.csv`; để so sánh bản cũ/mới dùng `score-all` rồi `compare`. Đây không phải leaderboard và không ship điểm số per-agent. Xem `docs/eval.md`.
+- Eval harness offline hai tầng để bắt regression và đo upgrade: `examples/evals/dogfood-bench.json` là Tier 1 regression guard (12 task), `examples/evals/frontier-bench.json` là Tier 2 frontier probe bench 2.2 (52 task, 26 class), harness stdlib-only là `scripts/run_dogfood.py` với `self-test`, `validate`, `list`, `render`, `score`, `score-all`, `compare`, `baseline`. CI chỉ chạy schema/self-test offline. Mỗi task canonical có `run-result.json` schema 2.0 và ledger; để score một task dùng `npm run eval:score -- DF-001 path/to/ledger.csv --run-result path/to/run-result.json`. Để so sánh bản cũ/mới dùng `score-all --runs-dir` rồi `compare`. Đây không phải leaderboard và không ship điểm số per-agent. Xem `docs/eval.md`.
 - Anti-bot fallback chain cho nguồn public quan trọng bị Cloudflare, JS challenge, captcha, 403, 429 hoặc lỗi browser/fetch lặp lại: thử đúng một chuỗi hợp pháp API/static form -> public archive -> cache/snippet nếu có -> fetch-only/no-JS -> blocker report. Không dùng để bypass access control; attempt fail được ghi như process row confidence thấp. Xem `references/anti-bot-fallback.md`.
 - Vietnamese source discovery companion: hướng dẫn opt-in cho research nguồn Việt Nam, gồm alias có dấu/không dấu, ma trận báo chí/official/archive/public-community, và kỷ luật ngày-tháng/danh tính. Xem `references/vietnamese-source-discovery.md`.
 - Register & jargon expansion companion: lớp recall opt-in cho khi nguồn chứng cứ dùng register khác với truy vấn (lâm sàng vs. dân dã, pháp lý vs. tiếng lóng, chuẩn kỹ thuật vs. cách nói nghề, học thuật vs. jargon cộng đồng, slang mới nổi). Đi register ladder hai chiều — formal → vernacular để mở recall, vernacular → formal để neo mọi thuật ngữ cộng đồng về một primary source. Harvest từ kết quả search tươi (không lấy từ bộ nhớ model), chỉ giữ term lặp ≥2 nguồn cộng đồng độc lập, và coi vocabulary là lớp discovery — không bao giờ là evidence; mọi claim vẫn qua source-quality rubric và contradiction pass. Audit-grade ghi vào `templates/register-vocab-log.csv`. Xem `references/register-and-jargon-expansion.md`.
@@ -124,10 +134,34 @@ Install the D Research skill from https://github.com/d-init-d/d-research-skill.g
 
 ### Cách B: Cài thủ công
 
+Chọn đúng thư mục discovery của runtime; đường dẫn cuối luôn phải kết thúc bằng
+`d-research/SKILL.md`:
+
+| Runtime | Trong project | Dùng cho cá nhân |
+|---|---|---|
+| Agent Skills portable | `.agents/skills/d-research` | `~/.agents/skills/d-research` |
+| Codex | `.agents/skills/d-research` | `$CODEX_HOME/skills/d-research` (mặc định: `~/.codex/skills/d-research`) |
+| Claude Code | `.claude/skills/d-research` | `~/.claude/skills/d-research` |
+| OpenCode | `.opencode/skills/d-research` (cũng nhận `.agents/skills`) | `~/.config/opencode/skills/d-research` |
+
+Các lệnh dưới đây dùng layout portable trong project. Khi chỉ cài cho một
+runtime, thay destination bằng đường dẫn tương ứng trong bảng.
+
+Với Bash:
+
 ```bash
 mkdir -p .agents/skills
 git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
 ```
+
+Với PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force .agents/skills | Out-Null
+git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
+```
+
+Thư mục cuối phải là `d-research` để khớp với `name` trong frontmatter.
 
 Trỏ agent/IDE của bạn tới:
 
@@ -141,14 +175,21 @@ Nếu muốn chỉnh config theo project:
 cp .agents/skills/d-research/research.config.example.json research.config.json
 ```
 
+```powershell
+Copy-Item .agents/skills/d-research/research.config.example.json research.config.json
+```
+
 Nếu muốn dùng các script helper:
 
 ```bash
 cd .agents/skills/d-research
-npm install
-npx playwright install
+npm ci
+npx --no-install playwright install chromium
 npm run self-test
 ```
+
+`npm run self-test` là chuỗi helper test offline. Release CI chạy thêm adversarial
+matrix và đúng một lần Chromium smoke dùng fixture local trên mỗi hệ điều hành.
 
 ## Config quan trọng
 

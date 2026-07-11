@@ -19,12 +19,29 @@ import argparse
 import csv
 import hashlib
 import os
+import re
 import shutil
-import subprocess
+import struct
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from resource_limits import (  # type: ignore
+    ResourceLimitError,
+    add_resource_limit_arguments,
+    apply_cli_limit_overrides,
+    check_file_size,
+    check_ocr_image,
+    check_ocr_pages,
+    check_pdf_bytes,
+    check_pdf_pages,
+    check_subprocess_output,
+    emit_blocker,
+    load_limits,
+    run_subprocess_bounded,
+)
 
 
 def _has_tesseract() -> bool:
@@ -44,22 +61,99 @@ def _tesseract_missing_msg() -> str:
     )
 
 
+def _has_pdfinfo() -> bool:
+    return shutil.which("pdfinfo") is not None
+
+
+def _image_dimensions(path: Path) -> tuple[int, int]:
+    """Read dimensions for common Tesseract inputs without decoding pixels."""
+
+    with path.open("rb") as stream:
+        head = stream.read(65536)
+    if head.startswith(b"\x89PNG\r\n\x1a\n") and len(head) >= 24:
+        return struct.unpack(">II", head[16:24])
+    if head.startswith((b"GIF87a", b"GIF89a")) and len(head) >= 10:
+        return struct.unpack("<HH", head[6:10])
+    if head.startswith(b"BM") and len(head) >= 26:
+        width, height = struct.unpack("<ii", head[18:26])
+        return abs(width), abs(height)
+    if head.startswith((b"P1", b"P2", b"P3", b"P4", b"P5", b"P6")):
+        cleaned = re.sub(rb"#[^\r\n]*", b"", head)
+        parts = cleaned.split()
+        if len(parts) >= 3:
+            return int(parts[1]), int(parts[2])
+    if head.startswith(b"\xff\xd8"):
+        pos = 2
+        sof = {
+            0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+            0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+        }
+        while pos + 9 <= len(head):
+            if head[pos] != 0xFF:
+                pos += 1
+                continue
+            marker = head[pos + 1]
+            pos += 2
+            if marker in {0xD8, 0xD9}:
+                continue
+            if pos + 2 > len(head):
+                break
+            segment_len = int.from_bytes(head[pos:pos + 2], "big")
+            if marker in sof and segment_len >= 7 and pos + 7 <= len(head):
+                height = int.from_bytes(head[pos + 3:pos + 5], "big")
+                width = int.from_bytes(head[pos + 5:pos + 7], "big")
+                return width, height
+            if segment_len < 2:
+                break
+            pos += segment_len
+    raise ResourceLimitError(
+        "ocr_dimensions_unknown",
+        f"cannot safely determine image dimensions for {path}",
+    )
+
+
+def _pdf_page_count(path: Path) -> int:
+    limits = load_limits()
+    size = path.stat().st_size
+    check_pdf_bytes(size, limits)
+    check_file_size(path, limits.pdf_max_bytes, code="pdf_max_bytes")
+    result = run_subprocess_bounded(["pdfinfo", str(path)], limits)
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", errors="replace").strip()[:200]
+        print(f"error: pdfinfo failed: {message or 'unknown error'}", file=sys.stderr)
+        return 0
+    match = re.search(
+        r"^Pages:\s*([0-9]+)\s*$",
+        result.stdout.decode("utf-8", errors="replace"),
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
+    if match is None or int(match.group(1)) <= 0:
+        print("error: pdfinfo returned no valid page count", file=sys.stderr)
+        return 0
+    pages = int(match.group(1))
+    check_pdf_pages(pages, limits)
+    return pages
+
+
 def _run_tesseract(image_path: str, lang: str = "eng") -> str:
     """Run tesseract on an image, return extracted text."""
+    limits = load_limits()
+    path = Path(image_path)
+    size = path.stat().st_size
+    width, height = _image_dimensions(path)
+    check_ocr_image(size, width=width, height=height, limits=limits)
     try:
-        result = subprocess.run(
+        result = run_subprocess_bounded(
             ["tesseract", image_path, "stdout", "-l", lang],
-            capture_output=True, text=True, timeout=60,
+            limits,
         )
         if result.returncode != 0:
-            print(f"error: tesseract failed: {result.stderr.strip()}", file=sys.stderr)
+            stderr = result.stderr.decode("utf-8", errors="replace").strip()
+            print(f"error: tesseract failed: {stderr}", file=sys.stderr)
             return ""
-        return result.stdout
+        return result.stdout.decode("utf-8", errors="replace")
     except FileNotFoundError:
         print(_tesseract_missing_msg(), file=sys.stderr)
-        return ""
-    except subprocess.TimeoutExpired:
-        print("error: tesseract timed out", file=sys.stderr)
         return ""
 
 
@@ -97,6 +191,12 @@ def cmd_pdf(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    if not _has_pdfinfo():
+        print(
+            "error: pdfinfo is not installed (part of poppler-utils).",
+            file=sys.stderr,
+        )
+        return 1
     in_path = args.input
     if not Path(in_path).is_file():
         print(f"error: file not found: {in_path}", file=sys.stderr)
@@ -105,28 +205,58 @@ def cmd_pdf(args: argparse.Namespace) -> int:
     lang = getattr(args, "lang", "eng")
     first_page = getattr(args, "first_page", None)
     last_page = getattr(args, "last_page", None)
+    total_pages = _pdf_page_count(Path(in_path))
+    if total_pages <= 0:
+        return 1
+    start_page = first_page if first_page is not None else 1
+    end_page = last_page if last_page is not None else total_pages
+    if start_page < 1 or end_page < start_page or end_page > total_pages:
+        print(
+            f"error: invalid OCR page range {start_page}-{end_page} "
+            f"for PDF with {total_pages} pages",
+            file=sys.stderr,
+        )
+        return 1
+    limits = load_limits()
+    selected_pages = end_page - start_page + 1
+    check_ocr_pages(selected_pages, limits)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        cmd = ["pdftoppm", "-png"]
-        if first_page:
-            cmd.extend(["-f", str(first_page)])
-        if last_page:
-            cmd.extend(["-l", str(last_page)])
+        cmd = [
+            "pdftoppm", "-png",
+            "-f", str(start_page),
+            "-l", str(end_page),
+        ]
         cmd.extend([in_path, os.path.join(tmpdir, "page")])
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = run_subprocess_bounded(
+            cmd,
+            limits,
+            watch_dir=tmpdir,
+            max_generated_bytes=limits.ocr_max_image_bytes * selected_pages,
+        )
         if result.returncode != 0:
-            print(f"error: pdftoppm failed: {result.stderr.strip()}", file=sys.stderr)
+            stderr = result.stderr.decode("utf-8", errors="replace").strip()
+            print(f"error: pdftoppm failed: {stderr}", file=sys.stderr)
             return 1
 
         pages = sorted(Path(tmpdir).glob("page-*.png"))
         if not pages:
             print("error: pdftoppm produced no images", file=sys.stderr)
             return 1
+        if len(pages) != selected_pages:
+            print(
+                f"error: pdftoppm produced {len(pages)} of {selected_pages} pages",
+                file=sys.stderr,
+            )
+            return 1
 
         all_text: list[str] = []
+        total_output = 0
         for page in pages:
             text = _run_tesseract(str(page), lang)
+            total_output += len(text.encode("utf-8"))
+            check_subprocess_output(total_output, limits)
             all_text.append(text)
 
     combined = "\n".join(all_text)
@@ -205,11 +335,13 @@ def cmd_langs(_args: argparse.Namespace) -> int:
         print(_tesseract_missing_msg(), file=sys.stderr)
         return 1
     try:
-        result = subprocess.run(
-            ["tesseract", "--list-langs"],
-            capture_output=True, text=True, timeout=10,
+        limits = load_limits()
+        result = run_subprocess_bounded(
+            ["tesseract", "--list-langs"], limits, timeout_sec=10,
         )
-        print(result.stdout.strip() if result.stdout else result.stderr.strip())
+        stdout = result.stdout.decode("utf-8", errors="replace").strip()
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        print(stdout if stdout else stderr)
         return 0
     except FileNotFoundError:
         print(_tesseract_missing_msg(), file=sys.stderr)
@@ -286,7 +418,28 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if rc != 0:
             errors.append("mock OCR ledger row failed evidence_ledger validate")
 
-    # Test 5: if tesseract available, do a real OCR test
+    # Test 5: resource violations propagate instead of becoming empty success.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        image = Path(tmpdir) / "bounded.pbm"
+        image.write_text("P1\n2 2\n0 0 0 0\n", encoding="ascii")
+        if _image_dimensions(image) != (2, 2):
+            errors.append("PBM dimension probe failed")
+        env_key = "D_RESEARCH_OCR_MAX_IMAGE_BYTES"
+        previous = os.environ.get(env_key)
+        os.environ[env_key] = "1"
+        try:
+            _run_tesseract(str(image), "eng")
+            errors.append("OCR image cap should propagate ResourceLimitError")
+        except ResourceLimitError as exc:
+            if exc.code != "ocr_max_image_bytes":
+                errors.append(f"OCR image cap wrong code: {exc.code}")
+        finally:
+            if previous is None:
+                os.environ.pop(env_key, None)
+            else:
+                os.environ[env_key] = previous
+
+    # Test 6: if tesseract available, do a real OCR test
     if _has_tesseract():
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a tiny PBM image with known text pattern
@@ -337,20 +490,42 @@ def main() -> int:
     tl_p.add_argument("--out-row", required=True, help="Output CSV path.")
     tl_p.add_argument("--lang", default="eng")
 
+    limit_fields = (
+        "download_max_bytes",
+        "pdf_max_pages",
+        "pdf_max_bytes",
+        "ocr_max_pages",
+        "ocr_max_pixels",
+        "ocr_max_image_bytes",
+        "subprocess_timeout_sec",
+        "subprocess_max_output_bytes",
+    )
+    for command_parser in (text_p, pdf_p, tl_p):
+        add_resource_limit_arguments(command_parser, limit_fields)
+
     sub.add_parser("langs", help="List installed tesseract languages.")
     sub.add_parser("self-test", help="Run offline self-tests.")
 
     args = p.parse_args()
-    if args.cmd == "text":
-        return cmd_text(args)
-    if args.cmd == "pdf":
-        return cmd_pdf(args)
-    if args.cmd == "to-ledger":
-        return cmd_to_ledger(args)
-    if args.cmd == "langs":
-        return cmd_langs(args)
-    if args.cmd == "self-test":
-        return cmd_self_test(args)
+    try:
+        apply_cli_limit_overrides(args)
+        if args.cmd == "text":
+            return cmd_text(args)
+        if args.cmd == "pdf":
+            return cmd_pdf(args)
+        if args.cmd == "to-ledger":
+            return cmd_to_ledger(args)
+        if args.cmd == "langs":
+            return cmd_langs(args)
+        if args.cmd == "self-test":
+            return cmd_self_test(args)
+    except ResourceLimitError as error:
+        output = None
+        if args.cmd in {"text", "pdf"}:
+            output = getattr(args, "out", None)
+        elif args.cmd == "to-ledger":
+            output = getattr(args, "out_row", None)
+        return emit_blocker(error, output)
     p.print_help()
     return 1
 

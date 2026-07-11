@@ -45,6 +45,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from resource_limits import (
+    ResourceLimitError,
+    emit_blocker_and_exit,
+    load_limits,
+    read_http_response_bounded,
+)
+
 DEFAULT_STYLES: dict[str, str] = {
     "apa": "apa",
     "apa7": "apa",
@@ -148,15 +155,34 @@ def resolve_csl(style: str, *, allow_download: bool = True) -> Path | None:
                 "User-Agent": "d-research-skill citation_render (+lawful-public-fetch)"
             },
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = resp.read()
+        limits = load_limits()
+        with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+            data = read_http_response_bounded(resp, limits)
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except urllib.error.URLError as e:
         print(
             f"warning: could not download CSL '{canonical}' from {url}: {e}",
             file=sys.stderr,
         )
         return None
-    cached.write_bytes(data)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=cached.parent,
+            prefix=f".{cached.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+        os.replace(temp_path, cached)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
     return cached
 
 

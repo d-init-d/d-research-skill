@@ -1,3 +1,7 @@
+---
+example_status: illustrative
+---
+
 # Example — dataset collection
 
 User asks: *"Collect a dataset of public AI research tools with

@@ -30,6 +30,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from resource_limits import (
+    ResourceLimitError,
+    emit_blocker_and_exit,
+    load_limits,
+    read_http_response_bounded,
+)
+
 EMBED_DIM_STUB = 32
 INDEX_SCHEMA_VERSION = "1.0"
 
@@ -90,9 +97,12 @@ def _cohere_embed(
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            result = json.loads(resp.read())
+        limits = load_limits()
+        with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+            result = json.loads(read_http_response_bounded(resp, limits))
             return result.get("embeddings", [])
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except (urllib.error.URLError, urllib.error.HTTPError) as e:
         print(f"error: Cohere API request failed: {e}", file=sys.stderr)
         raise SystemExit(1)

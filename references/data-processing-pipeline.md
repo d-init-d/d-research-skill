@@ -697,3 +697,9 @@ Before completing any data processing task:
 - [ ] Data dictionary created
 - [ ] Quality report generated
 - [ ] All findings summarized
+
+## See also
+
+- `references/data-extraction-toolbox.md`
+- `references/deduplication.md`
+- `references/data-visualization.md`

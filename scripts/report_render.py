@@ -60,6 +60,24 @@ def _load_ledger(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+def _path_in_workspace(workspace: Path, raw: str | Path, *, label: str) -> Path:
+    """Resolve a user/plan path and require it to remain inside ``workspace``.
+
+    Research plans are agent-generated input, so report rendering must not trust
+    their input/output paths. ``Path.resolve(strict=False)`` also resolves any
+    existing symlinked parent before the containment check.
+    """
+    root = workspace.resolve()
+    value = Path(raw)
+    candidate = value if value.is_absolute() else root / value
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay inside workspace: {raw!s}") from exc
+    return resolved
+
+
 def _has_pandoc() -> bool:
     return shutil.which("pandoc") is not None
 
@@ -181,9 +199,219 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 
+GENERATED_EVIDENCE_BEGIN = "<!-- BEGIN GENERATED: evidence-summary -->"
+GENERATED_EVIDENCE_END = "<!-- END GENERATED: evidence-summary -->"
+GENERATED_REFS_BEGIN = "<!-- BEGIN GENERATED: references -->"
+GENERATED_REFS_END = "<!-- END GENERATED: references -->"
+
+PLACEHOLDER_SNIPPETS = (
+    "<!-- Replace with synthesis of key findings -->",
+    "<!-- Findings for task:",
+    "<!-- Document limitations, blocked sources, confidence gaps -->",
+    "<!-- Add findings here -->",
+    "<!-- findings from task -->",
+    "[placeholder]",
+    "[PLACEHOLDER]",
+)
+
+# Bounded placeholder patterns (case-insensitive). Avoid matching prose about TODOs.
+_PLACEHOLDER_RES = (
+    r"\[placeholder\]",
+    r"<!--\s*todo[\s:].*?-->",
+    r"<!--\s*replace with\b",
+    r"<!--\s*findings for task\b",
+    r"<!--\s*add findings\b",
+    r"<!--\s*document limitations\b",
+    r"\bTODO:\b",
+    r"\bTBD\b",
+)
+
+
+def _authored_narrative(content: str) -> tuple[str, list[str]]:
+    """Return authored prose only, plus parse errors for malformed markers."""
+    import re
+
+    errors: list[str] = []
+    text = content
+    # Generated blocks must be well-formed pairs.
+    for begin, end in (
+        (GENERATED_EVIDENCE_BEGIN, GENERATED_EVIDENCE_END),
+        (GENERATED_REFS_BEGIN, GENERATED_REFS_END),
+    ):
+        bcount = text.count(begin)
+        ecount = text.count(end)
+        if bcount != ecount:
+            errors.append(f"unmatched generated markers: {begin!r} / {end!r}")
+        if bcount > 1 or ecount > 1:
+            errors.append(f"duplicate generated markers: {begin!r}")
+        text = _strip_generated_block(text, begin, end)
+
+    # Strip HTML comments
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    # Strip fenced code blocks
+    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    # Strip indented code-ish quote blocks used for evidence excerpts (lines starting with >)
+    # Keep them out of coverage scanning.
+    lines = []
+    for line in text.splitlines():
+        if line.lstrip().startswith(">"):
+            continue
+        lines.append(line)
+    text = "\n".join(lines)
+    return text, errors
+
+
+def _has_placeholder(content: str) -> list[str]:
+    import re
+
+    hits: list[str] = []
+    lower = content
+    for snip in PLACEHOLDER_SNIPPETS:
+        if snip.lower() in lower.lower():
+            hits.append(snip)
+    for pat in _PLACEHOLDER_RES:
+        if re.search(pat, content, flags=re.I | re.S):
+            hits.append(pat)
+    return hits
+
+
+def _infer_task_phase(task: dict[str, Any]) -> str:
+    phase = task.get("phase")
+    if phase in {"research", "synthesis"}:
+        return phase
+    for op in task.get("outputs") or []:
+        op_norm = str(op).replace("\\", "/").lower()
+        if any(
+            m in op_norm
+            for m in ("report.md", "report-citations", "citations.md", "bibliography")
+        ):
+            return "synthesis"
+    return "research"
+
+
+def _resolve_report_out(workspace: Path, plan: dict[str, Any] | None, out_arg: str | None) -> Path:
+    if out_arg:
+        return _path_in_workspace(workspace, out_arg, label="report output")
+    if plan:
+        for task in plan.get("tasks") or []:
+            if not isinstance(task, dict):
+                continue
+            if _infer_task_phase(task) != "synthesis":
+                continue
+            for op in task.get("outputs") or []:
+                op_norm = str(op).replace("\\", "/")
+                if op_norm.lower().endswith("report.md"):
+                    return _path_in_workspace(workspace, op_norm, label="plan report output")
+    canonical = workspace / "research-output" / "report.md"
+    if (workspace / "research-output").is_dir():
+        return canonical
+    print(
+        "warning: using deprecated root report.md; prefer research-output/report.md",
+        file=sys.stderr,
+    )
+    return workspace / "report.md"
+
+
+def _strip_generated_block(text: str, begin: str, end: str) -> str:
+    import re
+
+    pattern = re.compile(
+        re.escape(begin) + r".*?" + re.escape(end),
+        flags=re.DOTALL,
+    )
+    return pattern.sub("", text)
+
+
+def _build_evidence_block(rows: list[dict[str, str]]) -> list[str]:
+    claim_rows = [
+        r
+        for r in rows
+        if (r.get("record_type") or "claim").strip().lower() in {"", "claim"}
+    ]
+    lines = [
+        GENERATED_EVIDENCE_BEGIN,
+        "## Evidence Summary",
+        "",
+        f"Total claims: {len(claim_rows)}",
+        "",
+        "| # | Claim | Source | Confidence |",
+        "|---|-------|--------|------------|",
+    ]
+    for i, row in enumerate(claim_rows[:50], 1):
+        claim = (row.get("claim", "") or "")[:80].replace("|", "\\|")
+        source = (row.get("source_url", "") or "")[:60].replace("|", "\\|")
+        conf = row.get("confidence", "")
+        lines.append(f"| {i} | {claim} | {source} | {conf} |")
+    if len(claim_rows) > 50:
+        lines.append(f"| ... | *{len(claim_rows) - 50} more rows* | | |")
+    lines.extend(["", GENERATED_EVIDENCE_END, ""])
+    return lines
+
+
+def _build_references_block(rows: list[dict[str, str]]) -> list[str]:
+    lines = [GENERATED_REFS_BEGIN, "## References", ""]
+    seen_urls: set[str] = set()
+    ref_num = 1
+    for row in rows:
+        url = (row.get("source_url", "") or "").strip()
+        title_ref = (row.get("source_title", "") or "").strip()
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            lines.append(f"{ref_num}. {title_ref or url} — {url}")
+            ref_num += 1
+    lines.extend(["", GENERATED_REFS_END, ""])
+    return lines
+
+
+def _collect_narrative(workspace: Path, plan: dict[str, Any] | None) -> str | None:
+    """Primary narrative from report.draft.md or synthesis task section inputs."""
+    draft = workspace / "report.draft.md"
+    if draft.is_file() and draft.stat().st_size > 0:
+        text = draft.read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    if not plan:
+        return None
+    parts: list[str] = []
+    for task in plan.get("tasks") or []:
+        if not isinstance(task, dict):
+            continue
+        if _infer_task_phase(task) != "synthesis":
+            continue
+        for rel in task.get("inputs") or []:
+            path = _path_in_workspace(
+                workspace,
+                str(rel).replace("\\", "/"),
+                label="synthesis input",
+            )
+            if path.is_file() and path.stat().st_size > 0:
+                parts.append(path.read_text(encoding="utf-8").strip())
+    if not parts:
+        # Fall back to research section files in declaration order.
+        for task in plan.get("tasks") or []:
+            if not isinstance(task, dict):
+                continue
+            if _infer_task_phase(task) != "research":
+                continue
+            for rel in task.get("outputs") or []:
+                path = _path_in_workspace(
+                    workspace,
+                    str(rel).replace("\\", "/"),
+                    label="research output",
+                )
+                if path.is_file() and path.suffix.lower() in {".md", ".txt"}:
+                    body = path.read_text(encoding="utf-8").strip()
+                    if body:
+                        heading = task.get("title") or task.get("id") or path.stem
+                        parts.append(f"## {heading}\n\n{body}")
+    if not parts:
+        return None
+    return "\n\n".join(parts)
+
+
 def cmd_render(args: argparse.Namespace) -> int:
-    """Produce final report.md from workspace artifacts."""
-    workspace = Path(args.workspace)
+    """Produce final report from draft/sections + generated evidence/refs blocks."""
+    workspace = Path(args.workspace).resolve()
     if not workspace.is_dir():
         print(f"error: workspace not found: {workspace}", file=sys.stderr)
         return 1
@@ -191,8 +419,17 @@ def cmd_render(args: argparse.Namespace) -> int:
     ledger_path = workspace / "evidence-ledger.csv"
     plan_path = workspace / "research-plan.json"
     screening_path = workspace / "screening-log.csv"
-    out_path = Path(args.out) if args.out else workspace / "report.md"
     require_sig = getattr(args, "require_signature", False)
+    plan: dict[str, Any] | None = None
+    if plan_path.is_file():
+        plan = _load_json(plan_path)
+
+    try:
+        out_path = _resolve_report_out(workspace, plan, getattr(args, "out", None))
+        narrative = _collect_narrative(workspace, plan)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     # Step 1: Validate ledger schema
     if ledger_path.is_file():
@@ -201,105 +438,81 @@ def cmd_render(args: argparse.Namespace) -> int:
             print("error: evidence ledger failed schema validation", file=sys.stderr)
             return 1
 
-        # Step 2: Check signature
         hmac_path = Path(str(ledger_path) + ".hmac")
         if hmac_path.is_file():
             if not _verify_signature(ledger_path):
-                print("error: ledger signature verification FAILED — refusing to render", file=sys.stderr)
+                print(
+                    "error: ledger signature verification FAILED — refusing to render",
+                    file=sys.stderr,
+                )
                 return 1
         elif require_sig:
-            print("error: --require-signature set but no signature sidecar found", file=sys.stderr)
+            print(
+                "error: --require-signature set but no signature sidecar found",
+                file=sys.stderr,
+            )
             return 1
         else:
-            print("warning: ledger is not signed; rendering without signature verification", file=sys.stderr)
+            print(
+                "warning: ledger is not signed; rendering without signature verification",
+                file=sys.stderr,
+            )
 
-    # Step 3: Build report
-    lines: list[str] = []
+    if not narrative:
+        print(
+            "error: no narrative found; write report.draft.md or synthesis section inputs",
+            file=sys.stderr,
+        )
+        return 1
 
-    # Title from plan
-    title = "Research Report"
-    if plan_path.is_file():
-        plan = _load_json(plan_path)
-        title = plan.get("title", plan.get("slug", "Research Report"))
+    # Strip prior generated blocks if re-rendering an existing draft that already has them.
+    narrative = _strip_generated_block(
+        narrative, GENERATED_EVIDENCE_BEGIN, GENERATED_EVIDENCE_END
+    )
+    narrative = _strip_generated_block(
+        narrative, GENERATED_REFS_BEGIN, GENERATED_REFS_END
+    )
 
-    lines.append(f"# {title}")
-    lines.append("")
-    lines.append(f"Generated: {_utc_now()}")
-    lines.append("")
+    for snip in PLACEHOLDER_SNIPPETS:
+        if snip in narrative:
+            print(
+                f"error: narrative still contains placeholder {snip!r}; "
+                "fill draft/sections before render",
+                file=sys.stderr,
+            )
+            return 1
 
-    # Executive summary placeholder
-    lines.append("## Executive Summary")
-    lines.append("")
-    lines.append("<!-- Replace with synthesis of key findings -->")
-    lines.append("")
+    lines: list[str] = [narrative.rstrip(), ""]
 
-    # Sections from plan tasks
-    if plan_path.is_file():
-        plan = _load_json(plan_path)
-        tasks = plan.get("tasks", [])
-        for task in tasks:
-            task_title = task.get("title", task.get("id", "Section"))
-            lines.append(f"## {task_title}")
-            lines.append("")
-            lines.append(f"<!-- Findings for task: {task.get('id', '')} -->")
-            lines.append("")
-
-    # Evidence summary from ledger
-    if ledger_path.is_file():
-        rows = _load_ledger(ledger_path)
-        if rows:
-            lines.append("## Evidence Summary")
-            lines.append("")
-            lines.append(f"Total claims: {len(rows)}")
-            lines.append("")
-            lines.append("| # | Claim | Source | Confidence |")
-            lines.append("|---|-------|--------|------------|")
-            for i, row in enumerate(rows[:50], 1):  # Cap at 50 for readability
-                claim = (row.get("claim", "") or "")[:80]
-                source = (row.get("source_url", "") or "")[:60]
-                conf = row.get("confidence", "")
-                lines.append(f"| {i} | {claim} | {source} | {conf} |")
-            if len(rows) > 50:
-                lines.append(f"| ... | *{len(rows) - 50} more rows* | | |")
-            lines.append("")
-
-    # PRISMA flow if screening log exists
+    # Screening summary (non-placeholder factual block when present)
     if screening_path.is_file():
         screening_rows = _load_ledger(screening_path)
         lines.append("## Screening Summary (PRISMA)")
         lines.append("")
         lines.append(f"Total screened: {len(screening_rows)}")
-        included = sum(1 for r in screening_rows if r.get("decision", "").lower() == "include")
-        excluded = sum(1 for r in screening_rows if r.get("decision", "").lower() == "exclude")
+        included = sum(
+            1 for r in screening_rows if r.get("decision", "").lower() == "include"
+        )
+        excluded = sum(
+            1 for r in screening_rows if r.get("decision", "").lower() == "exclude"
+        )
         lines.append(f"Included: {included}")
         lines.append(f"Excluded: {excluded}")
         lines.append("")
 
-    # References section
-    lines.append("## References")
-    lines.append("")
     if ledger_path.is_file():
         rows = _load_ledger(ledger_path)
-        seen_urls: set[str] = set()
-        ref_num = 1
-        for row in rows:
-            url = (row.get("source_url", "") or "").strip()
-            title_ref = (row.get("source_title", "") or "").strip()
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                lines.append(f"{ref_num}. {title_ref or url} — {url}")
-                ref_num += 1
-        lines.append("")
+        if rows:
+            lines.extend(_build_evidence_block(rows))
+            lines.extend(_build_references_block(rows))
 
-    # Caveats and limitations
-    lines.append("## Caveats and Limitations")
-    lines.append("")
-    lines.append("<!-- Document limitations, blocked sources, confidence gaps -->")
-    lines.append("")
+    body = "\n".join(lines).rstrip() + "\n"
+    if not body.strip():
+        print("error: render produced empty output", file=sys.stderr)
+        return 1
 
-    # Write output
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text("\n".join(lines), encoding="utf-8")
+    out_path.write_text(body, encoding="utf-8")
     print(f"wrote {out_path}")
     return 0
 
@@ -334,52 +547,98 @@ def cmd_list_styles(_args: argparse.Namespace) -> int:
 
 
 def cmd_lint(args: argparse.Namespace) -> int:
-    """Check workspace for missing/unused claims and broken refs."""
-    workspace = Path(args.workspace)
+    """Check workspace for missing/unused claims and broken refs.
+
+    Factual ``record_type=claim`` rows must appear as ``[ref:claim_id]`` in the
+    narrative. ``process`` and ``blocker`` rows are exempt from coverage.
+    ``--strict`` (used by release gates) treats unreferenced claims as errors.
+    ``--allow-unreferenced`` is a manual escape hatch that never runs in gates.
+    """
+    import re
+
+    workspace = Path(args.workspace).resolve()
     if not workspace.is_dir():
         print(f"error: workspace not found: {workspace}", file=sys.stderr)
         return 1
 
     errors: list[str] = []
     warnings: list[str] = []
+    allow_unref = getattr(args, "allow_unreferenced", False)
+    explicit_report = getattr(args, "report", None)
 
     ledger_path = workspace / "evidence-ledger.csv"
-    report_path = workspace / "report.md"
-    draft_path = workspace / "report.draft.md"
+    if explicit_report:
+        try:
+            report_file = _path_in_workspace(
+                workspace, explicit_report, label="lint report path"
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            report_file = None
+        if report_file is None or not report_file.is_file():
+            errors.append(f"exact report path not found: {explicit_report}")
+            report_file = None
+    else:
+        candidates = [
+            workspace / "research-output" / "report.md",
+            workspace / "report.md",
+            workspace / "report.draft.md",
+        ]
+        report_file = next((p for p in candidates if p.is_file()), None)
 
-    # Load ledger claims
-    ledger_claims: set[str] = set()
+    claim_ids: set[str] = set()
+    process_blocker_ids: set[str] = set()
+    seen_ids: set[str] = set()
     if ledger_path.is_file():
         rows = _load_ledger(ledger_path)
         for row in rows:
             cid = (row.get("claim_id", "") or "").strip()
-            if cid:
-                ledger_claims.add(cid)
+            if not cid:
+                continue
+            if cid in seen_ids:
+                errors.append(f"duplicate claim_id in ledger: {cid}")
+            seen_ids.add(cid)
+            rtype = (row.get("record_type") or "claim").strip().lower() or "claim"
+            if rtype in {"process", "blocker"}:
+                process_blocker_ids.add(cid)
+            else:
+                claim_ids.add(cid)
     else:
         warnings.append("no evidence-ledger.csv found in workspace")
 
-    # Check report for claim references
-    report_file = report_path if report_path.is_file() else draft_path
     referenced_claims: set[str] = set()
-    if report_file.is_file():
+    if report_file is not None:
         content = report_file.read_text(encoding="utf-8")
-        # Look for [ref:claim_id] patterns
-        import re
-        refs = re.findall(r"\[ref:([^\]]+)\]", content)
-        referenced_claims = set(refs)
+        for hit in _has_placeholder(content):
+            errors.append(f"report still contains placeholder: {hit!r}")
+        narrative, marker_errors = _authored_narrative(content)
+        errors.extend(marker_errors)
+        refs = re.findall(r"\[ref:([^\]]+)\]", narrative)
+        referenced_claims = {r.strip() for r in refs if r.strip()}
 
-        # Claims referenced but not in ledger
-        missing = referenced_claims - ledger_claims
+        missing = referenced_claims - seen_ids
         for cid in sorted(missing):
             errors.append(f"claim referenced in report but not in ledger: {cid}")
+    else:
+        if claim_ids:
+            errors.append("no report found for claim coverage")
 
-    # Unused ledger rows (claims in ledger but not referenced)
-    if referenced_claims:
-        unused = ledger_claims - referenced_claims
-        for cid in sorted(unused):
-            warnings.append(f"ledger claim not referenced in report: {cid}")
+    unreferenced = claim_ids - referenced_claims
+    if unreferenced:
+        msg_base = "ledger claim not referenced in report"
+        for cid in sorted(unreferenced):
+            if allow_unref:
+                warnings.append(f"{msg_base} (allowed by --allow-unreferenced): {cid}")
+            else:
+                errors.append(f"{msg_base}: {cid}")
 
-    # Report results
+    if allow_unref:
+        print(
+            "warning: --allow-unreferenced is a manual override; "
+            "release gates never use this flag",
+            file=sys.stderr,
+        )
+
     if warnings:
         for w in warnings:
             print(f"  warning: {w}", file=sys.stderr)
@@ -389,7 +648,11 @@ def cmd_lint(args: argparse.Namespace) -> int:
             print(f"  - {e}", file=sys.stderr)
         return 1
 
-    print(f"OK: workspace lint passed ({len(ledger_claims)} claims, {len(referenced_claims)} referenced).")
+    print(
+        f"OK: workspace lint passed "
+        f"({len(claim_ids)} claims, {len(process_blocker_ids)} process/blocker, "
+        f"{len(referenced_claims)} referenced)."
+    )
     return 0
 
 
@@ -504,6 +767,23 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             if "Literature Review" not in draft:
                 errors.append("init draft missing task section")
 
+        # Replace draft with real narrative (no placeholders) + claim refs
+        (ws / "report.draft.md").write_text(
+            "# Test Research Report\n\n"
+            "Generated: 2026-06-01T00:00:00Z\n\n"
+            "## Executive Summary\n\n"
+            "Claim one is supported [ref:C001]. Claim two is supported [ref:C002].\n\n"
+            "## Literature Review\n\n"
+            "Literature findings without placeholders.\n\n"
+            "## Data Collection\n\n"
+            "Data collection findings.\n\n"
+            "## Analysis\n\n"
+            "Analysis findings.\n\n"
+            "## Caveats and Limitations\n\n"
+            "No material limitations for self-test.\n",
+            encoding="utf-8",
+        )
+
         # Test 2: render
         render_ns = argparse.Namespace(
             workspace=str(ws), out=None, style="apa", require_signature=False
@@ -525,6 +805,8 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 errors.append("render report missing screening summary")
             if "https://example.com/a" not in report:
                 errors.append("render report missing source URL")
+            if "<!-- Replace with" in report:
+                errors.append("render overwrote narrative with placeholders")
 
         # Test 3: render with valid signature
         # Sign the ledger
@@ -597,15 +879,35 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if rc == 0:
             errors.append("render with --require-signature should fail without signature")
 
-        # Test 4: lint (no refs in report, so unused claims are warnings only)
-        lint_ns = argparse.Namespace(workspace=str(ws))
+        # Test 4: lint requires claim coverage
+        lint_ns = argparse.Namespace(
+            workspace=str(ws), strict=True, allow_unreferenced=False
+        )
+        old_stderr = sys.stderr
+        sys.stderr = _io.StringIO()
         rc = cmd_lint(lint_ns)
+        sys.stderr = old_stderr
         if rc != 0:
-            errors.append("lint returned non-zero on valid workspace")
+            errors.append("lint returned non-zero on fully-referenced workspace")
+
+        # Test 4b: unreferenced claim fails strict lint
+        bare = (ws / "report.md").read_text(encoding="utf-8")
+        (ws / "report.md").write_text(
+            bare.replace("[ref:C002]", ""),
+            encoding="utf-8",
+        )
+        old_stderr = sys.stderr
+        sys.stderr = _io.StringIO()
+        rc = cmd_lint(lint_ns)
+        sys.stderr = old_stderr
+        if rc == 0:
+            errors.append("lint should fail when a claim is unreferenced")
+        # restore full refs
+        (ws / "report.md").write_text(bare, encoding="utf-8")
 
         # Test 5: lint with broken ref
         report_with_ref = (ws / "report.md").read_text(encoding="utf-8")
-        report_with_ref += "\n[ref:C001] [ref:MISSING_CLAIM]\n"
+        report_with_ref += "\n[ref:MISSING_CLAIM]\n"
         (ws / "report.md").write_text(report_with_ref, encoding="utf-8")
         import io as _io2
         old_stderr = sys.stderr
@@ -626,6 +928,73 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             errors.append("list-styles returned non-zero")
         elif "apa" not in captured.getvalue():
             errors.append("list-styles missing apa")
+
+        # Test 7: plan-derived report paths cannot escape the workspace.
+        escape_ws = Path(tmpdir) / "escape-workspace"
+        escape_ws.mkdir()
+        (escape_ws / "report.draft.md").write_text(
+            "# Safe narrative\n", encoding="utf-8"
+        )
+        outside_report = Path(tmpdir) / "escaped-report.md"
+        escape_plan = {
+            "schema_version": "2.0",
+            "tasks": [
+                {
+                    "id": "S1",
+                    "phase": "synthesis",
+                    "outputs": ["../escaped-report.md"],
+                }
+            ],
+        }
+        (escape_ws / "research-plan.json").write_text(
+            json.dumps(escape_plan), encoding="utf-8"
+        )
+        with contextlib.redirect_stderr(_io.StringIO()):
+            rc = cmd_render(
+                argparse.Namespace(
+                    workspace=str(escape_ws),
+                    out=None,
+                    style="apa",
+                    require_signature=False,
+                )
+            )
+        if rc == 0 or outside_report.exists():
+            errors.append("render allowed a plan output outside the workspace")
+
+        # Test 8: plan-derived narrative inputs cannot read outside files.
+        outside_input = Path(tmpdir) / "outside-secret.md"
+        outside_input.write_text("EXTERNAL SECRET", encoding="utf-8")
+        (escape_ws / "report.draft.md").unlink()
+        escape_plan["tasks"][0]["inputs"] = ["../outside-secret.md"]
+        escape_plan["tasks"][0]["outputs"] = ["research-output/report.md"]
+        (escape_ws / "research-plan.json").write_text(
+            json.dumps(escape_plan), encoding="utf-8"
+        )
+        with contextlib.redirect_stderr(_io.StringIO()):
+            rc = cmd_render(
+                argparse.Namespace(
+                    workspace=str(escape_ws),
+                    out=None,
+                    style="apa",
+                    require_signature=False,
+                )
+            )
+        escaped_body = escape_ws / "research-output" / "report.md"
+        if rc == 0 or escaped_body.exists():
+            errors.append("render allowed a narrative input outside the workspace")
+
+        # Test 9: lint's explicit report path is workspace-contained too.
+        with contextlib.redirect_stderr(_io.StringIO()):
+            rc = cmd_lint(
+                argparse.Namespace(
+                    workspace=str(escape_ws),
+                    report=str(outside_input),
+                    strict=True,
+                    allow_unreferenced=False,
+                )
+            )
+        if rc == 0:
+            errors.append("lint accepted an explicit report outside the workspace")
 
     if errors:
         print("report_render self-test FAILED:", file=sys.stderr)
@@ -682,6 +1051,23 @@ def main() -> int:
     # lint
     lint_p = sub.add_parser("lint", help="Check workspace for issues.")
     lint_p.add_argument("--workspace", required=True, help="Research workspace directory.")
+    lint_p.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Fail when any record_type=claim is unreferenced (release gate default).",
+    )
+    lint_p.add_argument(
+        "--allow-unreferenced",
+        action="store_true",
+        default=False,
+        help="Manual override: warn instead of fail on unreferenced claims. Never used by release gates.",
+    )
+    lint_p.add_argument(
+        "--report",
+        default=None,
+        help="Exact report path to lint (required by release gates; no fallback).",
+    )
 
     # self-test
     sub.add_parser("self-test", help="Run offline self-tests.")

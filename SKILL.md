@@ -13,585 +13,243 @@ description: >-
 
 ## Mission
 
-Use this skill to maximize reachable evidence under available tools, permissions, and open-web constraints.
+Maximize reachable public evidence under available tools and open-web constraints.
+Default browser automation: Playwright.
 
-Default browser automation tool: Playwright.
+Use for deep web research, public data collection, source discovery, academic
+and literature review, market/technical research, due diligence, policy and
+standards analysis, creative/cultural research, dynamic-page evidence, and
+blocker reports.
 
-Use this skill for:
-- deep web research
-- public web data collection
-- source discovery
-- academic and literature review
-- market, competitor, product, and technical research
-- due diligence, public investigation, claim verification, and red-flag review
-- policy, standards, RFC, governance, and compliance analysis
-- creative, cultural, media, trend, reception, and archive research
-- collecting evidence for reports, essays, theses, and projects
-- researching dynamic websites that require browser interaction
-- reporting blocked sources so the user can retrieve data manually
+Never use this skill to bypass access controls, login walls, paywalls, captchas,
+rate limits, robots restrictions, or explicit access restrictions.
 
-Do not use this skill to bypass access controls, login walls, paywalls, captchas, rate limits, or explicit access restrictions.
+## Safety invariants (never allowed)
 
-## Core model
+- Bypass login, authentication, paywalls, or subscription checks.
+- Solve or evade captchas. Config `access.allowCaptchaSolving` must be `false`;
+  `true` fails validation. Captcha solving is never allowed.
+- Stealth plugins or anti-detection. Config `access.allowStealthEvasion` must be
+  `false`; `true` fails validation. Stealth evasion is never allowed.
+- Evade rate limits or anti-bot systems.
+- Stolen cookies, leaked tokens, or credentials not provided by the user.
+- Private/personal/sensitive data without authorization.
+- Ignore robots when acting as a crawler (`--no-respect-robots` hard-fails).
+- External mutation without explicit opt-in (Wayback Save Page Now requires
+  `--submit-archive`).
 
-Run every research task as a layered investigation:
+Lawful authenticated access with user-provided credentials is distinct from
+bypass/evasion and remains read-only by default.
 
-0. classify the research shape, depth, safety posture, output artifact, and route
-1. define the question
-2. decompose the topic
-3. map likely sources
-4. generate query fanout
-5. discover candidate URLs
-6. probe sources with browser-first access
-7. extract accessible data
-8. expand through links, sitemaps, files, and public APIs
-9. verify claims with an evidence ledger
-10. search for contradictions
-11. report unreachable or blocked data with manual instructions
-12. synthesize the final answer
+Full policy: `references/safety-and-access-policy.md`.
 
-For non-trivial work, run the portable quality gates in
-`references/execution-gates.md` before final synthesis. The gates are
-domain-neutral: use them to prevent thin, single-basin, under-verified, or
-overclaimed answers without forcing every task into a person/social workflow.
+## Tool priority by phase
 
-## Tool priority
+1. **Discovery:** user context → web search.
+2. **Probe:** Playwright/browser → fetch → web-search-only fallback.
+3. **Extraction:** public file/API/static DOM → browser-rendered content.
 
-Use the best available tool stack in this order:
+Anti-bot blocked tier-1 public sources: run the bounded chain in
+`references/anti-bot-fallback.md` once (API/static → archive → cache/snippet →
+fetch-only → blocker). Never use it to bypass controls.
 
-1. user-provided context, URLs, files, and constraints
-2. web search (programmatic via `scripts/web_search.mjs` or browser-based)
-3. URL fetch or HTTP read, when available
-4. Playwright browser automation
-5. public files: PDF, CSV, JSON, XML, XLSX, DOCX, TXT
-6. public API or public network responses exposed by the page
-7. local files or repo search, when the user provides a workspace
-8. configured browser adapter, if not Playwright
-9. web-search-only fallback via `scripts/web_search.mjs` (DDG → SearXNG → Brave → Google CSE), if no browser or fetch tool exists
-
-If a tool is unavailable, continue with the next-best method and record the limitation.
-
-If a relevant public tier-1 source is blocked by an anti-bot layer, JavaScript challenge, captcha, 403, 429, or repeated browser/fetch failure, run the bounded fallback chain in `references/anti-bot-fallback.md` before writing the final blocker report. The chain is API/static form -> public web archive -> cache/snippet if available -> fetch-only/no-JS retrieval -> blocker report. Never use it to bypass access controls.
-
-For the full decision rules on choosing between adapters (e.g. when to demote Playwright to fetch-only, when web search alone is acceptable), see `references/tool-adapter-policy.md`.
+Adapter policy: `references/tool-adapter-policy.md`.
 
 ## Data access layers
 
-Access data in order of preference:
-
-1. **Web layer** — public pages, dynamic content, file downloads (existing browser/fetch workflow)
-2. **File layer** — CSV, JSON, XML, PDF, XLSX, DOCX from public URLs
-3. **API layer** — REST, GraphQL, SPARQL endpoints with proper authentication. See `references/api-access-workflow.md`
-4. **Wikidata layer** — structured entity lookups, disambiguation, and SPARQL queries. See `adapters/wikidata.md`
-5. **Database layer** — read-only SQL/NoSQL access when user provides credentials. See `adapters/database-readonly.md`
-6. **Academic database layer** — OpenAlex, CrossRef, PubMed, Semantic Scholar, arXiv. See `references/academic-databases.md`. **Fast path:** if the input is already a DOI, PMID, arXiv ID, or ISBN, resolve it via `scripts/citation_resolver.py` first (see `adapters/citation-resolver.md`) before searching.
-7. **Specialized domain layer** — financial APIs, patent databases, government portals. See `references/specialized-domains.md`
-
-For each layer, follow the safety boundary: read-only, respect rate limits, log all access.
+1. Web pages and files (browser/fetch)
+2. Public APIs (REST/GraphQL/SPARQL) — `references/api-access-workflow.md`
+3. Academic databases — `references/academic-databases.md`
+4. Wikidata — `adapters/wikidata.md`
+5. Read-only databases when user provides access — `adapters/database-readonly.md`
+6. Specialized domains — `references/specialized-domains.md`
+
+## Intake and routing
+
+**Step 0:** Classify with `references/research-intake.md` before opening sources.
+Assign shape labels, depth (fast/standard/completeness-first), safety posture,
+output artifact, authority basins, required ledgers/gates. Ask the user only when
+ambiguity changes safety, legality, scope, or deliverable.
+
+**Long-horizon outer loop:** When more than 5 sub-questions, more than 50 sources,
+multi-context runtime, or audit-grade output, use research plan schema 2.0
+(`references/research-plan-protocol.md`):
+
+1. `scripts/research_plan.py init --slug <slug> [--title "..."]` (generic draft)
+2. Fill tasks with `phase: research|synthesis`, sub-questions, outputs under
+   `research-output/`
+3. `configure-execution` → `render` → `gate --gate plan_ready` → `approve`
+4. Dispatch parallel-safe tasks; write findings to declared outputs immediately
+5. `gate --gate synthesize_ready` (research phase only; real HMAC via
+   `D_RESEARCH_LEDGER_KEY`; completed checklist)
+6. Compose report from `report.draft.md` / section inputs
+7. `gate --gate release_ready` (synthesis complete; exact report path; 100 percent
+   claim coverage; stopping criteria)
+
+Migrate v1 plans: `scripts/research_plan.py migrate`. Always report workspace path.
+
+**Before final synthesis:** Apply `references/execution-gates.md` unless a
+fast-path branch says otherwise. Do not claim completeness unless gates pass.
+
+### Route table
+
+| Route | Reference |
+|---|---|
+| Atomic fact | `references/fact-verification.md` |
+| Social post archive | `references/social-media-archival.md` |
+| Named public-role person | `references/person-aggregation.md` |
+| Semantic corpus query | `references/semantic-retrieval.md` |
+| Due diligence / red flags | intake `due_diligence_or_investigation` |
+| Policy / standards / RFC | intake `policy_or_standards_analysis` |
+| Creative / cultural | intake `creative_or_cultural_research` |
+| Dataset collection | crawl + extraction workflow |
+| Academic / literature | academic protocol + citations |
+| Systematic / PRISMA | `references/systematic-review-protocol.md` |
+| Single URL | browser probe + anti-bot fallback |
+| API collection | `references/api-access-workflow.md` |
+| Large-scale (100+) | `references/large-scale-collection.md` |
+| Multilingual / Vietnamese | `references/multilingual-research.md`, `references/vietnamese-source-discovery.md` |
+| Thin recall / jargon | `references/register-and-jargon-expansion.md` |
+| Evidence gaps | `references/frontier-search.md` |
+
+Narrative branch detail: `references/workflow-routes.md`.
+Machine-readable routes: `templates/route-manifest.json`.
+
+## Core deep research workflow
+
+1. Restate goal, entities, timeframe, geography, language, output, source constraints.
+2. Decompose (`references/topic-decomposition.md`): sub-questions, facets, aliases,
+   source classes, stopping criteria.
+3. Source map (`references/source-discovery.md`): official, primary, papers, APIs,
+   datasets, archives.
+4. Query fanout (`references/query-patterns.md`): broad, exact, official, primary,
+   filetype, site, dataset, recent, contradiction; register variants when needed.
+5. Probe with browser-first access; classify access state; never force blocked pages.
+6. Extract least-invasively: public files → public APIs → static markup → rendered text.
+7. Expand via links/sitemaps/APIs within crawl limits; respect robots.
+8. Maintain evidence ledger (`references/evidence-ledger.md`); sign with
+   `scripts/evidence_ledger.py sign` when audit-grade.
+9. Contradiction pass; score sources (`references/source-quality-rubric.md`).
+10. Blocker reports (`references/blocker-report.md`) for unreachable tier-1 sources.
+11. Synthesize only after gates; use `references/final-report-template.md`.
+
+Default crawl limits: depth 2, 30 pages/domain, 100 total, 1000 ms delay, robots true.
+
+## Adapters and fallbacks
+
+Default adapter: `adapters/playwright.md`. Alternatives:
+`adapters/generic-browser.md`, `adapters/fetch-only.md`,
+`adapters/web-search-only.md`, `adapters/graphql.md`,
+`adapters/citation-resolver.md`, `adapters/translation.md`.
+
+If Playwright is unavailable, use the configured browser adapter. If no browser
+exists, use fetch. If fetch is unavailable, use web search and mark limitations.
+
+Blocked relevant public tier-1 sources: one pass of
+`references/anti-bot-fallback.md` then `references/blocker-report.md`. Record
+failed attempts as low-confidence process ledger rows.
+
+## Crawl and expansion defaults
+
+When acting as a crawler:
 
-## Safety boundary
-
-Allowed:
-- open public pages
-- render dynamic pages
-- click normal user-visible navigation
-- use site search boxes and filters
-- paginate through public results
-- expand tabs, accordions, and lazy-loaded sections
-- download public files
-- inspect public network requests initiated by a page
-- extract visible text, tables, links, metadata, and files
-- produce blocker reports when access fails
-
-Not allowed:
-- bypass login or authentication
-- bypass paywalls or subscription checks
-- solve or evade captchas
-- evade rate limits or anti-bot systems
-- use stealth plugins by default
-- use stolen cookies, leaked tokens, or credentials not explicitly provided by the user
-- access private, personal, or sensitive data without authorization
-- ignore robots or explicit site restrictions when acting as a crawler
-
-When blocked, do not force access. Produce a blocker report.
-
-The full safety and access policy (legal/ethical framing, what counts as a public source, escalation steps) is in `references/safety-and-access-policy.md`. Read it before doing anything that touches authenticated or rate-limited surfaces.
-
-## Workflow decision tree
-
-**Step 0: Research intake.** Before choosing any branch or opening sources,
-classify the request with `references/research-intake.md`. Assign one or more
-shape labels (atomic fact, URL, person/public role, academic review, systematic
-review, dataset/extraction, API/database, technical/market, due diligence,
-policy/standards, creative/cultural, high-stakes, multilingual/local,
-long-horizon, etc.), set research depth (fast, standard, or
-completeness-first), set the safety posture, choose the expected output
-artifact, and list the references/gates that apply. Use multi-label routing
-when tasks overlap. If the classification changes safety,
-legality, scope, or deliverable and cannot be resolved conservatively, ask the
-user before proceeding; otherwise state the assumption and continue.
-
-**Before picking a branch:** if the task is long-horizon (more than 5 sub-questions, more than 50 sources, multi-context-window runtime, or audit-grade output), apply the **research plan protocol** from `references/research-plan-protocol.md` as an outer loop *around* whichever branch fits the topic. The agent creates one workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writes `research-plan.json` (from `templates/research-plan.json`), renders `PLAN.md`, gets approval with `scripts/research_plan.py approve`, dispatches parallel-safe tasks (optionally to sub-agents if config allows), gates the synthesize step, and only then composes the final report. See `examples/long-horizon-research-plan.md`. The branches below describe the *content* of the work; the protocol describes the *flow control* that keeps the work surviving across context resets.
-
-**Before final synthesis:** for any non-trivial branch, apply
-`references/execution-gates.md` unless a narrower fast path explicitly says to
-skip it. If subagents exist, use the gate roles as independent reviewers; if
-they do not, perform the same checklists manually. Do not present a result as
-complete until source mapping, recall/coverage, evidence verification, blockers,
-and confidence have been handled or explicitly marked out of scope.
-
-### If the user asks to verify or look up one specific atomic fact
-
-Use `references/fact-verification.md`. Applies when the question targets one named entity, one named attribute, has a deterministic primary source (API, registry, canonical text), and a one-sentence-or-quote answer. Skip decompose, source map, query fanout, and crawl. Hit the primary source once, quote the value verbatim, file one ledger row with a one-shot independent re-check, and report. If anything looks off — non-2xx status, contradicting mirrors, the user follows up with "why" — escalate to the broad research workflow below. Never reach for `references/frontier-search.md` from this branch; atomic facts either fetch cleanly or fail loudly.
-
-### If the user asks to capture or analyze a public social-media post
-
-Use `references/social-media-archival.md`. Capture public posts from 12 supported platforms (Reddit, Hacker News, Mastodon, Bluesky, Lemmy, X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) plus a generic fallback. The script `scripts/social_snapshot.py` handles snapshot capture, hash-based verification, and evidence-ledger row generation. **Read the privacy boundary section first** — it refuses minors, private individuals, harassment/stalking/doxxing framings, and login-bypass attempts before making any HTTP call. Tier A platforms (Reddit, HN, Mastodon, Bluesky, Lemmy) use direct public API fetch with high verifiability; Tier B platforms (X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) use archive-only via `scripts/wayback.py` with low verifiability.
-
-### If the user asks for public-role information about a specific named person
-
-Use `references/person-aggregation.md`. Applies when the user wants scattered public-role information about one named person (maintainer, author, speaker, journalist, public figure) and there is a canonical anchor (GitHub profile, ORCID, package author field, faculty page, verified byline). The value is in cross-source aggregation and homonym disambiguation, not in any one source. **Apply the privacy boundary in that file before doing anything else** — it is a hard stop, not abstract guidance; home address, family, private accounts, personal contact, photos, medical/financial/legal/orientation/whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuse on minors, private individuals, and harassment/stalking/doxxing framings. Saturate at 25 ledger rows or three sources adding no new verified claims, and never escalate to `references/frontier-search.md` to chase one more piece of personal info.
-
-### If the user has a large corpus or many ledger rows and asks a semantic question
-
-Use `references/semantic-retrieval.md` when a corpus is large enough that keyword search is brittle (roughly >30 documents or many evidence-ledger rows) and the task asks for conceptually related material, near-duplicates, or "find claims like X". Build or query an index with `scripts/embed_corpus.py`; prefer local backends for private data, and require explicit remote opt-in for Cohere.
-
-### If the user asks for a broad research answer
-
-Use the full deep research workflow. Produce a source-backed synthesis with evidence, confidence, caveats, and next steps.
-
-### If the user asks for due diligence, public investigation, risk review, or red flags
-
-Use `references/research-intake.md` with `due_diligence_or_investigation`.
-Default to completeness-first unless the user explicitly asks for a quick scan.
-Build a source map, keep a search log, maintain an evidence ledger for verified
-claims and red flags, run a contradiction pass, and apply execution gates before
-synthesis. Separate verified facts, red flags, unresolved risks, benign
-unknowns, confidence, and recommended manual checks. Do not gather private
-personal data or phrase allegations beyond what the evidence supports.
-
-### If the user asks for policy, standards, RFC, governance, or compliance analysis
-
-Use `references/research-intake.md` with `policy_or_standards_analysis`.
-Prioritize canonical text, version/status, effective dates, errata, issuing-body
-guidance, and exact clause evidence. Distinguish normative from informative
-language, draft from final or superseded text, and obligations from permissions
-or implementation notes. Add `references/specialized-domains.md` only when the
-question is legal/government/financial or jurisdiction-specific.
-
-### If the user asks for creative, cultural, media, trend, reception, or archive research
-
-Use `references/research-intake.md` with `creative_or_cultural_research`.
-Anchor on primary works, official releases, creator/publisher/studio/label
-records, archives, criticism, cultural scholarship, trade press, and public
-reception metrics when available. Treat fan/community/social sources as
-reception evidence, not as verified factual authority about private people.
-
-### If the user asks to collect a dataset
-
-Use the crawl and extraction workflow. Produce structured data, a data dictionary, extraction method, coverage notes, and blocked-source report.
-
-### If the user asks for academic research, literature review, thesis, or project work
-
-Use the academic workflow. Define research questions, search strings, inclusion and exclusion criteria, screening log, evidence table, synthesis, and citations.
-
-### If the user asks for a systematic review, scoping review, rapid review, or PRISMA-grade output
-
-Use `references/systematic-review-protocol.md` (PRISMA 2020). Pick the right review type with `references/synthesis-patterns.md`. Populate `templates/prisma-flow.json` for the flow diagram and `templates/screening-log.csv` for screening decisions. For citation chasing / snowball sampling, use `scripts/citation_graph.py expand --seed seeds.csv --direction both` to traverse forward and backward citations from included papers. See `examples/systematic-review-prisma.md` for an end-to-end walkthrough.
-
-### If the user gives a specific URL
-
-Probe the URL first with the browser. Classify access status, extract available data, discover linked files/endpoints/pages, and report blockers.
-
-If the URL appears relevant but is blocked by Cloudflare, bot challenge, captcha, 403, 429, or a JavaScript challenge, follow `references/anti-bot-fallback.md` once before declaring it blocked. Record failed fallback attempts as low-confidence process rows in the evidence ledger, then produce `references/blocker-report.md` if no lawful public fallback works.
-
-### If only web search exists
-
-Run search-based research. Prefer official and primary sources. Mark sources that were found but not directly opened.
-
-### If the user asks to collect data from an API
-
-Use `references/api-access-workflow.md`. Discover endpoints, authenticate if user provides keys, paginate, handle rate limits, export structured data.
-
-### If the user asks for large-scale collection (100+ pages/records)
-
-Use `references/large-scale-collection.md`. Enable checkpointing, adaptive rate limiting, batch processing.
-
-### If the user asks for financial, patent, legal, or government data
-
-Use `references/specialized-domains.md`. Route to appropriate free APIs and data portals.
-
-### If the user asks for a literature review with citations
-
-Combine the academic workflow with `references/academic-databases.md` and `references/citation-management.md`. Export citations in BibTeX or RIS with `scripts/citation_export.py`, then render APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature with `scripts/citation_render.py` (pandoc + CSL).
-
-### If the user wants data cleaned or analyzed
-
-Use `references/data-processing-pipeline.md` after extraction. Run cleaning, validation, and analysis stages.
-
-### If the user asks to extract structured data from web pages (tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH)
-
-Use `references/data-extraction-toolbox.md` for recipe-style playbooks. Use `scripts/extract_tables.py` for HTML `<table>` → CSV, `scripts/api_fetch.mjs` for REST/GraphQL, and `templates/data-package.json` to publish the result as a Frictionless Data Package.
-
-### If the user needs tamper-evident research output, a signed evidence ledger, or a reproducibility audit
-
-Sign the ledger with `scripts/evidence_ledger.py sign --file evidence-ledger.csv --key-env D_RESEARCH_LEDGER_KEY`; the verifier is `evidence_ledger.py verify`. Then walk through `references/reproducibility-checklist.md` before declaring done.
-
-### If the task is long-horizon, multi-source, or risks blowing context
-
-Use the **research plan protocol** in `references/research-plan-protocol.md`. The agent MUST start by creating a single workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writing `research-plan.json` (from `templates/research-plan.json`), validating it with `scripts/research_plan.py check`, refreshing execution annotations with `scripts/research_plan.py configure-execution`, rendering `PLAN.md`, running `gate --gate plan_ready`, and getting approval with `scripts/research_plan.py approve` before dispatch. `init` reads `research.config.json` when present; by default it creates a fresh run folder in the current working directory, or under `researchPlan.workspace.baseDir` if configured. If that configured folder is inaccessible, it falls back to the current directory and warns. Unattended runs fail by default unless the agent explicitly records `--allow-unattended`. After approval, dispatch parallel-safe tasks via `scripts/research_plan.py parallelizable` only when `researchPlan.subagents.slots[]` contains configured slots (`agent`, `contextLength`, and `maxParallel` are not null). If the user changes task assignment, slot, or thread count during review, use `scripts/research_plan.py set-execution --id <task> --agent <main|subagent> [--slot <slot>] [--parallel-threads <n>]`, then render and approve again. If no sub-agent is configured, run tasks with the main agent and split the plan according to the main agent's context length. Context overflow is a hard failure: each task must fit its `execution.context_budget`; if not, split the task, write partial findings to files immediately, re-run `configure-execution`, render, and re-approve. Mark task status as work progresses, gate the synthesize step with `scripts/research_plan.py gate --gate synthesize_ready`, and only then compose the final report. Always include the final workspace path in the user-facing answer. See `examples/long-horizon-research-plan.md` for the end-to-end walkthrough. This is the right default for any task with >5 sub-questions, >50 sources, or estimated runtime that does not fit in one context window.
-
-### If the user wants visualizations or charts
-
-Use `references/data-visualization.md`. Generate matplotlib/plotly charts as part of the report.
-
-### If the user wants to monitor changes over time
-
-Use `references/monitoring-change-detection.md`. Take baseline snapshots, detect changes, report diffs.
-
-### If the user needs research across multiple languages
-
-Use `references/multilingual-research.md`. Translate queries per language, search local-language sources, extract in original language, and cross-validate findings across languages.
-
-If Vietnamese sources, Vietnam-local institutions, Vietnamese news, or
-Vietnamese public/community sources are materially relevant, use
-`references/vietnamese-source-discovery.md` as a companion. It adds
-diacritic/no-diacritic alias handling, local source basins, and date/identity
-discipline without making Vietnamese discovery a global default.
-
-### If recall is thin or the evidence lives in community, vernacular, or jargon-heavy registers
-
-Use `references/register-and-jargon-expansion.md`. Applies when a clinical,
-legal, standards, or academic query under-recalls because the people who hold
-the evidence use lay terms, community jargon, or emergent slang. Walk the
-register ladder in both directions: formal -> vernacular to open recall, and
-vernacular -> formal to anchor every community term back to a primary source.
-Harvest vocabulary from fresh results only (never from model memory), keep only
-terms that recur across two or more independent community sources, and treat the
-harvested vocabulary as a discovery layer — never as evidence. Every claim still
-passes `references/source-quality-rubric.md` and the contradiction pass. This is
-an additive layer on top of `references/multilingual-research.md`, not a
-replacement for native-language search.
-
-### If the first pass leaves evidence gaps, obscure / long-tail facts, or contested claims
-
-Escalate to `references/frontier-search.md`. Build a small best-first frontier over candidate queries, URLs, files, APIs, citations, repos, aliases, and archives; score each node against the unresolved sub-question; expand the highest-priority node; and stop on evidence saturation rather than node count. Maintain `templates/frontier-ledger.csv` and `templates/coverage-map.json` alongside `templates/evidence-ledger.csv`. Never use this as a way to bypass access controls — blocked nodes still go to `references/blocker-report.md`.
-
-## Standard deep research workflow
-
-### 0. Classify and route
-
-Use `references/research-intake.md` before source access. Produce or internally
-maintain a short intake card covering the user goal, primary object, shape
-labels, research depth, safety posture, freshness requirement,
-geography/language scope, authority model/source basins, source expectations,
-output artifact, required references, required ledgers/templates, execution
-gates, red-flag or contradiction focus, ambiguities, and route.
-
-Hard-stop safety/privacy/access checks happen here. Do not continue to broad
-research if the intake indicates a refusal, access-control bypass attempt,
-private-person profiling request, or high-stakes advice request that must be
-reframed as evidence synthesis.
-
-### 1. Restate the task
-
-Capture:
-- research goal
-- entities, products, technologies, organizations, places, or people
-- timeframe and freshness requirement
-- geography and language constraints
-- desired output format
-- acceptable source types
-- forbidden source types
-- whether the task is research, dataset collection, academic review, or mixed
-
-When the request is broad, proceed with reasonable assumptions and state them.
-
-### 2. Decompose the topic
-
-Use `references/topic-decomposition.md`.
-
-Create:
-- root question
-- sub-questions
-- facets
-- entities
-- synonyms and aliases
-- likely source classes
-- unknowns
-- research risks
-- stopping criteria
-
-### 3. Build a source map
-
-Use `references/source-discovery.md`.
-
-Look for:
-- official sites and docs
-- source repositories
-- issue trackers and discussions
-- changelogs and releases
-- public datasets
-- public APIs
-- standards, RFCs, and specifications
-- academic papers
-- government filings
-- PDFs and reports
-- tables, dashboards, and data portals
-- news, blogs, forums, and community sources
-- archives and caches, when allowed
-
-### 4. Generate query fanout
-
-Use `references/query-patterns.md`.
-
-For every important sub-question, generate:
-- broad query
-- exact phrase query
-- official source query
-- primary source query
-- filetype query
-- site-specific query
-- dataset/API query
-- recent query
-- contradiction query
-- alternate-language query when useful
-- register/jargon variant query when the evidence basin uses lay, community, or vernacular terms (see `references/register-and-jargon-expansion.md`)
-
-Do not conclude "not found" until broad, exact, official, primary, filetype, and contradiction searches have been attempted or are clearly irrelevant.
-
-### 5. Probe sources with browser-first access
-
-Use Playwright by default. See `adapters/playwright.md` and `references/browser-first-crawl.md`.
-
-For each promising URL:
-- open the page
-- wait for page stability
-- record final URL, title, status if available, and access state
-- extract visible text, headings, links, files, tables, metadata, dates, and page controls
-- capture screenshots when evidence or blockers need visual proof
-- classify the page as accessible, partial, dynamic, blocked, login-required, paywalled, captcha, rate-limited, robots-restricted, broken, or manual-needed
-
-### 6. Extract data
-
-Use the least invasive reliable method:
-
-1. public downloadable files
-2. public API or structured endpoint linked/exposed by the page
-3. static HTML tables and semantic markup
-4. visible page text
-5. browser-rendered content after normal interaction
-6. screenshots only when text extraction is unreliable
-
-Always record the extraction method.
-
-For the detailed playbooks per content type (HTML tables, JSON-LD, PDFs, embedded JSON in `<script>` tags, datalayer objects, GraphQL responses, etc.), see `references/extraction-methods.md`.
-
-### 7. Crawl and expand
-
-For accessible sources:
-- use sitemaps and robots discovery when acting as a crawler
-- follow relevant internal links
-- follow citation and reference links
-- follow pagination and filters that expose public data
-- deduplicate URLs
-- limit crawl depth and page count
-- stop when evidence saturation is reached
-
-Default crawl limits unless overridden:
 - max depth: 2
 - max pages per domain: 30
 - max total pages: 100
 - delay between page loads: 1000 ms
-- respect robots: true
+- respect robots: always true (policy hard-fail if disabled)
 - follow external links: false unless needed for source discovery
+- TLS verification on by default; `--ignore-tls-errors` is opt-in and must be
+  recorded as a limitation
 
-### 8. Maintain evidence ledger
+## Plan gates summary (schema 2.0)
 
-Use `references/evidence-ledger.md`.
+| Gate | Meaning |
+|---|---|
+| plan_ready | Complete filled plan, rendered PLAN.md, not started |
+| execute_ready / dispatch_ready | Approved and ready to run |
+| synthesize_ready | Research phase terminal; ledger valid+HMAC; checklist complete |
+| release_ready | Synthesis done; exact report+citations; full claim coverage |
 
-For tamper-evidence, sign the ledger with `scripts/evidence_ledger.py sign` (HMAC-SHA256 over the canonicalised CSV bytes). The verifier (`scripts/evidence_ledger.py verify`) detects any edits made after signing.
+Canonical assertion sets live in `templates/route-manifest.json` and are enforced
+by `scripts/research_plan.py`. Standard gates cannot be emptied.
 
-Every important claim must have:
-- claim
-- source
-- source type
-- date
-- access method
-- extracted evidence
-- contradiction status
-- confidence
+## Evidence and output contract
 
-Separate facts, inferences, speculation, and unknowns.
+Every important claim needs source, type, dates, access method, evidence,
+contradiction status, and confidence. Separate facts, inferences, speculation,
+and unknowns.
 
-### 9. Run contradiction pass
+Ledger rows may set `record_type`: `claim` (default), `process`, or `blocker`.
+Release requires full narrative coverage of `claim` rows via `[ref:claim_id]` in
+authored text only (not generated Evidence Summary or References blocks).
 
-Before final output:
-- search for contrary evidence
-- compare source dates and versions
-- identify stale or deprecated pages
-- check whether secondary sources cite primary sources
-- downgrade confidence when evidence is weak or conflicting
-- state unresolved contradictions clearly
+Final answer includes: direct answer, key findings, evidence summary, data
+collected, sources reached/blocked, contradictions/caveats, confidence, next steps.
 
-Score every source on the rubric in `references/source-quality-rubric.md` (primary vs. secondary, authority, recency, methodology, independence). Use the rubric scores to set the `confidence` column in the evidence ledger and to break ties between contradicting sources.
+Never present results as complete unless the relevant execution gates passed.
 
-For non-trivial tasks, also run the execution gates in
-`references/execution-gates.md`: source map gate, coverage/recall gate,
-identity/date/inference gate, evidence verification gate, and synthesis
-readiness gate. If a gate fails, continue research, downgrade confidence, or
-mark the output as partial instead of overclaiming completeness.
+Render/lint: `scripts/report_render.py`. Claim coverage:
+`report_render.py lint --workspace <dir> [--report <exact-path>] --strict`.
 
-### 10. Report blockers
+## High-stakes and privacy boundaries
 
-Use `references/blocker-report.md`.
+Hard-stop before broad research when intake indicates refusal, access-control
+bypass, private-person profiling, minors, harassment/stalking/doxxing framings,
+or high-stakes advice that must be reframed as evidence synthesis.
 
-If a likely useful source cannot be extracted, report:
-- URL
-- why it matters
-- access status
-- what was attempted
-- what blocked access
-- visible evidence of blocker
-- likely manual path
-- exact data the user should export, copy, screenshot, or download
-- alternative sources found
+Person aggregation (`references/person-aggregation.md`) saturates at 25 ledger
+rows or three sources adding no new verified claims. Never re-identify
+pseudonyms; never aggregate home address, family, personal contact, photos,
+medical/financial/orientation/whereabouts.
 
-### 11. Synthesize
+Social archival (`references/social-media-archival.md`) refuses the same privacy
+boundary before any HTTP call. Tier A uses direct public APIs; Tier B is
+archive lookup-only unless `--submit-archive`.
 
-Before composing the final answer, scan the evidence ledger and (if maintained) `templates/coverage-map.json` for unresolved gaps. If a key sub-question still has `missing` entries or only low-confidence non-primary sources, escalate one pass with `references/frontier-search.md` instead of synthesising over thin evidence.
+## Signing and reproducibility
 
-If the task is non-trivial, do not synthesize until
-`references/execution-gates.md` has been satisfied or any unmet gate is clearly
-reported as a limitation.
+For audit-grade work:
 
-Use `references/final-report-template.md`.
+1. Maintain `evidence-ledger.csv` (23-column canonical; legacy 14/19/22 OK).
+2. Sign with `scripts/evidence_ledger.py sign --file evidence-ledger.csv --key-env D_RESEARCH_LEDGER_KEY`.
+3. Complete `reproducibility-checklist.md` (no unchecked boxes; N/A as checked with reason).
+4. Render: `scripts/report_render.py render --workspace <dir>`.
+5. Lint exact report: `scripts/report_render.py lint --workspace <dir> --report <path> --strict`.
+6. Gate release: `scripts/research_plan.py gate --gate release_ready`.
 
-Default final answer:
-1. direct answer
-2. key findings
-3. evidence summary
-4. data collected
-5. sources reached
-6. sources blocked
-7. contradictions and caveats
-8. confidence
-9. next research steps
+Tampered ledgers with stale HMAC sidecars must fail every release gate.
 
-For academic outputs, use the academic report format in `references/academic-research-protocol.md`.
+## Optional helpers
 
-## Optional bundled scripts
+Scripts under `scripts/` are optional. Key entry points:
 
-The `scripts/` directory contains helper scripts for agents running in a local Node environment.
+- Browser: `playwright_probe.mjs`, `playwright_extract.mjs`, `playwright_crawl.mjs`
+- Plan/report: `research_plan.py`, `report_render.py`, `evidence_ledger.py`
+- Network: `api_fetch.mjs`, `web_search.mjs`, `http_cache.py`
+- Academic: `citation_export.py`, `citation_render.py`, `citation_resolver.py`
+- Social/archive: `social_snapshot.py`, `wayback.py`
+- Quality: `score_source.py`, `run_dogfood.py`, `check_contract.py`
 
-Use them when Playwright is installed and the task benefits from repeatable extraction:
-
-- `scripts/playwright_probe.mjs`: classify a page, detect blockers, list links/files/tables, optionally screenshot
-- `scripts/playwright_extract.mjs`: extract visible text, tables, links, metadata, and files into JSON or Markdown
-- `scripts/playwright_crawl.mjs`: bounded same-domain crawl with basic robots awareness and page manifests
-- `scripts/evidence_ledger.py`: initialize, validate, and **HMAC-sign / verify** CSV evidence ledgers
-- `scripts/api_fetch.mjs`: paginated API fetch with rate limiting, retry, and multiple output formats
-- `scripts/data_clean.py`: data cleaning, deduplication, validation, statistics, and merging
-- `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via CrossRef
-- `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + CSL
-- `scripts/extract_tables.py`: extract HTML `<table>` elements into CSV (handles `colspan`/`rowspan`, stdlib only)
-- `scripts/score_source.py`: apply the `references/source-quality-rubric.md` rubric to an evidence ledger and emit per-row scores + bands
-- `scripts/research_plan.py`: init / configure-execution / set-execution / render / approve / revoke / check / status / parallelizable / mark / block / add-task / gate — drives the long-horizon context-safe protocol in `references/research-plan-protocol.md`
-- `scripts/wikidata.py`: search / entity / disambiguate / sparql / self-test — Wikidata entity lookup, disambiguation, and SPARQL queries (see `adapters/wikidata.md`)
-- `scripts/social_snapshot.py`: snapshot / verify / to-ledger / self-test — public social-media post capture with two-tier architecture, content hashing, and evidence-ledger integration (see `references/social-media-archival.md`)
-- `scripts/pdf_extract.py`: text / meta / tables / to-ledger / self-test — PDF text, metadata, and table extraction via pdftotext / pdfinfo / pdfplumber with soft-fail when binaries are missing (see `references/pdf-extraction.md`)
-- `scripts/wayback.py`: lookup / nearest / save / diff [--summarize --top-n N] / self-test — Wayback Machine snapshot lookup, archival, and diff summarization (see `references/wayback-archive.md` and `references/monitoring-change-detection.md`)
-- `scripts/citation_resolver.py`: doi / pmid / arxiv / isbn / oa / to-ledger / to-bibtex / batch / self-test — academic identifier resolution via free public APIs (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall); see `adapters/citation-resolver.md`
-- `scripts/report_render.py`: init / render / to-pdf / to-docx / to-html / list-styles / lint / self-test — final report generator from research workspace (plan + ledger + screening log); see `references/report-generation.md`
-- `scripts/ocr.py`: text / pdf / to-ledger / langs / self-test — OCR via tesseract (optional system binary, soft-fail if missing); see `references/ocr.md`
-- `scripts/translate.py`: text / detect / instances / self-test — translation adapter with stdlib trigram language detection and LibreTranslate/DeepL/Google/Argos backends; see `adapters/translation.md`
-- `scripts/embed_corpus.py`: index / query / query-ledger / dedupe / self-test — semantic retrieval over text corpora using cosine similarity with stub/sentence-transformers/cohere/llama-cli backends; see `references/semantic-retrieval.md`
-- `scripts/citation_graph.py`: cited-by / references / expand / to-frontier / coauthors / self-test — citation graph traversal via OpenAlex for snowball sampling and network analysis; see `references/citation-graph.md`
-- `scripts/multi_extract.py`: text / meta / tables / structured / mbox-search / to-ledger / self-test — unified extraction from DOCX, EPUB, XLSX, mbox, and HTML structured data; see `references/multi-format-extraction.md`
-- `scripts/dedup_near.py`: fingerprint / scan / ledger / self-test — near-duplicate detection via SimHash + Hamming distance; see `references/deduplication.md`
-- `scripts/http_cache.py`: get-key / stats / purge / self-test — shared HTTP cache (opt-in via `D_RESEARCH_HTTP_CACHE_PATH`); see `references/http-cache.md`
-- `scripts/lib/http_cache.mjs`: Node ESM helper used by `api_fetch.mjs` for the same shared cache layout
-- `scripts/bench_harness_check.py`: check / check-all / orphans / self-test — bench/fixture/harness consistency check. **NOT an agent benchmark** — only catches bench data regressions
-- `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE); see `adapters/web-search-only.md`
-- `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
-
-The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.
+Full inventory: `references/script-inventory.md`.
 
 ## Configuration
 
-If a project has `research.config.json`, obey it. Otherwise use `research.config.example.json` defaults.
+Obey project `research.config.json` or `research.config.example.json` defaults.
+Access is read-only. Captcha solving and stealth evasion are never allowed.
+Field reference: `references/config-reference.md`.
 
-Important config fields:
-- browser.default
-- browser.timeoutMs
-- crawl.maxDepth
-- crawl.maxPagesPerDomain
-- crawl.maxTotalPages
-- crawl.delayMs
-- crawl.respectRobots
-- research.intake.enabled
-- research.intake.emitClassificationCard
-- research.intake.multiLabel
-- research.intake.askOnSafetyOrOutputAmbiguity
-- research.intake.defaultToConservativeBranch
-- research.requireEvidenceLedger
-- research.requireContradictionPass
-- research.executionGates.enabled
-- research.executionGates.lowRecallGuard
-- research.executionGates.noSingleBasinStop
-- research.executionGates.finalVerificationGate
-- research.executionGates.subagentsOptional
-- research.executionGates.minIndependentBasinsForCompleteness
-- researchPlan.context.mainContextLength
-- researchPlan.context.taskBudgetRatio
-- researchPlan.context.writeFindingsImmediately
-- researchPlan.subagents.slots[].id
-- researchPlan.subagents.slots[].agent
-- researchPlan.subagents.slots[].contextLength
-- researchPlan.subagents.slots[].maxParallel
-- researchPlan.workspace.baseDir
-- researchPlan.workspace.nameTemplate
-- researchPlan.workspace.fallbackToCwdOnError
-- researchPlan.finalResponse.reportWorkspacePath
-- access.allowLoginWithUserPermission
-- access.allowPaywalledSources
-- access.allowCaptchaSolving
-- access.allowStealthEvasion
-- api.defaultDelayMs
-- api.maxRetries
-- api.respectRateLimitHeaders
-- database.queryTimeoutMs
-- database.maxResultRows
-- database.readOnly
-- citation.defaultFormat
-- citation.enrichFromCrossRef
-- monitoring.enabled
-- monitoring.defaultIntervalMinutes
-- processing.autoClean
-- processing.detectOutliers
-- largeScale.checkpointEveryN
-- largeScale.adaptiveRateLimit
+## Compatibility notes
 
-Default access policy is conservative and read-only.
-
-For long-horizon research, `researchPlan.finalResponse.reportWorkspacePath` defaults to `true`; always tell the user the workspace path where the plan, ledger, notes, sections, report, and checklist were written.
-
-## Output standards
-
-Never present scraped data as complete unless coverage was verified.
-
-Always include:
-- what was searched
-- what was accessed
-- what was extracted
-- what was blocked
-- what remains unknown
-- confidence level
-
-Use concise outputs for simple tasks. Use full evidence-ledger reports for high-stakes, academic, or dataset-building tasks.
+- Research plan v1 loads with a one-shot deprecation warning until v4; run migrate.
+- Ledgers with 14, 19, or 22 columns remain valid; missing `record_type` is `claim`.
+- CLI alias `--paginate` remains with one deprecation warning; prefer `--pagination`.
+- Root `report.md` is deprecated; prefer declared outputs under `research-output/`.
 
 ## Further reading
 
-The research methodology and source taxonomy behind this skill are written up in `references/research-bibliography.md`. Read it when adapting the skill to a new domain or when explaining the methodology to a stakeholder.
-
-For contributors extending the skill (new references, adapters, examples, scripts, or templates), see `CONTRIBUTING.md`.
+- Methodology: `references/research-bibliography.md`
+- Routes: `references/workflow-routes.md`
+- Scripts: `references/script-inventory.md`
+- Config: `references/config-reference.md`
+- Contributors: `CONTRIBUTING.md`

@@ -34,6 +34,13 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from resource_limits import (
+    ResourceLimitError,
+    emit_blocker_and_exit,
+    load_limits,
+    read_http_response_bounded,
+)
+
 USER_AGENT = (
     "d-research-skill/0.3.0 "
     "(https://github.com/d-init-d/d-research-skill; contact@example.com)"
@@ -158,9 +165,12 @@ def _translate_libretranslate(
         headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
+        limits = load_limits()
+        with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+            result = json.loads(read_http_response_bounded(resp, limits))
             return result.get("translatedText", "")
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as e:
         print(f"error: LibreTranslate request failed: {e}", file=sys.stderr)
         return ""
@@ -184,10 +194,13 @@ def _translate_deepl(text: str, source: str, target: str) -> str:
         headers={"Authorization": f"DeepL-Auth-Key {key}", "Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
+        limits = load_limits()
+        with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+            result = json.loads(read_http_response_bounded(resp, limits))
             translations = result.get("translations", [])
             return translations[0]["text"] if translations else ""
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, IndexError, KeyError) as e:
         print(f"error: DeepL request failed: {e}", file=sys.stderr)
         return ""
@@ -203,12 +216,16 @@ def _translate_google(text: str, source: str, target: str) -> str:
     url = f"https://translation.googleapis.com/language/translate/v2?{params}"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
+        limits = load_limits()
+        with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+            result = json.loads(read_http_response_bounded(resp, limits))
             translations = result.get("data", {}).get("translations", [])
             return translations[0]["translatedText"] if translations else ""
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, IndexError, KeyError) as e:
-        print(f"error: Google Translate request failed: {e}", file=sys.stderr)
+        safe_error = str(e).replace(key, "[REDACTED]")
+        print(f"error: Google Translate request failed: {safe_error}", file=sys.stderr)
         return ""
 
 

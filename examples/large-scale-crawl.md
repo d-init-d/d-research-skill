@@ -1,59 +1,128 @@
-# Large-Scale Documentation Crawl Example
-
-**Scenario**: User requests complete crawl of documentation site `docs.example.com`
-
-**Objective**: Extract all pages with content, links, and code examples, delivering a comprehensive dataset.
-
+---
+example_status: illustrative
 ---
 
-**Step 1: Probe Seed URL & Check robots.txt**
+# Example: bounded large-scale documentation crawl
 
-Agent sends HTTP HEAD to `https://docs.example.com`, verifies HTTP 200, and fetches `robots.txt` to parse allowed paths and crawl-delay directives.
+The user asks for a “complete crawl.” The agent translates that into a declared,
+auditable boundary. This example uses `docs.example.com` as a non-live fixture
+domain and makes no claim that pages were fetched.
 
+## Intake and completion boundary
+
+- Shape: `dataset_collection` + `large_scale_collection`
+- Unit: one canonical public documentation URL
+- Allowed origins: the seed origin only unless explicitly approved
+- Discovery basins: seed links, declared sitemaps, and public API/static files
+- Safety: read-only, robots respected, no login/captcha/rate-limit bypass
+- Completion: all discovered in-scope URLs reached a terminal recorded state,
+  and the coverage/recall gate found no unresolved discovery basin
+
+If those conditions do not hold, report bounded or partial coverage instead of
+“complete.”
+
+## Pilot configuration
+
+```json
+{
+  "seed": "https://docs.example.com/",
+  "allowed_origins": ["https://docs.example.com"],
+  "max_depth": 3,
+  "max_pages_per_domain": 100,
+  "max_total_pages": 100,
+  "delay_ms": 1000,
+  "respect_robots": true,
+  "checkpoint_every_n": 25
+}
 ```
-→ GET https://docs.example.com/robots.txt
-← 200 OK (disallow: /internal/, delay: 1)
+
+These are pilot caps, not evidence about site size. The crawler user-agent is
+the canonical `DResearchBot` value used by the browser helpers. Disabling
+robots is a policy hard failure.
+
+## Crawl sequence
+
+1. Probe the seed and fetch `/robots.txt` with the crawler user-agent.
+2. Apply status semantics: 404/410 means no rules; 401/403 disallows; 429/5xx
+   or network failure stops the domain as unknown/rate-limited.
+3. Discover sitemap URLs and seed links without requesting denied targets.
+4. Canonicalize and deduplicate URLs before queue insertion.
+5. Crawl with adaptive delay, per-request timeout, and body/page caps.
+6. Check robots before every redirect destination; denied destinations must
+   receive zero page requests.
+7. Write a checkpoint atomically before advancing the committed frontier.
+8. Record blocked, failed, skipped, duplicate, and successful URLs as terminal
+   states; never silently omit them.
+
+Example pilot command:
+
+```bash
+node scripts/playwright_crawl.mjs \
+  --seed "https://docs.example.com/" \
+  --maxDepth 3 \
+  --maxPages 100 \
+  --delayMs 1000 \
+  --outDir research-output/crawl
 ```
 
-**Step 2: Discover Sitemap**
+## Canonical outputs
 
-Agent requests `https://docs.example.com/sitemap.xml` to enumerate documented URLs. Discovers 847 URLs across 12 sections (guides, API, tutorials, reference).
+`url-manifest.csv`:
 
-**Step 3: Configure Crawl Parameters**
-
-Agent adjusts default config for large-scale operation:
-
-```yaml
-max_pages: 500
-max_depth: 3
-user_agent: "DocCrawler/1.0 (+mailto:agent@example.com)"
-respect_robots: true
+```csv
+url,canonical_url,discovered_from,discovery_method,depth,http_status,robots_status,access_status,content_type,content_hash,date_accessed,terminal_state,blocker_reason
 ```
 
-**Step 4: Enable Checkpointing**
+`links.csv`:
 
-Sets checkpoint interval to 50 pages with persistent state: `checkpoint_interval: 50`.
+```csv
+source_url,target_url,target_origin,link_type,in_scope,reason
+```
 
-**Step 5: Implement Adaptive Delay**
+Also produce:
 
-Enables polite crawling with dynamic delay (2-5 seconds based on server response time).
+- `checkpoint.json` with queue/frontier position and committed counters;
+- `api-request-log.csv` using `templates/api-request-log.csv`;
+- `data-dictionary.csv` using `templates/data-dictionary.csv`;
+- `evidence-ledger.csv` using `templates/evidence-ledger.csv` (canonical
+  23-column header); and
+- `coverage-report.md` generated from the manifest.
 
-**Step 6: Extract Content Per Page**
+Page content can be stored under `pages/` using a stable hash-based filename;
+the manifest is the authoritative URL-to-file mapping.
 
-For each page, agent extracts: title, body text, headings (H1-H3), code blocks (with language tags), internal links, external links, and metadata (last modified, author if available).
+## Coverage arithmetic
 
-**Step 7: Generate Manifest & Coverage Report**
+Derive all counts from `url-manifest.csv`:
 
-Outputs `manifest.jsonl` tracking URLs, HTTP status, content type, and extraction timestamp. Creates `coverage_report.md` summarizing: 487 successful, 13 blocked by robots.txt.
+```text
+discovered_unique = count(distinct canonical_url)
+terminal_total = success + blocked + failed + skipped
+coverage_ratio = terminal_total / discovered_unique
+```
 
-**Step 8: Report Blocked Pages**
+The equality `terminal_total = discovered_unique` proves only that every known
+URL has a recorded terminal state. It does not prove the discovery process
+found every page. Sitemap/seed/frontier saturation and explicit gaps remain
+part of the coverage gate.
 
-Lists 13 URLs excluded by robots.txt: `/internal/private/*`, `/admin/*`, plus 3 rate-limited pages (HTTP 429). Suggests manual review for any critical blocked content.
+## Blockers and release wording
 
-**Step 9: Deliver Dataset**
+Robots denials, 403/429/captcha/login walls, repeated server failures, and
+resource caps are blocker/process rows. Do not recommend manual bypass. The
+final summary reports source basins reached, terminal-state counts, denied
+paths, failed requests, cap-triggered stops, and unresolved discovery gaps.
 
-Final output includes: `pages/`, `manifest.jsonl`, `links.csv`, `coverage_report.md`, and `data_dictionary.md` describing schema fields (url, status, content_type, word_count, code_blocks[], links_internal[], links_external[]).
+Acceptable wording: “The crawl recorded terminal states for every URL
+discovered within the declared seed/sitemap/link boundary.”
 
----
+## Verification
 
-**Output Summary**: 487 pages extracted, 0.98 GB total, average extraction rate: 12 pages/minute.
+```bash
+node scripts/playwright_crawl.mjs --self-test
+python scripts/resource_limits.py self-test
+python scripts/evidence_ledger.py validate --file evidence-ledger.csv
+```
+
+See `references/large-scale-collection.md`,
+`references/browser-first-crawl.md`, and `references/execution-gates.md`.

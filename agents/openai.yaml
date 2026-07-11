@@ -1,5 +1,4 @@
 interface:
   display_name: "D Research"
-  short_description: "Browser-first deep research and public data extraction workflow"
-  icon: "🔎"
-  color: "#1f6feb"
+  short_description: "Deep research with auditable evidence"
+  default_prompt: "Use $d-research to investigate this topic with an auditable source map, evidence ledger, contradiction check, and clearly stated coverage gaps."

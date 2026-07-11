@@ -1,3 +1,7 @@
+---
+example_status: fixture
+---
+
 # Example: blocked source report
 
 ## Blocked source

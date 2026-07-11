@@ -1,9 +1,21 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  enforceBrowserResponseLimit,
+  resolveBrowserResponseLimit,
+  resourceLimitPayload,
+  selfTestBrowserLimits,
+} from './lib/browser_limits.mjs';
 
 function parseArgs(argv) {
-  const args = { headless: true, timeout: 30000, waitMs: 750, format: 'json' };
+  const args = {
+    headless: true,
+    timeout: 30000,
+    waitMs: 750,
+    format: 'json',
+    maxResponseBytes: null,
+  };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') args.help = true;
@@ -14,15 +26,24 @@ function parseArgs(argv) {
     else if (a === '--selector') args.selector = argv[++i];
     else if (a === '--screenshot') args.screenshot = argv[++i];
     else if (a === '--timeout') args.timeout = Number(argv[++i]);
+    else if (a === '--max-response-bytes') args.maxResponseBytes = Number(argv[++i]);
     else if (a === '--wait-ms') args.waitMs = Number(argv[++i]);
     else if (a === '--headful') args.headless = false;
+    else if (a === '--ignore-tls-errors') args.ignoreTlsErrors = true;
     else throw new Error(`Unknown argument: ${a}`);
   }
+  if (!Number.isSafeInteger(args.timeout) || args.timeout < 1) {
+    throw new Error('--timeout must be a positive integer');
+  }
+  if (!Number.isSafeInteger(args.waitMs) || args.waitMs < 0) {
+    throw new Error('--wait-ms must be a non-negative integer');
+  }
+  args.maxResponseBytes = resolveBrowserResponseLimit(args.maxResponseBytes);
   return args;
 }
 
 function usage() {
-  return `Usage: node scripts/playwright_extract.mjs --url <url> [--format json|md] [--out output.json]\n\nOptions:\n  --url <url>          Page to extract\n  --out <path>         Output file\n  --format json|md     Output format, default json\n  --selector <css>     Extract text under a CSS selector when available\n  --screenshot <path>  Optional screenshot path\n  --timeout <ms>       Navigation timeout, default 30000\n  --wait-ms <ms>       Extra wait after load, default 750\n  --headful            Run with a visible browser\n  --self-test          Run lightweight checks without Playwright\n`;
+  return `Usage: node scripts/playwright_extract.mjs --url <url> [--format json|md] [--out output.json]\n\nOptions:\n  --url <url>              Page to extract\n  --out <path>             Output file\n  --format json|md         Output format, default json\n  --selector <css>         Extract text under a CSS selector when available\n  --screenshot <path>      Optional screenshot path\n  --timeout <ms>           Navigation timeout, default 30000\n  --max-response-bytes <n> Maximum main-document body bytes (env: D_RESEARCH_HTTP_MAX_BYTES)\n  --wait-ms <ms>           Extra wait after load, default 750\n  --headful                Run with a visible browser\n  --ignore-tls-errors      Opt in to invalid TLS certificates; recorded as limitation\n  --self-test              Run lightweight checks without Playwright\n`;
 }
 
 async function ensureDirFor(filePath) {
@@ -36,6 +57,9 @@ function toMarkdown(data) {
   lines.push('');
   lines.push(`Source: ${data.finalUrl}`);
   lines.push(`Accessed: ${data.timestamp}`);
+  if (data.limitations && data.limitations.length) {
+    lines.push(`Limitations: ${data.limitations.join(', ')}`);
+  }
   lines.push('');
   if (data.headings.length) {
     lines.push('## Headings');
@@ -65,15 +89,35 @@ function toMarkdown(data) {
   return lines.join('\n');
 }
 
+// Must match robots User-agent token used by playwright_crawl.mjs
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (compatible; DResearchBot/3.2; +https://github.com/d-init-d/d-research-skill)';
+
 async function run(args) {
   if (!args.url) throw new Error('Missing --url');
   if (!['json', 'md'].includes(args.format)) throw new Error('--format must be json or md');
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: args.headless });
-  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const ignoreTls = Boolean(args.ignoreTlsErrors);
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: ignoreTls,
+    userAgent: BROWSER_USER_AGENT,
+  });
   const page = await context.newPage();
   page.setDefaultTimeout(args.timeout);
-  const response = await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: args.timeout });
+  let response;
+  let responseBytes;
+  try {
+    response = await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: args.timeout });
+    responseBytes = await enforceBrowserResponseLimit(
+      response,
+      args.maxResponseBytes,
+      args.timeout,
+    );
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
   await page.waitForTimeout(args.waitMs);
 
   const data = await page.evaluate((selector) => {
@@ -129,6 +173,11 @@ async function run(args) {
     finalUrl: page.url(),
     status: response ? response.status() : null,
     selector: args.selector || null,
+    limitations: ignoreTls ? ['ignore_tls_errors_enabled'] : [],
+    limits: {
+      maxResponseBytes: args.maxResponseBytes,
+      responseBytes,
+    },
     timestamp: new Date().toISOString(),
     ...data
   };
@@ -147,6 +196,11 @@ async function main() {
     if (parsed.format !== 'md') throw new Error('arg parser failed');
     const md = toMarkdown({ title: 'T', finalUrl: 'u', timestamp: 'now', headings: [], text: 'body', tables: [], files: [] });
     if (!md.includes('# T') || !md.includes('body')) throw new Error('markdown conversion failed');
+    const tlsParsed = parseArgs(['node', 'script', '--url', 'https://example.com', '--ignore-tls-errors']);
+    if (!tlsParsed.ignoreTlsErrors) throw new Error('ignore-tls-errors parser failed');
+    const capParsed = parseArgs(['node', 'script', '--url', 'https://example.com', '--max-response-bytes', '123']);
+    if (capParsed.maxResponseBytes !== 123) throw new Error('max-response-bytes parser failed');
+    selfTestBrowserLimits();
     console.log('playwright_extract self-test ok');
     return;
   }
@@ -160,7 +214,11 @@ async function main() {
       console.log(output);
     }
   } catch (err) {
-    if (/Cannot find package 'playwright'/.test(String(err))) {
+    const payload = resourceLimitPayload(err);
+    if (payload) {
+      console.error(JSON.stringify(payload));
+      process.exit(3);
+    } else if (/Cannot find package 'playwright'/.test(String(err))) {
       console.error('Playwright is not installed. Run: npm install && npx playwright install chromium');
     } else {
       console.error(err.stack || String(err));

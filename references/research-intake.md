@@ -398,3 +398,9 @@ Watch for these mistakes:
 
 If an intake mistake is discovered mid-run, stop, reclassify, record the route
 change, and continue from the correct branch.
+
+## See also
+
+- `references/workflow-routes.md`
+- `references/execution-gates.md`
+- `references/safety-and-access-policy.md`

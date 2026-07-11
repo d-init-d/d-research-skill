@@ -232,15 +232,22 @@ curl "https://api.crossref.org/works/10.1234/example.doi"
 - `message.page` → pages
 - `message.abstract` → abstract
 
-**Enrichment from CrossRef**:
+**DOI enrichment with bounded provider fallback**:
 
-The bundled `scripts/citation_export.py` exposes an `enrich` subcommand that queries CrossRef for a single DOI (stdlib only, no `requests` dependency):
+The bundled `scripts/citation_export.py` exposes an `enrich` subcommand that
+queries CrossRef first and uses DataCite only when CrossRef returns 404/410 or a
+syntactically successful record without usable title metadata (stdlib only, no
+`requests` dependency):
 
 ```bash
 python3 scripts/citation_export.py enrich --doi 10.1234/example.doi
 ```
 
-It prints a JSON object with title, authors, year, journal, volume, issue, pages, and DOI extracted from the CrossRef `message` payload. Use it inline or wrap it in a loop to enrich every row in your evidence ledger before exporting:
+It prints a normalized JSON object with available title, authors, year,
+journal, volume, issue, pages, DOI, and resolver metadata. CrossRef
+HTTP/network/parse/resource-limit failures do not silently fall through to
+DataCite; they remain non-zero errors. Use the command inline or wrap it in a
+loop to enrich every row in your evidence ledger before exporting:
 
 ```bash
 # Pseudocode: enrich each DOI then re-export
@@ -352,3 +359,9 @@ if __name__ == "__main__":
     for err in validate_citations(sys.argv[1]):
         print(err)
 ```
+
+## See also
+
+- `adapters/citation-resolver.md`
+- `references/citation-graph.md`
+- `references/source-quality-rubric.md`

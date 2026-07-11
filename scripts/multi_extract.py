@@ -26,6 +26,7 @@ import email.utils
 import html.parser
 import json
 import mailbox
+import os
 import re
 import shutil
 import subprocess
@@ -36,6 +37,21 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from resource_limits import (  # type: ignore
+    ResourceLimitError,
+    add_resource_limit_arguments,
+    apply_cli_limit_overrides,
+    check_excel_cells,
+    check_excel_col,
+    check_file_size,
+    check_subprocess_output,
+    check_xlsx_zip,
+    emit_blocker,
+    load_limits,
+    run_subprocess_bounded,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -52,12 +68,30 @@ def _detect_format(path: Path) -> str:
     return fmt_map.get(ext, "unknown")
 
 
+def _check_input_file(path: Path) -> None:
+    limits = load_limits()
+    check_file_size(path, limits.download_max_bytes, code="download_file_bytes")
+
+
+def _check_text_output(text: str) -> None:
+    limits = load_limits()
+    check_subprocess_output(len(text.encode("utf-8")), limits)
+
+
+def _read_text_file_bounded(path: Path) -> str:
+    _check_input_file(path)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    _check_text_output(text)
+    return text
+
+
 # ---------------------------------------------------------------------------
 # XLSX extraction (stdlib only)
 # ---------------------------------------------------------------------------
 
 def _xlsx_shared_strings(zf: zipfile.ZipFile) -> list[str]:
     """Extract shared strings from XLSX."""
+    limits = load_limits()
     try:
         xml_data = zf.read("xl/sharedStrings.xml")
     except KeyError:
@@ -66,6 +100,7 @@ def _xlsx_shared_strings(zf: zipfile.ZipFile) -> list[str]:
     ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
     strings: list[str] = []
     for si in root.findall(".//s:si", ns):
+        check_excel_cells(len(strings) + 1, limits)
         parts = []
         for t_el in si.iter():
             if t_el.text:
@@ -76,22 +111,27 @@ def _xlsx_shared_strings(zf: zipfile.ZipFile) -> list[str]:
 
 def _col_index(ref: str) -> int:
     """Convert cell reference like 'A1', 'C1', 'AA3' to 0-based column index."""
-    col_str = ""
-    for ch in ref:
-        if ch.isalpha():
-            col_str += ch
-        else:
-            break
-    if not col_str:
-        return 0
+    match = re.fullmatch(r"([A-Za-z]{1,3})[1-9][0-9]*", ref)
+    if match is None:
+        raise ValueError(f"invalid XLSX cell reference: {ref!r}")
+    col_str = match.group(1)
     idx = 0
     for ch in col_str.upper():
         idx = idx * 26 + (ord(ch) - ord("A") + 1)
     return idx - 1
 
 
-def _xlsx_sheet_text(zf: zipfile.ZipFile, sheet_path: str, shared: list[str]) -> list[list[str]]:
+def _xlsx_sheet_text(
+    zf: zipfile.ZipFile,
+    sheet_path: str,
+    shared: list[str],
+    *,
+    cell_counter: list[int] | None = None,
+) -> list[list[str]]:
     """Extract cell values from one XLSX sheet, preserving sparse columns."""
+    limits = load_limits()
+    if cell_counter is None:
+        cell_counter = [0]
     try:
         xml_data = zf.read(sheet_path)
     except KeyError:
@@ -100,11 +140,12 @@ def _xlsx_sheet_text(zf: zipfile.ZipFile, sheet_path: str, shared: list[str]) ->
     ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
     rows: list[list[str]] = []
     for row_el in root.findall(".//s:sheetData/s:row", ns):
-        max_col = 0
+        max_col = -1
         cell_data: list[tuple[int, str]] = []
         for c in row_el.findall("s:c", ns):
             r_attr = c.get("r", "")
             col_idx = _col_index(r_attr) if r_attr else len(cell_data)
+            check_excel_col(col_idx, limits)
             t = c.get("t", "")
             val = ""
             if t == "s":
@@ -130,8 +171,11 @@ def _xlsx_sheet_text(zf: zipfile.ZipFile, sheet_path: str, shared: list[str]) ->
             cell_data.append((col_idx, val))
             if col_idx > max_col:
                 max_col = col_idx
-        # Build row with proper column positions
-        row = [""] * (max_col + 1)
+        # Enforce the dense output width before allocating the row.
+        width = max_col + 1 if max_col >= 0 else 0
+        cell_counter[0] += width
+        check_excel_cells(cell_counter[0], limits)
+        row = [""] * width
         for col_idx, val in cell_data:
             row[col_idx] = val
         rows.append(row)
@@ -140,24 +184,41 @@ def _xlsx_sheet_text(zf: zipfile.ZipFile, sheet_path: str, shared: list[str]) ->
 
 def _extract_xlsx_text(path: Path) -> str:
     """Extract all text from XLSX using stdlib zipfile."""
+    limits = load_limits()
+    check_file_size(path, limits.download_max_bytes, code="download_file_bytes")
     with zipfile.ZipFile(path) as zf:
+        check_xlsx_zip(zf, limits)
         shared = _xlsx_shared_strings(zf)
         sheets = sorted(n for n in zf.namelist() if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
         all_text: list[str] = []
+        cell_counter = [0]
         for sheet in sheets:
-            rows = _xlsx_sheet_text(zf, sheet, shared)
+            rows = _xlsx_sheet_text(zf, sheet, shared, cell_counter=cell_counter)
             for row in rows:
                 all_text.append("\t".join(row))
-    return "\n".join(all_text)
+    text = "\n".join(all_text)
+    _check_text_output(text)
+    return text
 
 def _extract_xlsx_tables(path: Path, out_dir: Path) -> int:
     """Extract each XLSX sheet as a CSV file."""
-    out_dir.mkdir(parents=True, exist_ok=True)
+    limits = load_limits()
+    check_file_size(path, limits.download_max_bytes, code="download_file_bytes")
     with zipfile.ZipFile(path) as zf:
+        check_xlsx_zip(zf, limits)
         shared = _xlsx_shared_strings(zf)
         sheets = sorted(n for n in zf.namelist() if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
+        cell_counter = [0]
+        output_bytes = 0
         for i, sheet in enumerate(sheets, 1):
-            rows = _xlsx_sheet_text(zf, sheet, shared)
+            rows = _xlsx_sheet_text(zf, sheet, shared, cell_counter=cell_counter)
+            estimated = sum(
+                sum(len(cell.encode("utf-8")) + 3 for cell in row) + 2
+                for row in rows
+            )
+            output_bytes += estimated
+            check_subprocess_output(output_bytes, limits)
+            out_dir.mkdir(parents=True, exist_ok=True)
             csv_path = out_dir / f"sheet{i}.csv"
             with csv_path.open("w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
@@ -185,12 +246,18 @@ def _pandoc_to_text(path: Path) -> str:
         )
         return ""
     try:
-        result = subprocess.run(
+        limits = load_limits()
+        check_file_size(path, limits.download_max_bytes, code="download_file_bytes")
+        result = run_subprocess_bounded(
             ["pandoc", str(path), "-t", "plain", "--wrap=none"],
-            capture_output=True, text=True, timeout=60,
+            limits,
         )
-        return result.stdout if result.returncode == 0 else ""
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return (
+            result.stdout.decode("utf-8", errors="replace")
+            if result.returncode == 0
+            else ""
+        )
+    except FileNotFoundError:
         return ""
 
 
@@ -364,6 +431,7 @@ def cmd_text(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"error: file not found: {path}", file=sys.stderr)
         return 1
+    _check_input_file(path)
     fmt = _detect_format(path)
     text = ""
     if fmt in ("docx", "epub"):
@@ -382,13 +450,14 @@ def cmd_text(args: argparse.Namespace) -> int:
                 parts.append(payload.decode("utf-8", errors="replace")[:2000])
         text = "\n---\n".join(parts)
     elif fmt == "html":
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = _read_text_file_bounded(path)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
     else:
         print(f"error: unsupported format: {path.suffix}", file=sys.stderr)
         return 1
 
+    _check_text_output(text)
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"wrote {args.out}")
@@ -402,12 +471,14 @@ def cmd_meta(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"error: file not found: {path}", file=sys.stderr)
         return 1
+    _check_input_file(path)
     fmt = _detect_format(path)
     meta: dict[str, Any] = {"file": str(path), "format": fmt}
 
     if fmt in ("xlsx", "docx"):
         try:
             with zipfile.ZipFile(path) as zf:
+                check_xlsx_zip(zf, load_limits())
                 if "docProps/core.xml" in zf.namelist():
                     core = zf.read("docProps/core.xml").decode("utf-8", errors="replace")
                     title_m = re.search(r"<dc:title>(.*?)</dc:title>", core)
@@ -424,6 +495,7 @@ def cmd_meta(args: argparse.Namespace) -> int:
     elif fmt == "epub":
         try:
             with zipfile.ZipFile(path) as zf:
+                check_xlsx_zip(zf, load_limits())
                 # Read container.xml to find OPF path
                 if "META-INF/container.xml" in zf.namelist():
                     container = zf.read("META-INF/container.xml").decode("utf-8", errors="replace")
@@ -450,6 +522,7 @@ def cmd_tables(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"error: file not found: {path}", file=sys.stderr)
         return 1
+    _check_input_file(path)
     out_dir = Path(args.out_dir)
     fmt = _detect_format(path)
 
@@ -467,8 +540,11 @@ def cmd_structured(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"error: file not found: {path}", file=sys.stderr)
         return 1
+    _check_input_file(path)
     result = _extract_structured_html(path)
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    output = json.dumps(result, indent=2, ensure_ascii=False)
+    _check_text_output(output)
+    print(output)
     return 0
 
 
@@ -477,8 +553,11 @@ def cmd_mbox_search(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"error: file not found: {path}", file=sys.stderr)
         return 1
+    _check_input_file(path)
     results = _mbox_search(path, args.q, getattr(args, "from_addr", ""), getattr(args, "date", ""))
-    print(json.dumps(results, indent=2, ensure_ascii=False))
+    output = json.dumps(results, indent=2, ensure_ascii=False)
+    _check_text_output(output)
+    print(output)
     return 0
 
 
@@ -487,6 +566,7 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"error: file not found: {path}", file=sys.stderr)
         return 1
+    _check_input_file(path)
     fmt = _detect_format(path)
     # Extract a preview
     if fmt == "xlsx":
@@ -498,7 +578,7 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
     elif fmt == "mbox":
         text = f"mbox archive: {path.name}"
     elif fmt == "html":
-        raw = path.read_text(encoding="utf-8", errors="replace")
+        raw = _read_text_file_bounded(path)
         text = re.sub(r"<[^>]+>", " ", raw)[:500]
     else:
         text = f"[{fmt} file]"
@@ -658,6 +738,22 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if _detect_format(Path("test.mbox")) != "mbox":
             errors.append("format detection failed for .mbox")
 
+        # Test 9: tables path must enforce the same cell cap as text path.
+        env_key = "D_RESEARCH_EXCEL_MAX_CELLS"
+        previous = os.environ.get(env_key)
+        os.environ[env_key] = "1"
+        try:
+            _extract_xlsx_tables(xlsx_path, td / "tables_over_limit")
+            errors.append("XLSX tables should reject workbook over cell cap")
+        except ResourceLimitError as exc:
+            if exc.code != "excel_max_cells":
+                errors.append(f"XLSX tables wrong cap code: {exc.code}")
+        finally:
+            if previous is None:
+                os.environ.pop(env_key, None)
+            else:
+                os.environ[env_key] = previous
+
     if errors:
         print("multi_extract self-test FAILED:", file=sys.stderr)
         for e in errors:
@@ -764,23 +860,48 @@ def main() -> int:
     tl_p.add_argument("--url", default="")
     tl_p.add_argument("--out-row", required=True)
 
+    limit_fields = (
+        "download_max_bytes",
+        "excel_max_col",
+        "excel_max_cells",
+        "xlsx_max_uncompressed",
+        "xlsx_max_compression_ratio",
+        "subprocess_timeout_sec",
+        "subprocess_max_output_bytes",
+    )
+    for command_parser in (t_p, m_p, tb_p, s_p, mb_p, tl_p):
+        add_resource_limit_arguments(command_parser, limit_fields)
+
     sub.add_parser("self-test", help="Run offline self-tests.")
 
     args = p.parse_args()
-    if args.cmd == "text":
-        return cmd_text(args)
-    if args.cmd == "meta":
-        return cmd_meta(args)
-    if args.cmd == "tables":
-        return cmd_tables(args)
-    if args.cmd == "structured":
-        return cmd_structured(args)
-    if args.cmd == "mbox-search":
-        return cmd_mbox_search(args)
-    if args.cmd == "to-ledger":
-        return cmd_to_ledger(args)
-    if args.cmd == "self-test":
-        return cmd_self_test(args)
+    try:
+        apply_cli_limit_overrides(args)
+        if args.cmd == "text":
+            return cmd_text(args)
+        if args.cmd == "meta":
+            return cmd_meta(args)
+        if args.cmd == "tables":
+            return cmd_tables(args)
+        if args.cmd == "structured":
+            return cmd_structured(args)
+        if args.cmd == "mbox-search":
+            return cmd_mbox_search(args)
+        if args.cmd == "to-ledger":
+            return cmd_to_ledger(args)
+        if args.cmd == "self-test":
+            return cmd_self_test(args)
+    except ResourceLimitError as error:
+        output = None
+        output_is_dir = False
+        if args.cmd == "text":
+            output = getattr(args, "out", None)
+        elif args.cmd == "tables":
+            output = getattr(args, "out_dir", None)
+            output_is_dir = bool(output)
+        elif args.cmd == "to-ledger":
+            output = getattr(args, "out_row", None)
+        return emit_blocker(error, output, output_is_dir=output_is_dir)
     p.print_help()
     return 1
 

@@ -349,38 +349,38 @@ Get free API key from: https://www.ncbi.nlm.nih.gov/account/
 
 **Best for**: Physics, computer science, mathematics, quantitative biology
 
-**Base URL**: `http://export.arxiv.org/api/query`
+**Base URL**: `https://export.arxiv.org/api/query`
 
 arXiv provides preprints in physics, math, CS, and related fields.
 
 **Search All Fields**:
 
 ```
-GET http://export.arxiv.org/api/query?search_query=all:machine+learning&start=0&max_results=100
+GET https://export.arxiv.org/api/query?search_query=all:machine+learning&start=0&max_results=100
 ```
 
 **Search by Title**:
 
 ```
-GET http://export.arxiv.org/api/query?search_query=ti:neural+network&start=0&max_results=100
+GET https://export.arxiv.org/api/query?search_query=ti:neural+network&start=0&max_results=100
 ```
 
 **Search by Author**:
 
 ```
-GET http://export.arxiv.org/api/query?search_query=au:smith&start=0&max_results=100
+GET https://export.arxiv.org/api/query?search_query=au:smith&start=0&max_results=100
 ```
 
 **Search by Abstract**:
 
 ```
-GET http://export.arxiv.org/api/query?search_query=abs:transformer+attention&start=0&max_results=100
+GET https://export.arxiv.org/api/query?search_query=abs:transformer+attention&start=0&max_results=100
 ```
 
 **Search by Category**:
 
 ```
-GET http://export.arxiv.org/api/query?search_query=cat:cs.LG+AND+all:reinforcement+learning&start=0&max_results=100
+GET https://export.arxiv.org/api/query?search_query=cat:cs.LG+AND+all:reinforcement+learning&start=0&max_results=100
 ```
 
 **Categories**: cs.AI, cs.LG, cs.CL, cs.CV, stat.ML, physics.gen-ph, math.CO, etc.
@@ -388,13 +388,13 @@ GET http://export.arxiv.org/api/query?search_query=cat:cs.LG+AND+all:reinforceme
 **Date Range**:
 
 ```
-GET http://export.arxiv.org/api/query?search_query=all:quantum&start=0&max_results=100&datefrom=2023-01-01&dateto=2024-12-31
+GET https://export.arxiv.org/api/query?search_query=all:quantum&start=0&max_results=100&datefrom=2023-01-01&dateto=2024-12-31
 ```
 
 **Pagination**:
 
 ```
-GET http://export.arxiv.org/api/query?search_query=all:graph+neural+network&start=100&max_results=100
+GET https://export.arxiv.org/api/query?search_query=all:graph+neural+network&start=100&max_results=100
 ```
 
 - `start`: Offset for pagination
@@ -406,14 +406,14 @@ GET http://export.arxiv.org/api/query?search_query=all:graph+neural+network&star
 <?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <entry>
-    <id>http://arxiv.org/abs/2301.12345v1</id>
+    <id>https://arxiv.org/abs/2301.12345v1</id>
     <title>Paper Title</title>
     <summary>Abstract text...</summary>
     <author><name>Author Name</name></author>
     <published>2023-01-15T00:00:00Z</published>
     <category term="cs.LG"/>
-    <arxiv:doi xmlns:arxiv="http://arxiv.org/schemas/atom">10.1234/example</arxiv:doi>
-    <link href="http://arxiv.org/abs/2301.12345v1" rel="alternate"/>
+    <arxiv:doi xmlns:arxiv="https://arxiv.org/schemas/atom">10.1234/example</arxiv:doi>
+    <link href="https://arxiv.org/abs/2301.12345v1" rel="alternate"/>
   </entry>
 </feed>
 ```
@@ -917,3 +917,9 @@ W123456789,W333333,cites,2024
   ]
 }
 ```
+
+## See also
+
+- `references/academic-research-protocol.md`
+- `references/citation-graph.md`
+- `references/citation-management.md`

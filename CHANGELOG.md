@@ -9,6 +9,140 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [3.2.0-rc.1] - 2026-07-10
+
+Production-hardening **release candidate** (not Production/Stable). Implements
+remaining High/Medium plan items from the post-`570d30b` audit while preserving
+v3 compatibility via aliases and deprecation warnings (removed only in v4).
+
+**External / remaining blockers (truthful):**
+
+- Live Tier-1/Tier-2 dogfood vs v3.1.1 under identical runtime/model config is
+  not claimed complete in this package; run it before promoting to stable.
+- Optional system binaries (pandoc, poppler, tesseract) remain soft runtime
+  dependencies; required Ubuntu and Windows integration jobs install them so
+  binary-dependent helper paths do not silently skip in release CI.
+- Network-dependent live API checks (Crossref/DataCite/OpenAlex) are mocked in
+  offline self-tests; live resolution is best-effort.
+
+### Added
+
+- Research plan **schema 2.0**: `schema_version`, `tasks[].phase`
+  (`research` | `synthesis`), generic draft `init`, and
+  `research_plan.py migrate`.
+- Gate semantics: `synthesize_ready` checks research-phase tasks only;
+  `release_ready` requires synthesis outputs, real HMAC verify via
+  `D_RESEARCH_LEDGER_KEY`, complete reproducibility checklist, and 100% claim
+  coverage.
+- Evidence ledger optional `record_type` (`claim` | `process` | `blocker`);
+  report lint requires `[ref:claim_id]` for every claim row.
+- Report renderer preserves `report.draft.md` / section narrative; generated
+  Evidence Summary and References use explicit markers only.
+- `api_fetch.mjs`: AbortSignal timeouts, `--allow-partial`, metadata sidecars,
+  `--cursor-key`, same-origin Link next (with `--allow-next-origin`), credential
+  isolation, secret redaction.
+- Social snapshot schema **1.1**: expanded verification statuses; Tier B is
+  Wayback **lookup-only** by default (`--submit-archive` opt-in).
+- Source scoring v2 separates five deterministic axes (`type`, `authority`,
+  `freshness`, `traceability`, `independence`) from exactly three mandatory
+  human gates (`relevance`, `method_transparency`, `access_quality`), and emits
+  `base_total`, `adjusted_total`, `review_status`, and
+  `final_reviewed_confidence` (unresolved gates never report final high).
+- Eval bench/score schema 2.0 with strict multipart assertions, canonical
+  source identities, per-task `run-result.json` validation (task, ledger,
+  runtime/config hash, skill commit, timestamps), honest status counts, and a
+  deprecated flat-ledger compatibility path that never auto-passes refusals.
+- Eval comparison rejects `not_run` by default (`--allow-incomplete` is
+  exploratory only), verifies identical runtime/model/tool fingerprints, and
+  forces `WEAKER` for any Tier-1 or Tier-2 safety regression regardless of
+  newly passing factual tasks.
+- Score artifacts include a canonical SHA-256 fingerprint of the complete
+  bench; comparison hard-fails when baseline and candidate used different
+  questions, assertions, source identities, or bench metadata.
+- `scripts/resource_limits.py` + enforcement hooks (HTTP/file/Excel/PDF/OCR/
+  subprocess/table/Wayback/social); violations return structured incomplete
+  blockers (exit 3), never silent truncate-as-complete. Every helper exposes
+  per-invocation CLI overrides in addition to validated `D_RESEARCH_*` limits.
+- `scripts/browser_smoke.mjs` real local-fixture Chromium smoke;
+  `adversarial_acceptance.py` 27-case CI matrix. CI disables the matrix's
+  embedded browser case and launches Chromium exactly once per operating system.
+- `scripts/check_contract.py` for dynamic version/config/path/count/CLI contract
+  checks, including release-note and changelog-link drift.
+- CI: Python self-tests on 3.10/3.11/3.12, Node self-tests on 18/20/22, full
+  integration on Ubuntu + Windows, immutable Action SHAs, and Dependabot.
+- Release workflow requires a matching semantic version, an annotated tag with
+  a GitHub-verified signature, then creates a source archive, SHA256 manifest,
+  and provenance attestation. Stable promotion additionally requires hashed,
+  committed Tier-1/Tier-2 score artifacts, reviewer sign-off, and exact binding
+  to both the dogfooded RC-tag commit and the `v3.1.1` baseline-tag commit.
+  Stable promotion rejects code changes after that RC; only version/release
+  metadata and the versioned evidence directory may differ. Manual dispatch is
+  validation-only.
+- Citation: Crossref to DataCite DOI fallback; BibTeX escape + year-only
+  normalization; parser round-trip self-tests.
+
+### Changed
+
+- `init` creates a generic empty draft (no OAI-PMH example content). The former
+  example lives at `examples/fixtures/research-plan-oai-pmh-example.json`.
+- TLS verification is on by default for browser helpers; `--ignore-tls-errors`
+  is opt-in and recorded as a limitation.
+- Wayback/arXiv public endpoints use HTTPS.
+- `--no-respect-robots` is accepted only to explain a policy hard-fail.
+- Robots handling: 404/410 = no rules; 401/403 = disallow; 429/5xx = stop domain.
+- Every top-level example now declares `example_status` as `illustrative` or
+  `fixture`; the contract checker rejects missing/unknown status and requires a
+  committed fixture path for any future `verified` example.
+- Replaced fabricated result counts in the API dataset, systematic-review, and
+  large-crawl examples with replayable canonical CSV schemas, artifact-derived
+  arithmetic, and explicit no-completeness language; contract checks protect
+  their required headers and reject the former unverified claim patterns.
+- Contract checks now cap individual reference guides at 1,000 lines and
+  require `See also` navigation from guides of 300 lines or more.
+- README repository-tree entries are now resolved against the real tree by CI;
+  the former upgrade-plan tree entry was corrected to its archived path.
+- Added a tested v3.1.1-to-v3.2.0 upgrade guide and committed legacy workspace
+  fixture. Migration regression now proves byte-exact backup, lossless task/
+  blocker/output/execution preservation, phase inference, approval revocation,
+  stale-plan removal, re-render, re-approval, and `execute_ready`.
+- Package version `3.2.0-rc.1` / `3.2.0rc1`; `engines.node >= 18`;
+  Playwright and its Chromium revision are locked through exact version `1.61.1`.
+
+### Fixed
+
+- Citation export: unique keys, single RIS `TY`, BibTeX escape, year-only `year`.
+- Freshness scoring never treats `date_accessed` as publication date.
+- Report render no longer overwrites synthesized narrative with placeholders.
+- Report paths derived from a plan cannot read or write outside the resolved
+  workspace, including lint targets and synthesis inputs.
+- Browser crawl checks robots policy before following redirect destinations;
+  bounded local acceptance fixtures prove denied destinations receive zero
+  requests and cross-origin credentials never leak.
+- API response caps and body-read deadlines now cover streaming bodies, with
+  redacted structured sidecars for incomplete output.
+- Playwright probe/extract/crawl enforce the same bounded response policy;
+  resource-limit exits are structured and crawl results remain explicitly
+  incomplete. Unknown API CLI arguments are never echoed or retained verbatim.
+- Research-plan release checks reject blocked synthesis, empty output
+  directories, unreasoned `N/A` checklist items, and citation placeholders;
+  compatibility tests cover v1 plans and `.bib`/`.ris` synthesis artifacts.
+- Social verification rejects tier/platform conflicts, malformed RFC3339
+  timestamps, inconsistent archive-submission states, and non-canonical archive
+  hosts before content retrieval.
+- Remaining network helpers (Wikidata/SPARQL, citation graph/resolution/export,
+  CSL retrieval, remote embeddings/translation, and web search) now use a
+  shared conservative timeout/body cap; resource overruns fail closed with
+  exit 3, and search/translation error paths redact credential query values.
+
+### Compatibility
+
+- v1 research plans load via compatibility adapter with a deprecation warning
+  until v4.
+- Ledger 14/19/22-column headers still validate; missing `record_type` defaults
+  to `claim`.
+- `--paginate` remains a deprecated alias of `--pagination`.
+- No new runtime dependencies beyond Playwright + Python stdlib.
+
 ## [3.1.1] - 2026-06-01
 
 v3.1.1 is a skill-metadata compatibility patch. It keeps the full D Research
@@ -524,7 +658,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.1.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0-rc.1...HEAD
+[3.2.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.1
 [3.1.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.1
 [3.1.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.0
 [3.0.6]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.6

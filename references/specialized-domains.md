@@ -302,3 +302,9 @@ Formats: Shapefile, GeoPackage, R (spatial) formats
 4. **Respect terms**: Verify permitted uses before commercial application
 5. **Document methodology**: Note any cleaning, filtering, or transformation applied
 6. **Multiple sources**: Cross-validate critical findings with independent sources
+
+## See also
+
+- `references/academic-databases.md`
+- `references/api-access-workflow.md`
+- `references/safety-and-access-policy.md`

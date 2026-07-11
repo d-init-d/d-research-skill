@@ -1,3 +1,7 @@
+---
+example_status: illustrative
+---
+
 # Example — PRISMA 2020 systematic review
 
 A worked example walking through a small systematic review using this
