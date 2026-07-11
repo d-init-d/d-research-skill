@@ -1505,15 +1505,16 @@ def prop_hmac_detects_tamper() -> bool:
 def prop_path_containment() -> bool:
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td)
-        if safe_download_name(ws, "../secret.txt") is not None:
-            return False
-        if safe_download_name(ws, "C:\\Windows\\x.txt") is not None:
-            return False
+        # Production safe_download_name must reject traversal / abs / UNC forms
+        for bad in ("../secret.txt", "..\\secret.txt", "C:\\Windows\\x.txt", "/etc/passwd"):
+            if safe_download_name(ws, bad) is not None:
+                return False
         if safe_download_name(ws, "ok.txt") is None:
             return False
         rr = report_render()
+        # Use forward-slash traversal (portable; backslash is not special on POSIX)
         try:
-            rr._path_in_workspace(ws, "..\\secret.txt", label="t")
+            rr._path_in_workspace(ws, "../secret.txt", label="t")
             return False
         except Exception:
             return True
@@ -2195,10 +2196,20 @@ def cmd_degraded(args: argparse.Namespace) -> int:
         ws = Path(td)
         p = ws / "file with spaces.txt"
         p.write_text("ok", encoding="utf-8")
-        results.append(("path_with_spaces", p.is_file(), p.name))
-        uni = ws / "tiếng-việt-数据.txt"
+        results.append(("path_with_spaces", p.is_file(), "spaces_ok"))
+        # Use NFC name with non-ASCII; detail string stays ASCII for CP1252 consoles
+        uni = ws / "tieng-viet-du-lieu.txt"
         uni.write_text("unicode", encoding="utf-8")
-        results.append(("unicode_filename", uni.is_file(), uni.name))
+        # Also create a real non-ASCII path without printing it
+        uni2 = ws / ("ti\u1ebfng-vi\u1ec7t-\u6570\u636e.txt")
+        uni2.write_text("unicode2", encoding="utf-8")
+        results.append(
+            (
+                "unicode_filename",
+                uni.is_file() and uni2.is_file(),
+                "unicode_name_ok",
+            )
+        )
 
         hc = http_cache()
         k = hc.put(
@@ -2290,7 +2301,9 @@ def cmd_degraded(args: argparse.Namespace) -> int:
 
     failed = [n for n, ok, _ in results if not ok]
     for n, ok, d in results:
-        print(f"  [{'PASS' if ok else 'FAIL'}] {n} - {d}")
+        # ASCII-only console status (Windows CP1252 / non-UTF8 hosts)
+        detail = str(d).encode("ascii", "backslashreplace").decode("ascii")
+        print(f"  [{'PASS' if ok else 'FAIL'}] {n} - {detail}")
     if failed:
         print(f"FAIL: degraded {failed}")
         return 1
@@ -3312,7 +3325,20 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _configure_stdio() -> None:
+    """Prefer UTF-8 when available; never crash on CP1252 consoles."""
+    for stream in (sys.stdout, sys.stderr):
+        reconf = getattr(stream, "reconfigure", None)
+        if not callable(reconf):
+            continue
+        try:
+            reconf(errors="backslashreplace")
+        except Exception:
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     return int(args.func(args))
