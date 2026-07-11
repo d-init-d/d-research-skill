@@ -58,31 +58,48 @@ function unwrapIpv4Mapped(ip) {
 
 export function isNonPublicIp(ip) {
   if (!ip || typeof ip !== 'string') return true;
-  let normalized = ip.trim().toLowerCase();
-  if (normalized.startsWith('[') && normalized.endsWith(']')) {
-    normalized = normalized.slice(1, -1);
-  }
-  normalized = unwrapIpv4Mapped(normalized);
-  const version = net.isIP(normalized);
+  let normalized = normalizeHostname(ip);
+  // Prefer classifying the embedded IPv4 for mapped addresses so private
+  // ::ffff:127.0.0.1 cannot depend on platform IPv6 property quirks.
+  const unwrapped = unwrapIpv4Mapped(normalized);
+  const candidate = net.isIP(unwrapped) ? unwrapped : normalized;
+  const version = net.isIP(candidate);
   if (!version) return true;
   try {
-    return PRIVATE_BLOCKS.check(normalized, version === 4 ? 'ipv4' : 'ipv6');
+    return PRIVATE_BLOCKS.check(candidate, version === 4 ? 'ipv4' : 'ipv6');
   } catch {
     return true;
   }
 }
 
-export async function resolvePublicIps(host) {
-  const hostL = String(host || '')
+function normalizeHostname(host) {
+  let hostL = String(host || '')
     .toLowerCase()
-    .replace(/\.$/, '');
+    .replace(/\.$/, '')
+    .trim();
+  // WHATWG / some Node versions may leave brackets or IPv4-mapped forms.
+  if (hostL.startsWith('[') && hostL.endsWith(']')) {
+    hostL = hostL.slice(1, -1);
+  }
+  return hostL;
+}
+
+export async function resolvePublicIps(host) {
+  const hostL = normalizeHostname(host);
   if (!hostL) throw new Error('URL host is required');
   if (BLOCKED_HOSTNAMES.has(hostL) || hostL.endsWith('.localhost')) {
     throw new Error(`blocked hostname: ${hostL}`);
   }
+  // Literal IP (including IPv4-mapped IPv6 in either dotted or hex form).
   if (net.isIP(hostL)) {
     if (isNonPublicIp(hostL)) throw new Error(`non-public IP not allowed: ${hostL}`);
     return [hostL];
+  }
+  // Fallback: unwrap mapped form then re-check (platform-normalized hostnames).
+  const unwrapped = unwrapIpv4Mapped(hostL);
+  if (unwrapped !== hostL && net.isIP(unwrapped)) {
+    if (isNonPublicIp(unwrapped)) throw new Error(`non-public IP not allowed: ${hostL}`);
+    return [unwrapped];
   }
   let records;
   try {
@@ -172,10 +189,17 @@ export async function selfTest() {
       /* expected */
     }
   }
-  try {
-    await assertPublicHttpUrl('https://[::ffff:8.8.8.8]/');
-  } catch (e) {
-    errors.push(`public IPv4-mapped should be allowed: ${e.message || e}`);
+  // Public IPv4-mapped literals must classify as public without DNS.
+  for (const good of ['https://[::ffff:8.8.8.8]/', 'https://8.8.8.8/']) {
+    try {
+      await assertPublicHttpUrl(good);
+    } catch (e) {
+      errors.push(`public address should be allowed (${good}): ${e.message || e}`);
+    }
+  }
+  // Direct classification (does not depend on URL hostname normalization).
+  if (isNonPublicIp('::ffff:8.8.8.8') || isNonPublicIp('::ffff:808:808')) {
+    errors.push('public IPv4-mapped classification must be public');
   }
   for (const [raw, expectBlock] of [
     ['::ffff:127.0.0.1', true],
