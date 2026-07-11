@@ -7,6 +7,11 @@ import {
   resourceLimitPayload,
   selfTestBrowserLimits,
 } from './lib/browser_limits.mjs';
+import {
+  assertBrowserPublicUrl,
+  installBrowserSsrfGuard,
+  structuredBlocker,
+} from './lib/browser_ssrf.mjs';
 
 function parseArgs(argv) {
   const args = { headless: true, timeout: 30000, waitMs: 750, maxResponseBytes: null };
@@ -77,6 +82,20 @@ const BROWSER_USER_AGENT =
 
 async function run(args) {
   if (!args.url) throw new Error('Missing --url');
+  // Fail-closed SSRF before launching Chromium when destination is private.
+  const pre = await assertBrowserPublicUrl(args.url);
+  if (!pre.ok) {
+    return {
+      inputUrl: args.url,
+      finalUrl: args.url,
+      accessStatus: 'blocked',
+      blockers: ['ssrf_private_or_internal'],
+      ssrfBlocker: pre.blocker,
+      error: pre.blocker.message,
+      limitations: [],
+      timestamp: new Date().toISOString(),
+    };
+  }
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: args.headless });
   const ignoreTls = Boolean(args.ignoreTlsErrors);
@@ -86,6 +105,7 @@ async function run(args) {
   });
   const page = await context.newPage();
   page.setDefaultTimeout(args.timeout);
+  const ssrfStats = await installBrowserSsrfGuard(page);
   let response = null;
   let responseBytes = null;
   try {
@@ -106,6 +126,7 @@ async function run(args) {
       finalUrl: page.url(),
       accessStatus: 'broken',
       error: String(err.message || err),
+      ssrfStats,
       limitations: ignoreTls ? ['ignore_tls_errors_enabled'] : [],
       timestamp: new Date().toISOString()
     };

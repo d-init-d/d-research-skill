@@ -7,6 +7,10 @@ import {
   resourceLimitPayload,
   selfTestBrowserLimits,
 } from './lib/browser_limits.mjs';
+import {
+  assertBrowserPublicUrl,
+  installBrowserSsrfGuard,
+} from './lib/browser_ssrf.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -96,6 +100,13 @@ const BROWSER_USER_AGENT =
 async function run(args) {
   if (!args.url) throw new Error('Missing --url');
   if (!['json', 'md'].includes(args.format)) throw new Error('--format must be json or md');
+  const pre = await assertBrowserPublicUrl(args.url);
+  if (!pre.ok) {
+    const err = new Error(pre.blocker.message || 'browser SSRF blocked');
+    err.code = pre.blocker.code || 'ssrf_blocked';
+    err.blocker = pre.blocker;
+    throw err;
+  }
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: args.headless });
   const ignoreTls = Boolean(args.ignoreTlsErrors);
@@ -105,6 +116,7 @@ async function run(args) {
   });
   const page = await context.newPage();
   page.setDefaultTimeout(args.timeout);
+  await installBrowserSsrfGuard(page);
   let response;
   let responseBytes;
   try {

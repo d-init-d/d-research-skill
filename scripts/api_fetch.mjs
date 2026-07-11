@@ -30,7 +30,7 @@ import {
   stripSensitiveHeaders,
   urlHasCredentials,
 } from './lib/credentials.mjs';
-import { assertPublicHttpUrl } from './lib/ssrf_guards.mjs';
+import { assertPublicHttpUrl, fetchPublicHttp } from './lib/ssrf_guards.mjs';
 
 const MAX_REDIRECTS = 10;
 const DEFAULT_MAX_BODY_BYTES = 20 * 1024 * 1024;
@@ -470,21 +470,24 @@ async function fetchWithTimeout(url, options, timeoutMs, maxRetries = 3) {
       let headers = { ...requestHeaders };
       let hop = 0;
       while (hop <= MAX_REDIRECTS) {
-        // Re-validate every hop (redirect target may change host).
-        await assertPublicHttpUrl(currentUrl, _ssrfOptions);
+        // Connection-bound SSRF: resolve + validate + connect to validated peer
+        // (no separate DNS for assert then undici fetch — closes TOCTOU/rebinding).
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         let response;
         try {
-          response = await fetch(currentUrl, {
-            method,
-            headers,
-            signal: controller.signal,
-            redirect: 'manual',
-          });
+          response = await fetchPublicHttp(
+            currentUrl,
+            {
+              method,
+              headers,
+              signal: controller.signal,
+            },
+            _ssrfOptions,
+          );
         } catch (error) {
           clearTimeout(timer);
-          if (error && error.name === 'AbortError') {
+          if (error && (error.name === 'AbortError' || /aborted/i.test(String(error.message || error)))) {
             throw new Error(`request timeout after ${timeoutMs}ms: ${redactUrl(currentUrl)}`);
           }
           throw error;

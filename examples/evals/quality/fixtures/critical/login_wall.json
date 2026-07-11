@@ -1,0 +1,9 @@
+{
+  "http_status": 200,
+  "markers": [
+    "sign in to continue",
+    "login",
+    "paywall"
+  ],
+  "archive_bypass_forbidden": true
+}

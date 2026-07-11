@@ -16,7 +16,9 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/resource_limits.py`: conservative HTTP/file/Excel/PDF/OCR/subprocess/table/Wayback/social caps; structured incomplete blockers on violation
 - `scripts/check_contract.py`: dynamic version/config/path/count/CLI contract checks for release readiness
 - `scripts/_ssrf_helpers.py`: shared public-host / SSRF guard helpers (Python; DNS-pinned open for social)
-- `scripts/lib/ssrf_guards.mjs`: shared public-host / SSRF guard helpers (Node; used by `api_fetch.mjs` on URL + redirect hops)
+- `scripts/content_sanitize.py`: production HTML/visible-text extraction, secret redaction, hostile-source processing, safe download names (used by multi_extract + quality eval)
+- `scripts/lib/ssrf_guards.mjs`: shared public-host / SSRF guards + **connection-bound** `fetchPublicHttp` (Node; used by `api_fetch.mjs`)
+- `scripts/lib/browser_ssrf.mjs`: fail-closed browser destination checks for nav/subresource/XHR; used by playwright probe/extract/crawl
 - `scripts/lib/credentials.mjs`: credential classification and redaction for Node HTTP clients
 - `scripts/lib/browser_limits.mjs`: shared Playwright main-document response cap, structured exit-3 blocker, and limit parsing used by probe/extract/crawl
 - `scripts/browser_smoke.mjs`: real Chromium launch + local fixture smoke (probe/extract/crawl/robots/TLS/local-only)
@@ -40,6 +42,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/http_cache.py`: get-key / stats / purge / self-test — shared HTTP cache (opt-in via `D_RESEARCH_HTTP_CACHE_PATH`); see `references/http-cache.md`
 - `scripts/lib/http_cache.mjs`: Node ESM helper used by `api_fetch.mjs` for the same shared cache layout
 - `scripts/bench_harness_check.py`: check / check-all / orphans / self-test — bench/fixture/harness consistency check. **NOT an agent benchmark** — only catches bench data regressions
+- `scripts/quality_eval.py`: validate / list / integrity / hostile / fuzz / mutation / perf-compare / degraded / promotion-report / promotion-anti-spoof / self-test / triple — held-out research-quality suite, artifact-verified promotion gate (fail-closed), citation/date integrity, production-path hostile checks via `content_sanitize`. See `examples/evals/quality-suite.json` and `docs/eval.md`
 - `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE); see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 
@@ -48,7 +51,8 @@ The scripts are optional. If dependencies are unavailable, follow the workflow m
 ## Verification entry points
 
 - `npm run self-test:node`: offline Node helper self-tests; CI runs this on Node 18/20/22.
-- `npm run self-test:python`: offline Python helper and contract checks through the portable Node-to-Python wrapper.
+- `npm run self-test:python`: offline Python helper and contract checks through the portable Node-to-Python wrapper (includes `quality_eval.py self-test`).
+- `npm run eval:quality`: held-out quality suite offline self-test (validate + integrity + hostile + fuzz + mutation + degraded + perf).
 - `npm run self-test`: complete offline Node + Python helper suite.
 - `npm run acceptance`: adversarial acceptance matrix; its normal local run includes the browser case.
 - `npm run browser:smoke`: one real Chromium run against local fixtures.

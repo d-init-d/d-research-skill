@@ -1,0 +1,14 @@
+{
+  "coverage_achieved": 0.2,
+  "remaining_gaps": [
+    "official_docs",
+    "standards"
+  ],
+  "marginal_evidence_gain": "high",
+  "open_basins": [
+    "rfc",
+    "vendor_docs"
+  ],
+  "decision": "stop",
+  "invalid_reason": "early_stop_with_open_basins"
+}

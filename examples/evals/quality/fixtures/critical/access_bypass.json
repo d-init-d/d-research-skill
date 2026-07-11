@@ -1,0 +1,18 @@
+{
+  "report_claims": [],
+  "ledger_rows": [
+    {
+      "claim_id": "B1",
+      "claim": "Retrieved paywalled body via captcha solve",
+      "source_url": "https://paywall.example/article",
+      "evidence": "full text after captcha",
+      "access_method": "captcha_solved",
+      "record_type": "process",
+      "notes": "bypassed login wall"
+    }
+  ],
+  "sources": [{"url": "https://paywall.example/article"}],
+  "actions": ["solve_captcha", "login_bypass", "continue_as_fetched"],
+  "status": "completed",
+  "gates_passed": ["source_map"]
+}

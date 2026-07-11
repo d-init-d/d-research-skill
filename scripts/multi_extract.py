@@ -450,9 +450,15 @@ def cmd_text(args: argparse.Namespace) -> int:
                 parts.append(payload.decode("utf-8", errors="replace")[:2000])
         text = "\n---\n".join(parts)
     elif fmt == "html":
-        text = _read_text_file_bounded(path)
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
+        raw_html = _read_text_file_bounded(path)
+        # Production sanitization path (visible text only; not raw HTML dump)
+        try:
+            from content_sanitize import extract_visible_text, redact_secrets  # type: ignore
+
+            text = redact_secrets(extract_visible_text(raw_html))
+        except Exception:
+            text = re.sub(r"<[^>]+>", " ", raw_html)
+            text = re.sub(r"\s+", " ", text).strip()
     else:
         print(f"error: unsupported format: {path.suffix}", file=sys.stderr)
         return 1

@@ -7,26 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Quality eval suite:** held-out research-quality suite
+  (`examples/evals/quality-suite.json`, schema 1.0) and
+  `scripts/quality_eval.py` (validate, integrity, hostile, fuzz, mutation,
+  degraded, artifact-verified `promotion-report`, `promotion-anti-spoof`,
+  triple self-test). Does **not** auto-claim PROMOTION_READY without validated
+  raw run manifests, integrity hashes, exact candidate SHA, CI evidence, and
+  genuine dogfood/forward artifacts.
+- **`scripts/content_sanitize.py`:** production visible-text extraction, secret
+  redaction, hostile-source processing, and path containment (used by
+  `multi_extract` and quality hostile checks).
+- **`scripts/lib/browser_ssrf.mjs`:** fail-closed browser destination checks for
+  navigation and subresources.
+
 ### Fixed
 
-- **F-06:** Social/pinned HTTPS transport streams response bodies with size-aware
-  `read(n)`; production no longer buffers unbounded `resp.read()` before
-  `social_max_bytes` applies. Connection/TLS close on all paths; resource-limit
-  exit code 3 preserved.
-- **F-07:** HTTP cache generation bodies are reclaimed after meta publish
-  (winner deletes previous generation; loser deletes own body). `purge --all`
-  and age-based purge remove generation bodies, legacy bodies, and temps.
-  Python and Node implementations share the race protocol.
-- **F-08:** Cache `body_file` is restricted to canonical
-  `<key>.<generation>.body` basenames inside `entries/`; absolute, traversal,
-  UNC, and symlink-escape paths miss without reading outside bytes.
+- **F-01:** Promotion report is fail-closed and artifact-verified; CLI flags
+  (`--infra-green`, `--triple-ok`, `--held-out-live-ok`) never grant
+  `PROMOTION_READY_CANDIDATE`. Empty `agent-*` files/dirs, hash/SHA mismatch,
+  and null metrics block promotion.
+- **F-02:** Citation support no longer treats single token-overlap as entailment;
+  negation/contradiction pairs fail closed (`requires_review` / `unsupported` /
+  `contradicts`).
+- **F-03:** Year extraction captures full years (`(?:19|20)\d{2}`), not century
+  prefixes `19`/`20`.
+- **F-04:** Hostile checks call production `content_sanitize` (and multi_extract
+  HTML text path), not evaluator-local helpers as the sole SUT.
+- **F-05 / direct HTTP SSRF:** `api_fetch.mjs` uses connection-bound
+  `fetchPublicHttp` (validate DNS → connect to validated IP → peer re-check;
+  Host/SNI preserved). Rebinding / mixed DNS / peer mismatch covered in
+  `ssrf_guards.mjs` self-test.
+- **Browser SSRF:** arbitrary browser URLs are fail-closed by default (not
+  accepted-risk). Local fixture loopback only via
+  `D_RESEARCH_SSRF_ALLOW_LOOPBACK=1` (browser_smoke / acceptance hermetic).
+- **F-06 (portability):** Ruff clean; seed parser accepts decimal/`0x` hex with
+  structured errors; ASCII status tokens (`green->red->green`) for CP1252-safe
+  Windows consoles.
+- **F-06 (prior transport):** Social/pinned HTTPS transport streams response
+  bodies with size-aware `read(n)`; cache generation body lifecycle +
+  `body_file` containment remain as in rc.1 hard-fixes.
+- **F-07 lineage:** Clean branch `grok/v3.2.0-stable-clean` is rooted at
+  `661230a` and does **not** contain synthetic dogfood commits `8f61a7e` /
+  `a7d28a0` in ancestry.
 
 ### Security
 
-- **L-01:** Inventory in `docs/ssrf-helper-inventory.md`. `api_fetch.mjs` applies
-  `lib/ssrf_guards.mjs` on the initial URL and every redirect hop. Social path
-  remains DNS-pinned. Fixed official endpoints and browser seeds documented as
-  accepted-risk with rationale (not arbitrary URL fetchers).
+- Inventory `docs/ssrf-helper-inventory.md` updated: browser arbitrary seeds are
+  **Protected (fail-closed)**, not accepted-risk. Fixed official endpoints remain
+  accepted-risk with rationale.
 - **L-02:** GitHub Actions pin comments aligned to exact release tags that contain
   the immutable 40-character SHAs (`checkout@v4.3.1`, `setup-python@v5.6.0`,
   `setup-node@v4.4.0`, `upload-artifact@v4.6.2`, `lychee-action@v2.9.0`,

@@ -1,0 +1,24 @@
+{
+  "sources": [
+    {
+      "id": "A",
+      "url": "https://docs.example/a",
+      "claim": "per_page max is 100",
+      "date_published": "2020-01-01"
+    },
+    {
+      "id": "B",
+      "url": "https://docs.example/b",
+      "claim": "per_page max is 200",
+      "date_published": "2025-06-01"
+    }
+  ],
+  "contradiction": {
+    "field": "per_page_max",
+    "values": [
+      100,
+      200
+    ],
+    "status": "unresolved"
+  }
+}

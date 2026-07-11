@@ -467,11 +467,33 @@ async function run(args) {
   let navigationPolicyBlock = null;
   let resourceLimitExceeded = false;
 
-  // Playwright follows HTTP redirects automatically. Intercept every main-frame
-  // navigation request so a redirect target is checked before any bytes are
-  // requested from a robots-disallowed URL.
+  // Intercept every request (nav, iframe, subresource, xhr, websocket):
+  // 1) SSRF public-destination check (fail-closed; zero request on private)
+  // 2) robots policy for main-frame navigations when --respect-robots
+  const { assertBrowserPublicUrl } = await import('./lib/browser_ssrf.mjs');
   await page.route('**/*', async (route) => {
     const request = route.request();
+    const rawUrl = request.url();
+    if (/^(data:|blob:|about:)/i.test(rawUrl)) {
+      await route.continue();
+      return;
+    }
+    const ssrf = await assertBrowserPublicUrl(rawUrl);
+    if (!ssrf.ok) {
+      navigationPolicyBlock = {
+        url: rawUrl,
+        reason: ssrf.reason || 'ssrf_private_or_internal',
+        blocker: ssrf.blocker,
+      };
+      blocked.push({
+        url: rawUrl,
+        reason: ssrf.reason || 'ssrf_private_or_internal',
+        depth: 0,
+        resource_type: request.resourceType(),
+      });
+      await route.abort('blockedbyclient');
+      return;
+    }
     if (
       !args.respectRobots ||
       !request.isNavigationRequest() ||

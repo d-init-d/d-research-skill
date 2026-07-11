@@ -120,9 +120,15 @@ function assert(cond, msg) {
 
 function runNode(script, args, env = {}) {
   return new Promise((resolve) => {
+    // Local HTTP fixtures bind 127.0.0.1. Production browser SSRF is fail-closed;
+    // this hermetic flag is for fixture tests only (never a production default).
     const child = spawn(process.execPath, [script, ...args], {
       cwd: ROOT,
-      env: { ...process.env, ...env },
+      env: {
+        ...process.env,
+        D_RESEARCH_SSRF_ALLOW_LOOPBACK: process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK || '1',
+        ...env,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -558,6 +564,11 @@ async function testLocalOnlyNavigation() {
 }
 
 async function main() {
+  // Fixture servers are loopback-only. Production CLI remains fail-closed unless
+  // an operator explicitly sets this env (documented test-only exception).
+  if (process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK == null) {
+    process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK = '1';
+  }
   const results = [];
   const errors = [];
 
