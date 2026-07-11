@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  browserResourceLimitErrorFromPayload,
   enforceBrowserResponseLimit,
   resolveBrowserResponseLimit,
   resourceLimitPayload,
@@ -27,6 +28,7 @@ function parseArgs(argv) {
     else if (a === '--wait-ms') args.waitMs = Number(argv[++i]);
     else if (a === '--headful') args.headless = false;
     else if (a === '--ignore-tls-errors') args.ignoreTlsErrors = true;
+    else if (a === '--allow-loopback-fixture') args.allowLoopbackFixture = true;
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (!Number.isSafeInteger(args.timeout) || args.timeout < 1) {
@@ -83,7 +85,9 @@ const BROWSER_USER_AGENT =
 async function run(args) {
   if (!args.url) throw new Error('Missing --url');
   // Fail-closed SSRF before launching Chromium when destination is private.
-  const pre = await assertBrowserPublicUrl(args.url);
+  const pre = await assertBrowserPublicUrl(args.url, {
+    allowLoopback: args.allowLoopbackFixture === true,
+  });
   if (!pre.ok) {
     return {
       inputUrl: args.url,
@@ -101,15 +105,23 @@ async function run(args) {
   const ignoreTls = Boolean(args.ignoreTlsErrors);
   const context = await browser.newContext({
     ignoreHTTPSErrors: ignoreTls,
+    serviceWorkers: 'block',
     userAgent: BROWSER_USER_AGENT,
   });
   const page = await context.newPage();
   page.setDefaultTimeout(args.timeout);
-  const ssrfStats = await installBrowserSsrfGuard(page);
+  const ssrfStats = await installBrowserSsrfGuard(context, {
+    allowLoopback: args.allowLoopbackFixture === true,
+    ignoreTlsErrors: ignoreTls,
+    maxResponseBytes: args.maxResponseBytes,
+    timeoutMs: args.timeout,
+  });
   let response = null;
   let responseBytes = null;
   try {
     response = await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: args.timeout });
+    const routeLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
+    if (routeLimit) throw routeLimit;
     responseBytes = await enforceBrowserResponseLimit(
       response,
       args.maxResponseBytes,

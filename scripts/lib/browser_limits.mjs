@@ -90,6 +90,16 @@ export function resourceLimitPayload(error) {
   return error instanceof BrowserResourceLimitError ? error.toJSON() : null;
 }
 
+export function browserResourceLimitErrorFromPayload(payload) {
+  if (!payload || payload.error !== 'resource_limit') return null;
+  return new BrowserResourceLimitError({
+    url: payload.url || null,
+    limit: payload.limit,
+    observed: payload.actual ?? payload.observed ?? null,
+    detail: payload.message || null,
+  });
+}
+
 export function selfTestBrowserLimits() {
   if (resolveBrowserResponseLimit(123) !== 123) throw new Error('explicit browser limit failed');
   if (resolveBrowserResponseLimit(null, { D_RESEARCH_HTTP_MAX_BYTES: '456' }) !== 456) {
@@ -110,5 +120,9 @@ export function selfTestBrowserLimits() {
   }).toJSON();
   if (payload.code !== 'http_max_bytes' || payload.complete !== false || payload.incomplete !== true) {
     throw new Error('browser resource-limit payload failed');
+  }
+  const restored = browserResourceLimitErrorFromPayload(payload);
+  if (!(restored instanceof BrowserResourceLimitError) || restored.code !== 'http_max_bytes') {
+    throw new Error('browser resource-limit payload restore failed');
   }
 }

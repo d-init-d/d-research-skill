@@ -1,9 +1,14 @@
 // Browser network boundary for arbitrary seed URLs.
-// Fail-closed: private / link-local / loopback / metadata destinations are
-// blocked before route.continue() so Chromium never issues the request.
-// Local fixture tests may set D_RESEARCH_SSRF_ALLOW_LOOPBACK=1.
+// Fail-closed: private / link-local / loopback / metadata destinations never
+// reach Chromium's network stack. Public HTTP(S) requests are fulfilled through
+// the Node SSRF helper, which validates DNS and binds the TCP peer.
 
-import { isNonPublicIp, resolvePublicIps } from './ssrf_guards.mjs';
+import {
+  HttpResourceLimitError,
+  fetchPublicHttp,
+  isNonPublicIp,
+  resolvePublicIps,
+} from './ssrf_guards.mjs';
 import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 
@@ -38,8 +43,7 @@ function isLoopbackHost(host) {
  * @returns {Promise<{ok: true}|{ok: false, reason: string, blocker: object}>}
  */
 export async function assertBrowserPublicUrl(url, opts = {}) {
-  const allowLoopback =
-    opts.allowLoopback === true || process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK === '1';
+  const allowLoopback = opts.allowLoopback === true;
   let parsed;
   try {
     parsed = new URL(String(url || '').trim());
@@ -127,22 +131,124 @@ export function structuredBlocker(code, message, extra = {}) {
   };
 }
 
+function routeTarget(target) {
+  if (target && typeof target.route === 'function' && typeof target.newPage === 'function') {
+    return target;
+  }
+  const context = target?.context?.();
+  if (context && typeof context.route === 'function') return context;
+  throw new Error('installBrowserSsrfGuard requires a BrowserContext or Page');
+}
+
+function requestHeadersForNode(request) {
+  const headers = { ...request.headers() };
+  for (const key of Object.keys(headers)) {
+    const lower = key.toLowerCase();
+    if (
+      lower === 'host' ||
+      lower === 'connection' ||
+      lower === 'content-length' ||
+      lower === 'proxy-authorization' ||
+      lower === 'proxy-authenticate' ||
+      lower === 'upgrade'
+    ) {
+      delete headers[key];
+    }
+  }
+  headers['accept-encoding'] = 'identity';
+  return headers;
+}
+
+function responseHeadersForBrowser(response) {
+  const headers = {};
+  response.headers.forEach((value, key) => {
+    const lower = key.toLowerCase();
+    if (
+      lower === 'connection' ||
+      lower === 'content-length' ||
+      lower === 'keep-alive' ||
+      lower === 'proxy-authenticate' ||
+      lower === 'proxy-authorization' ||
+      lower === 'te' ||
+      lower === 'trailer' ||
+      lower === 'transfer-encoding' ||
+      lower === 'upgrade'
+    ) {
+      return;
+    }
+    headers[key] = value;
+  });
+  return headers;
+}
+
+async function responseBodyBuffer(response) {
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+function asResourceLimitPayload(error) {
+  if (
+    error instanceof HttpResourceLimitError ||
+    error?.code === 'http_max_bytes' ||
+    error?.code === 'invalid_http_max_bytes'
+  ) {
+    return {
+      error: 'resource_limit',
+      code: error.code || 'http_max_bytes',
+      message: error.message || 'browser response exceeded byte limit',
+      ...(error.details || {}),
+      incomplete: true,
+      complete: false,
+    };
+  }
+  return null;
+}
+
 /**
- * Install page.route handler that denies non-public destinations for every
- * request class (navigation, iframe, subresource, xhr, websocket upgrade).
- * Returns a stats object mutated as requests are seen/blocked.
+ * Install a context-level network guard. HTTP(S) requests are fulfilled via
+ * fetchPublicHttp so Chromium never performs its own destination DNS/connect.
+ * WebSockets are fail-closed because Playwright's server bridge is not pinned.
+ *
+ * @param {import('playwright').BrowserContext|import('playwright').Page} target
+ * @param {{
+ *   allowLoopback?: boolean,
+ *   ignoreTlsErrors?: boolean,
+ *   maxResponseBytes?: number|null,
+ *   timeoutMs?: number,
+ *   onAllowed?: Function
+ * }} opts
  */
-export async function installBrowserSsrfGuard(page, opts = {}) {
+export async function installBrowserSsrfGuard(target, opts = {}) {
   const stats = {
     allowed: 0,
+    fulfilled: 0,
     blocked: 0,
     blockedUrls: [],
     zeroRequestDenials: [],
+    resourceLimit: null,
+    websocketBlocked: 0,
   };
-  await page.route('**/*', async (route) => {
+  const context = routeTarget(target);
+
+  if (typeof context.routeWebSocket === 'function') {
+    await context.routeWebSocket(() => true, async (ws) => {
+      const rawUrl = ws.url();
+      const httpUrl = rawUrl.replace(/^ws:/i, 'http:').replace(/^wss:/i, 'https:');
+      const check = await assertBrowserPublicUrl(httpUrl, opts);
+      stats.websocketBlocked += 1;
+      stats.blocked += 1;
+      stats.blockedUrls.push({
+        url: rawUrl,
+        reason: check.ok ? 'websocket_guard_fail_closed' : check.reason,
+      });
+      await ws.close({ code: 1008, reason: 'D Research browser network guard' });
+    });
+  }
+
+  await context.route('**/*', async (route) => {
     const request = route.request();
     const url = request.url();
-    // Allow data:/blob:/about: for empty documents
+    // Allow browser-internal non-network documents.
     if (/^(data:|blob:|about:)/i.test(url)) {
       await route.continue();
       return;
@@ -155,13 +261,84 @@ export async function installBrowserSsrfGuard(page, opts = {}) {
       await route.abort('blockedbyclient');
       return;
     }
-    stats.allowed += 1;
-    // Caller may wrap additional robots policy; this guard only does SSRF.
+
     if (typeof opts.onAllowed === 'function') {
-      await opts.onAllowed(route, request);
-      return;
+      const decision = await opts.onAllowed(route, request, stats);
+      if (decision && decision.action === 'abort') {
+        stats.blocked += 1;
+        stats.blockedUrls.push({ url, reason: decision.reason || 'policy_blocked' });
+        await route.abort(decision.errorCode || 'blockedbyclient');
+        return;
+      }
     }
-    await route.continue();
+
+    stats.allowed += 1;
+    let timer = null;
+    try {
+      const timeoutMs =
+        Number.isSafeInteger(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : 30000;
+      const controller = new AbortController();
+      timer = setTimeout(() => controller.abort(), timeoutMs);
+      const response = await fetchPublicHttp(
+        url,
+        {
+          method: request.method(),
+          headers: requestHeadersForNode(request),
+          body: request.postDataBuffer?.() || undefined,
+          signal: controller.signal,
+          maxResponseBytes: opts.maxResponseBytes ?? null,
+          bodyTimeoutMs: timeoutMs,
+        },
+        {
+          allowHttp: true,
+          allowLoopback: opts.allowLoopback === true,
+          ignoreTlsErrors: opts.ignoreTlsErrors === true,
+        },
+      );
+      try {
+        const body = await responseBodyBuffer(response);
+        await route.fulfill({
+          status: response.status,
+          headers: responseHeadersForBrowser(response),
+          body,
+        });
+        stats.fulfilled += 1;
+      } finally {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      }
+    } catch (error) {
+      if (timer) clearTimeout(timer);
+      const limitPayload = asResourceLimitPayload(error);
+      if (limitPayload) {
+        stats.blocked += 1;
+        if (request.isNavigationRequest()) {
+          stats.resourceLimit = {
+            url,
+            ...limitPayload,
+          };
+        } else {
+          stats.blockedUrls.push({
+            url,
+            reason: 'subresource_resource_limit',
+            ...limitPayload,
+          });
+        }
+        await route.fulfill({
+          status: 413,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+          body: `D Research resource limit: ${limitPayload.message}`,
+        });
+        return;
+      }
+      stats.blocked += 1;
+      stats.blockedUrls.push({
+        url,
+        reason: 'guard_fetch_failed',
+        error: String(error?.message || error),
+      });
+      await route.abort('failed');
+    }
   });
   return stats;
 }
@@ -183,6 +360,12 @@ export async function selfTest() {
   // Loopback fixture only when allowed
   const lb = await assertBrowserPublicUrl('http://127.0.0.1/x', { allowLoopback: true });
   if (!lb.ok) errors.push('loopback should pass when allowLoopback');
+  const savedLoopbackEnv = process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK;
+  process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK = '1';
+  const envBypass = await assertBrowserPublicUrl('http://127.0.0.1/x');
+  if (envBypass.ok) errors.push('loopback env must not bypass browser SSRF guard');
+  if (savedLoopbackEnv === undefined) delete process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK;
+  else process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK = savedLoopbackEnv;
   if (errors.length) {
     console.error('browser_ssrf.mjs self-test FAILED:');
     for (const e of errors) console.error(`  - ${e}`);

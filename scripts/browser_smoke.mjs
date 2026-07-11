@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { chromium } from 'playwright';
+import { installBrowserSsrfGuard } from './lib/browser_ssrf.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -120,8 +121,8 @@ function assert(cond, msg) {
 
 function runNode(script, args, env = {}) {
   return new Promise((resolve) => {
-    // Local HTTP fixtures bind 127.0.0.1. Production browser SSRF is fail-closed;
-    // this hermetic flag is for fixture tests only (never a production default).
+    // Local API fixtures still need loopback for api_fetch. Browser helpers use
+    // the explicit --allow-loopback-fixture test hook instead of env inheritance.
     const child = spawn(process.execPath, [script, ...args], {
       cwd: ROOT,
       env: {
@@ -160,6 +161,23 @@ function startFixtureServer() {
         res.end('<html><body><h1>OK2</h1></body></html>');
         return;
       }
+      if (url.pathname === '/sw-page') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<html><body><h1>SW Page</h1></body></html>');
+        return;
+      }
+      if (url.pathname === '/sw.js') {
+        res.writeHead(200, { 'Content-Type': 'application/javascript' });
+        res.end(
+          "self.addEventListener('fetch', event => event.respondWith(new Response('SW INTERCEPTED')));",
+        );
+        return;
+      }
+      if (url.pathname === '/sw-controlled') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('SERVER RESPONSE');
+        return;
+      }
       if (url.pathname === '/large') {
         const body = Buffer.from(`<html><body>${'x'.repeat(256 * 1024)}</body></html>`);
         res.writeHead(200, {
@@ -191,6 +209,27 @@ function startFixtureServer() {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       resolve({ server, port, base: `http://127.0.0.1:${port}`, hits });
+    });
+  });
+}
+
+function startTrapServer() {
+  return new Promise((resolve) => {
+    const hits = [];
+    const upgrades = [];
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url || '/', 'http://127.0.0.1');
+      hits.push({ path: url.pathname, headers: { ...req.headers } });
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('trap hit');
+    });
+    server.on('upgrade', (req, socket) => {
+      upgrades.push({ url: req.url, headers: { ...req.headers } });
+      socket.destroy();
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      resolve({ server, port, base: `http://127.0.0.1:${port}`, hits, upgrades });
     });
   });
 }
@@ -273,7 +312,11 @@ async function testProbeExtractCrawl(base) {
     const extractOut = path.join(tmp, 'extract.json');
     const crawlDir = path.join(tmp, 'crawl');
 
-    const p = await runNode(probe, ['--url', `${base}/ok`, '--out', probeOut]);
+    const p = await runNode(probe, [
+      '--url', `${base}/ok`,
+      '--out', probeOut,
+      '--allow-loopback-fixture',
+    ]);
     assert(p.code === 0, `probe failed: ${p.stderr || p.stdout}`);
     assert(fs.existsSync(probeOut), 'probe did not write output');
 
@@ -281,6 +324,7 @@ async function testProbeExtractCrawl(base) {
       '--url', `${base}/ok`,
       '--format', 'json',
       '--out', extractOut,
+      '--allow-loopback-fixture',
     ]);
     assert(e.code === 0, `extract failed: ${e.stderr || e.stdout}`);
     const extractBody = fs.readFileSync(extractOut, 'utf8');
@@ -295,6 +339,7 @@ async function testProbeExtractCrawl(base) {
       '--maxPages', '2',
       '--maxDepth', '1',
       '--delayMs', '50',
+      '--allow-loopback-fixture',
     ]);
     assert(c.code === 0, `crawl failed: ${c.stderr || c.stdout}`);
   } finally {
@@ -318,6 +363,7 @@ async function testRobotsRedirect(fixture) {
       '--maxPages', '5',
       '--maxDepth', '2',
       '--delayMs', '50',
+      '--allow-loopback-fixture',
     ]);
     const combined = `${c.stdout}\n${c.stderr}`;
     // Should not write a page body for /private/secret as successful extract
@@ -366,6 +412,7 @@ async function testBrowserResponseLimits(base) {
       '--out', probeOut,
       '--wait-ms', '0',
       '--max-response-bytes', '1024',
+      '--allow-loopback-fixture',
     ]);
     assertStructuredLimit(probeRun, 'probe');
     assert(!fs.existsSync(probeOut), 'probe wrote a successful output after a limit failure');
@@ -376,6 +423,7 @@ async function testBrowserResponseLimits(base) {
       '--out', extractOut,
       '--wait-ms', '0',
       '--max-response-bytes', '1024',
+      '--allow-loopback-fixture',
     ]);
     assertStructuredLimit(extractRun, 'extract');
     assert(!fs.existsSync(extractOut), 'extract wrote a successful output after a limit failure');
@@ -387,6 +435,7 @@ async function testBrowserResponseLimits(base) {
       '--maxPages', '1',
       '--delayMs', '0',
       '--max-response-bytes', '1024',
+      '--allow-loopback-fixture',
     ]);
     assert(crawlRun.code === 3, `crawl must exit 3, got ${crawlRun.code}: ${crawlRun.stderr}`);
     const summary = JSON.parse(fs.readFileSync(path.join(crawlDir, 'summary.json'), 'utf8'));
@@ -421,6 +470,7 @@ async function testRobotsStatuses() {
         '--maxPages', '1',
         '--delayMs', '0',
         '--timeout', '5000',
+        '--allow-loopback-fixture',
       ]);
       assert(result.code === 0, `robots ${item.status} crawl failed: ${result.stderr}`);
       const summary = JSON.parse(fs.readFileSync(path.join(tmp, 'summary.json'), 'utf8'));
@@ -489,6 +539,7 @@ async function testTlsDefaultFailureAndOptIn() {
       '--out', defaultOut,
       '--timeout', '5000',
       '--wait-ms', '0',
+      '--allow-loopback-fixture',
     ]);
     assert(defaultRun.code !== 0, 'self-signed TLS unexpectedly succeeded by default');
     assert(!fs.existsSync(defaultOut), 'default TLS failure wrote a successful extract');
@@ -501,6 +552,7 @@ async function testTlsDefaultFailureAndOptIn() {
       '--timeout', '5000',
       '--wait-ms', '0',
       '--ignore-tls-errors',
+      '--allow-loopback-fixture',
     ]);
     assert(extractRun.code === 0, `TLS extract opt-in failed: ${extractRun.stderr}`);
     const extractJson = JSON.parse(fs.readFileSync(extractOut, 'utf8'));
@@ -516,6 +568,7 @@ async function testTlsDefaultFailureAndOptIn() {
       '--timeout', '5000',
       '--wait-ms', '0',
       '--ignore-tls-errors',
+      '--allow-loopback-fixture',
     ]);
     assert(probeRun.code === 0, `TLS probe opt-in failed: ${probeRun.stderr}`);
     const probeJson = JSON.parse(fs.readFileSync(probeOut, 'utf8'));
@@ -532,6 +585,7 @@ async function testTlsDefaultFailureAndOptIn() {
       '--delayMs', '0',
       '--timeout', '5000',
       '--ignore-tls-errors',
+      '--allow-loopback-fixture',
     ]);
     assert(crawlRun.code === 0, `TLS crawl opt-in failed: ${crawlRun.stderr}`);
     const crawlSummary = JSON.parse(
@@ -563,9 +617,84 @@ async function testLocalOnlyNavigation() {
   return 'local_only_navigation';
 }
 
+async function testBrowserGuardAdversarial() {
+  const trap = await startTrapServer();
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext({
+      userAgent: UA,
+      serviceWorkers: 'block',
+    });
+    const stats = await installBrowserSsrfGuard(context, { timeoutMs: 5000 });
+    const page = await context.newPage();
+    page.on('pageerror', () => {});
+    await page.setContent('<html><body><button id="popup">popup</button></body></html>');
+    await page.evaluate((base) => {
+      const img = document.createElement('img');
+      img.src = `${base}/img`;
+      document.body.appendChild(img);
+      fetch(`${base}/fetch`).catch(() => {});
+      try {
+        const ws = new WebSocket(base.replace(/^http:/, 'ws:') + '/ws');
+        ws.onerror = () => {};
+      } catch {
+        // blocked before construction is also acceptable.
+      }
+    }, trap.base);
+    await Promise.all([
+      context.waitForEvent('page', { timeout: 2000 }).catch(() => null),
+      page.evaluate((url) => window.open(url), `${trap.base}/popup`),
+    ]);
+    await page.waitForTimeout(750);
+    assert(trap.hits.length === 0, `private HTTP trap received ${trap.hits.length} request(s)`);
+    assert(trap.upgrades.length === 0, 'private WebSocket trap received an upgrade');
+    assert(stats.blocked >= 3, `expected browser guard blocks, got ${stats.blocked}`);
+    assert(stats.websocketBlocked >= 1, 'websocket route was not fail-closed');
+  } finally {
+    await browser.close();
+    await new Promise((resolve) => trap.server.close(resolve));
+  }
+  return 'browser_guard_adversarial';
+}
+
+async function testServiceWorkersBlocked(base) {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext({
+      userAgent: UA,
+      serviceWorkers: 'block',
+    });
+    await installBrowserSsrfGuard(context, {
+      allowLoopback: true,
+      timeoutMs: 5000,
+    });
+    const page = await context.newPage();
+    await page.goto(`${base}/sw-page`, { waitUntil: 'domcontentloaded', timeout: 5000 });
+    const outcome = await page.evaluate(async () => {
+      if (!('serviceWorker' in navigator)) return 'missing';
+      try {
+        await navigator.serviceWorker.register('/sw.js');
+        await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((resolve) => setTimeout(resolve, 500)),
+        ]);
+      } catch {
+        // Registration rejection is an acceptable blocked outcome.
+      }
+      const response = await fetch('/sw-controlled');
+      return response.text();
+    });
+    assert(outcome !== 'SW INTERCEPTED', 'service worker intercepted a request');
+    assert(context.serviceWorkers().length === 0, 'context retained a service worker');
+  } finally {
+    await browser.close();
+  }
+  return 'service_workers_blocked';
+}
+
 async function main() {
-  // Fixture servers are loopback-only. Production CLI remains fail-closed unless
-  // an operator explicitly sets this env (documented test-only exception).
+  // API fixture servers are loopback-only. Browser fixture access is passed
+  // explicitly with --allow-loopback-fixture in each browser helper call.
   if (process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK == null) {
     process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK = '1';
   }
@@ -582,6 +711,12 @@ async function main() {
     results.push(await testLocalOnlyNavigation());
   } catch (e) {
     errors.push(`local_only: ${e.message}`);
+  }
+
+  try {
+    results.push(await testBrowserGuardAdversarial());
+  } catch (e) {
+    errors.push(`browser_guard_adversarial: ${e.message}`);
   }
 
   let fixture;
@@ -601,6 +736,11 @@ async function main() {
       results.push(await testBrowserResponseLimits(fixture.base));
     } catch (e) {
       errors.push(`browser_response_limits: ${e.message}`);
+    }
+    try {
+      results.push(await testServiceWorkersBlocked(fixture.base));
+    } catch (e) {
+      errors.push(`service_workers_blocked: ${e.message}`);
     }
     try {
       results.push(await testCredentialRedirect());

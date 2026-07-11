@@ -18,10 +18,10 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/_ssrf_helpers.py`: shared public-host / SSRF guard helpers (Python; DNS-pinned open for social)
 - `scripts/content_sanitize.py`: production HTML/visible-text extraction, secret redaction, hostile-source processing, safe download names (used by multi_extract + quality eval)
 - `scripts/lib/ssrf_guards.mjs`: shared public-host / SSRF guards + **connection-bound** `fetchPublicHttp` (Node; used by `api_fetch.mjs`)
-- `scripts/lib/browser_ssrf.mjs`: fail-closed browser destination checks for nav/subresource/XHR; used by playwright probe/extract/crawl
+- `scripts/lib/browser_ssrf.mjs`: context-level browser SSRF guard with Node-pinned HTTP(S) fulfillment, service-worker blocking, and WebSocket fail-closed behavior; used by playwright probe/extract/crawl
 - `scripts/lib/credentials.mjs`: credential classification and redaction for Node HTTP clients
 - `scripts/lib/browser_limits.mjs`: shared Playwright main-document response cap, structured exit-3 blocker, and limit parsing used by probe/extract/crawl
-- `scripts/browser_smoke.mjs`: real Chromium launch + local fixture smoke (probe/extract/crawl/robots/TLS/local-only)
+- `scripts/browser_smoke.mjs`: real Chromium launch + local fixture smoke (probe/extract/crawl/robots/TLS/local-only/browser SSRF adversarial/service-worker blocking)
 - `scripts/adversarial_acceptance.py`: mandatory 27-case adversarial acceptance matrix; CI sets `D_RESEARCH_SKIP_BROWSER_SMOKE=1` and runs one explicit browser smoke per OS
 - `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + CSL
 - `scripts/extract_tables.py`: extract HTML `<table>` elements into CSV (handles `colspan`/`rowspan`, stdlib only)

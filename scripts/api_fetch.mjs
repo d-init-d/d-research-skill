@@ -30,7 +30,7 @@ import {
   stripSensitiveHeaders,
   urlHasCredentials,
 } from './lib/credentials.mjs';
-import { assertPublicHttpUrl, fetchPublicHttp } from './lib/ssrf_guards.mjs';
+import { HttpResourceLimitError, assertPublicHttpUrl, fetchPublicHttp } from './lib/ssrf_guards.mjs';
 
 const MAX_REDIRECTS = 10;
 const DEFAULT_MAX_BODY_BYTES = 20 * 1024 * 1024;
@@ -70,6 +70,13 @@ class RequestTimeoutError extends Error {
     this.name = 'RequestTimeoutError';
     this.code = 'response_body_timeout';
   }
+}
+
+function isResourceLimitError(error) {
+  return error instanceof ResourceLimitError ||
+    error instanceof HttpResourceLimitError ||
+    error?.code === 'http_max_bytes' ||
+    error?.code === 'invalid_http_max_bytes';
 }
 
 // Back-compat aliases used inside this file
@@ -441,7 +448,13 @@ function detectPagination(response, body, paginationMode, cursorKey) {
   return null;
 }
 
-async function fetchWithTimeout(url, options, timeoutMs, maxRetries = 3) {
+async function fetchWithTimeout(
+  url,
+  options,
+  timeoutMs,
+  maxRetries = 3,
+  maxResponseBytes = DEFAULT_MAX_BODY_BYTES
+) {
   let lastError;
   const method = (options && options.method) || 'GET';
   const requestHeaders = (options && options.headers) || {};
@@ -482,6 +495,8 @@ async function fetchWithTimeout(url, options, timeoutMs, maxRetries = 3) {
               method,
               headers,
               signal: controller.signal,
+              maxResponseBytes,
+              bodyTimeoutMs: timeoutMs,
             },
             _ssrfOptions,
           );
@@ -548,7 +563,11 @@ async function fetchWithTimeout(url, options, timeoutMs, maxRetries = 3) {
     } catch (error) {
       lastError = error;
       const msg = redactSecretsInText(String(error.message || error));
-      if (msg.includes('timeout') || msg.includes('cross-origin redirect blocked')) {
+      if (
+        isResourceLimitError(error) ||
+        msg.includes('timeout') ||
+        msg.includes('cross-origin redirect blocked')
+      ) {
         throw error;
       }
       const waitTime = 1000 * Math.pow(2, attempt);
@@ -634,7 +653,8 @@ async function main() {
         currentUrl,
         fetchOptions,
         args.timeout,
-        3
+        3,
+        args.maxResponseBytes
       );
 
       if (!response.ok) {
@@ -650,7 +670,7 @@ async function main() {
         );
         body = JSON.parse(text);
       } catch (e) {
-        if (e instanceof ResourceLimitError || e instanceof RequestTimeoutError) {
+        if (isResourceLimitError(e) || e instanceof RequestTimeoutError) {
           throw e;
         }
         throw new Error(`JSON parse failed: ${e.message}`);
@@ -725,7 +745,7 @@ async function main() {
         url: redactUrl(currentUrl),
       };
       if (error.details) errorRecord.details = error.details;
-      if (error instanceof ResourceLimitError) {
+      if (isResourceLimitError(error)) {
         resourceLimitFailure = errorRecord;
         console.error(
           JSON.stringify({
@@ -741,7 +761,7 @@ async function main() {
       }
       errors.push(errorRecord);
       complete = false;
-      stoppingReason = error instanceof ResourceLimitError
+      stoppingReason = isResourceLimitError(error)
         ? 'resource_limit'
         : error instanceof RequestTimeoutError
           ? 'timeout'

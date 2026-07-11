@@ -59,6 +59,15 @@ export function setTestConnectFactory(fn) {
   _testConnect = typeof fn === 'function' ? fn : null;
 }
 
+export class HttpResourceLimitError extends Error {
+  constructor(code, message, details = {}) {
+    super(message);
+    this.name = 'HttpResourceLimitError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
 function unwrapIpv4Mapped(ip) {
   const m = /^:?:ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
   if (m) return m[1];
@@ -237,6 +246,17 @@ export async function fetchPublicHttp(url, options = {}, ssrfOpts = {}) {
   const { parsed, publicIps, loopback } = dest;
   const method = (options.method || 'GET').toUpperCase();
   const headers = headersToObject(options.headers);
+  const maxResponseBytes = options.maxResponseBytes ?? null;
+  if (
+    maxResponseBytes !== null &&
+    (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1)
+  ) {
+    throw new HttpResourceLimitError(
+      'invalid_http_max_bytes',
+      `max response bytes must be a positive safe integer: ${maxResponseBytes}`,
+      { limit: maxResponseBytes },
+    );
+  }
   const hostHeader =
     parsed.port &&
     !(
@@ -249,23 +269,13 @@ export async function fetchPublicHttp(url, options = {}, ssrfOpts = {}) {
     headers.Host = hostHeader;
   }
 
-  // Loopback fixtures: still use undici/fetch after validation (offline tests).
-  if (loopback || publicIps === null) {
-    return fetch(url, {
-      method,
-      headers,
-      body: options.body,
-      signal: options.signal,
-      redirect: 'manual',
-    });
-  }
-
   const isHttps = parsed.protocol === 'https:';
   const port = parsed.port ? Number(parsed.port) : isHttps ? 443 : 80;
   const path = `${parsed.pathname || '/'}${parsed.search || ''}`;
   let lastErr = null;
+  const connectHosts = loopback || publicIps === null ? [parsed.hostname] : publicIps;
 
-  for (const ip of publicIps) {
+  for (const ip of connectHosts) {
     try {
       const response = await new Promise((resolve, reject) => {
         const transport = isHttps ? https : http;
@@ -276,6 +286,7 @@ export async function fetchPublicHttp(url, options = {}, ssrfOpts = {}) {
           method,
           headers: { ...headers },
           servername: isHttps ? parsed.hostname : undefined,
+          rejectUnauthorized: !(isHttps && ssrfOpts.ignoreTlsErrors === true),
           setHost: false,
         };
 
@@ -287,6 +298,7 @@ export async function fetchPublicHttp(url, options = {}, ssrfOpts = {}) {
               reject(new Error('peer address unavailable'));
               return;
             }
+            if (loopback) return;
             // Strip IPv4-mapped prefix if present
             let peerIp = peer;
             if (peerIp.startsWith('::ffff:')) peerIp = peerIp.slice(7);
@@ -322,21 +334,76 @@ export async function fetchPublicHttp(url, options = {}, ssrfOpts = {}) {
         }
 
         req = transport.request(reqOpts, (res) => {
-          const chunks = [];
-          res.on('data', (c) => chunks.push(c));
-          res.on('end', () => {
-            const body = Buffer.concat(chunks);
-            const hdrs = res.headers || {};
-            // Build a Fetch API Response for callers
-            resolve(
-              new Response(body, {
-                status: res.statusCode || 0,
-                statusText: res.statusMessage || '',
-                headers: hdrs,
-              }),
+          const hdrs = res.headers || {};
+          const declared = Number.parseInt(hdrs['content-length'] || '', 10);
+          if (
+            maxResponseBytes !== null &&
+            Number.isFinite(declared) &&
+            declared > maxResponseBytes
+          ) {
+            const error = new HttpResourceLimitError(
+              'http_max_bytes',
+              `response body exceeds ${maxResponseBytes} bytes`,
+              { limit: maxResponseBytes, actual: declared, url },
             );
-          });
-          res.on('error', reject);
+            res.destroy(error);
+            reject(error);
+            return;
+          }
+
+          let observed = 0;
+          const body =
+            [204, 205, 304].includes(res.statusCode || 0)
+              ? null
+              : new ReadableStream({
+                  start(controller) {
+                    res.on('data', (chunk) => {
+                      observed += chunk.length;
+                      if (maxResponseBytes !== null && observed > maxResponseBytes) {
+                        const error = new HttpResourceLimitError(
+                          'http_max_bytes',
+                          `response body exceeds ${maxResponseBytes} bytes`,
+                          { limit: maxResponseBytes, actual: observed, url },
+                        );
+                        try {
+                          controller.error(error);
+                        } catch {
+                          /* ignore */
+                        }
+                        res.destroy(error);
+                        return;
+                      }
+                      controller.enqueue(new Uint8Array(chunk));
+                    });
+                    res.on('end', () => {
+                      try {
+                        controller.close();
+                      } catch {
+                        /* ignore */
+                      }
+                    });
+                    res.on('error', (error) => {
+                      try {
+                        controller.error(error);
+                      } catch {
+                        /* ignore */
+                      }
+                    });
+                  },
+                  cancel(reason) {
+                    res.destroy(
+                      reason instanceof Error ? reason : new Error(String(reason || 'cancelled')),
+                    );
+                  },
+                });
+          // Build a Fetch API Response for callers without buffering the body.
+          resolve(
+            new Response(body, {
+              status: res.statusCode || 0,
+              statusText: res.statusMessage || '',
+              headers: hdrs,
+            }),
+          );
         });
 
         req.on('socket', (socket) => {
@@ -466,6 +533,33 @@ export async function selfTest() {
     setTestDnsResolver(null);
     setTestConnectFactory(null);
     if (!mismatchBlocked) errors.push('peer mismatch must be blocked');
+  }
+
+  // Streaming cap: no Content-Length, body crosses the byte limit while reading.
+  {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.write('123');
+      setTimeout(() => {
+        res.end('45');
+      }, 10);
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+    let streamCapBlocked = false;
+    try {
+      const response = await fetchPublicHttp(
+        `http://127.0.0.1:${port}/large`,
+        { method: 'GET', maxResponseBytes: 4 },
+        { allowHttp: true, allowLoopback: true },
+      );
+      await response.text();
+    } catch (e) {
+      streamCapBlocked = e?.code === 'http_max_bytes';
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+    if (!streamCapBlocked) errors.push('streaming response cap must abort while reading');
   }
 
   if (errors.length) {

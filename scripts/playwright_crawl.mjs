@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import http from 'node:http';
-import https from 'node:https';
 import {
+  browserResourceLimitErrorFromPayload,
   enforceBrowserResponseLimit,
   resolveBrowserResponseLimit,
   resourceLimitPayload,
   selfTestBrowserLimits,
 } from './lib/browser_limits.mjs';
+import {
+  assertBrowserPublicUrl,
+  installBrowserSsrfGuard,
+} from './lib/browser_ssrf.mjs';
+import { fetchPublicHttp } from './lib/ssrf_guards.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -44,6 +48,8 @@ function parseArgs(argv) {
       args.noRespectRobotsRequested = true;
     } else if (a === '--ignore-tls-errors') {
       args.ignoreTlsErrors = true;
+    } else if (a === '--allow-loopback-fixture') {
+      args.allowLoopbackFixture = true;
     } else if (a === '--follow-external-links') args.followExternalLinks = true;
     else throw new Error(`Unknown argument: ${a}`);
   }
@@ -109,37 +115,40 @@ const BROWSER_USER_AGENT =
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const MAX_ROBOTS_BYTES = 1024 * 1024;
 
-function requestHeadersOnly(url, timeoutMs, ignoreTlsErrors) {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const transport = parsed.protocol === 'https:' ? https : http;
-    let settled = false;
-    const req = transport.request(
-      parsed,
+async function requestHeadersOnly(url, timeoutMs, ignoreTlsErrors, ssrfOpts = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchPublicHttp(
+      url,
       {
         method: 'GET',
         headers: { 'User-Agent': BROWSER_USER_AGENT },
-        rejectUnauthorized: !ignoreTlsErrors,
+        signal: controller.signal,
       },
-      (res) => {
-        const result = {
-          status: res.statusCode || 0,
-          location: res.headers.location || null,
-        };
-        settled = true;
-        resolve(result);
-        // Redirect discovery needs headers only; never buffer an unbounded body.
-        res.destroy();
-      }
+      {
+        allowHttp: true,
+        allowLoopback: ssrfOpts.allowLoopback === true,
+        ignoreTlsErrors,
+      },
     );
-    req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`redirect preflight timeout after ${timeoutMs}ms`));
-    });
-    req.on('error', (error) => {
-      if (!settled) reject(error);
-    });
-    req.end();
-  });
+    try {
+      await response.body?.cancel?.('headers-only preflight complete');
+    } catch {
+      /* ignore */
+    }
+    return {
+      status: response.status || 0,
+      location: response.headers.get('location'),
+    };
+  } catch (error) {
+    if (error?.name === 'AbortError' || /aborted/i.test(String(error?.message || error))) {
+      throw new Error(`redirect preflight timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function requestTextBounded(
@@ -147,73 +156,52 @@ async function requestTextBounded(
   timeoutMs,
   ignoreTlsErrors,
   maxBytes,
-  maxRedirects = 5
+  maxRedirects = 5,
+  ssrfOpts = {}
 ) {
   let current = startUrl;
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    const result = await new Promise((resolve, reject) => {
-      const parsed = new URL(current);
-      const transport = parsed.protocol === 'https:' ? https : http;
-      let settled = false;
-      const req = transport.request(
-        parsed,
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let result;
+    try {
+      const response = await fetchPublicHttp(
+        current,
         {
           method: 'GET',
           headers: { 'User-Agent': BROWSER_USER_AGENT },
-          rejectUnauthorized: !ignoreTlsErrors,
+          signal: controller.signal,
+          maxResponseBytes: maxBytes,
         },
-        (res) => {
-          const status = res.statusCode || 0;
-          const location = res.headers.location || null;
-          if (REDIRECT_STATUSES.has(status) && location) {
-            settled = true;
-            resolve({ status, location, text: '' });
-            res.destroy();
-            return;
-          }
-          const declared = Number.parseInt(res.headers['content-length'] || '', 10);
-          if (Number.isFinite(declared) && declared > maxBytes) {
-            settled = true;
-            reject(new Error(`robots.txt exceeds ${maxBytes} bytes`));
-            res.destroy();
-            return;
-          }
-          const chunks = [];
-          let total = 0;
-          res.on('data', (chunk) => {
-            total += chunk.length;
-            if (total > maxBytes) {
-              settled = true;
-              reject(new Error(`robots.txt exceeds ${maxBytes} bytes`));
-              res.destroy();
-              return;
-            }
-            chunks.push(chunk);
-          });
-          res.on('end', () => {
-            if (settled) return;
-            settled = true;
-            resolve({ status, location: null, text: Buffer.concat(chunks).toString('utf8') });
-          });
-          res.on('error', (error) => {
-            if (!settled) {
-              settled = true;
-              reject(error);
-            }
-          });
-        }
+        {
+          allowHttp: true,
+          allowLoopback: ssrfOpts.allowLoopback === true,
+          ignoreTlsErrors,
+        },
       );
-      req.setTimeout(timeoutMs, () => {
-        req.destroy(new Error(`robots request timeout after ${timeoutMs}ms`));
-      });
-      req.on('error', (error) => {
-        if (!settled) {
-          settled = true;
-          reject(error);
+      const status = response.status || 0;
+      const location = response.headers.get('location');
+      if (REDIRECT_STATUSES.has(status) && location) {
+        try {
+          await response.body?.cancel?.('robots redirect');
+        } catch {
+          /* ignore */
         }
-      });
-      req.end();
-    });
+        result = { status, location, text: '' };
+      } else {
+        result = { status, location: null, text: await response.text() };
+      }
+    } catch (error) {
+      if (error?.code === 'http_max_bytes') {
+        throw new Error(`robots.txt exceeds ${maxBytes} bytes`);
+      }
+      if (error?.name === 'AbortError' || /aborted/i.test(String(error?.message || error))) {
+        throw new Error(`robots request timeout after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     if (REDIRECT_STATUSES.has(result.status) && result.location) {
       current = new URL(result.location, current).href;
       continue;
@@ -298,7 +286,7 @@ function robotsAllows(groups, targetUrl) {
   return matchedAllow.length >= matchedDisallow.length;
 }
 
-async function getRobots(cache, url, ignoreTlsErrors = false) {
+async function getRobots(cache, url, ignoreTlsErrors = false, ssrfOpts = {}) {
   const origin = new URL(url).origin;
   if (cache.has(origin)) return cache.get(origin);
   try {
@@ -306,7 +294,9 @@ async function getRobots(cache, url, ignoreTlsErrors = false) {
       `${origin}/robots.txt`,
       15000,
       ignoreTlsErrors,
-      MAX_ROBOTS_BYTES
+      MAX_ROBOTS_BYTES,
+      5,
+      ssrfOpts
     );
     // 404/410: no robots rules
     if (res.status === 404 || res.status === 410) {
@@ -344,10 +334,16 @@ async function getRobots(cache, url, ignoreTlsErrors = false) {
   }
 }
 
-async function robotsBlockReason(cache, domainStopped, url, ignoreTlsErrors = false) {
+async function robotsBlockReason(
+  cache,
+  domainStopped,
+  url,
+  ignoreTlsErrors = false,
+  ssrfOpts = {}
+) {
   const host = new URL(url).hostname;
   if (domainStopped.has(host)) return 'domain_stopped_robots_unknown';
-  const groups = await getRobots(cache, url, ignoreTlsErrors);
+  const groups = await getRobots(cache, url, ignoreTlsErrors, ssrfOpts);
   const status = groups && groups.status;
   if (status === 'rate_limited' || status === 'unknown') {
     domainStopped.add(host);
@@ -364,7 +360,8 @@ async function resolveRedirectsBeforeNavigation(
   robotsCache,
   domainStopped,
   timeoutMs,
-  ignoreTlsErrors
+  ignoreTlsErrors,
+  ssrfOpts = {}
 ) {
   let current = startUrl;
   const seen = new Set();
@@ -378,11 +375,12 @@ async function resolveRedirectsBeforeNavigation(
       robotsCache,
       domainStopped,
       current,
-      ignoreTlsErrors
+      ignoreTlsErrors,
+      ssrfOpts
     );
     if (reason) return { blocked: { url: current, reason } };
 
-    const response = await requestHeadersOnly(current, timeoutMs, ignoreTlsErrors);
+    const response = await requestHeadersOnly(current, timeoutMs, ignoreTlsErrors, ssrfOpts);
     if (!REDIRECT_STATUSES.has(response.status) || !response.location) {
       return { url: current };
     }
@@ -448,6 +446,7 @@ async function run(args) {
   const ignoreTls = Boolean(args.ignoreTlsErrors);
   const context = await browser.newContext({
     ignoreHTTPSErrors: ignoreTls,
+    serviceWorkers: 'block',
     userAgent: BROWSER_USER_AGENT,
   });
   const page = await context.newPage();
@@ -467,68 +466,51 @@ async function run(args) {
   let navigationPolicyBlock = null;
   let resourceLimitExceeded = false;
 
-  // Intercept every request (nav, iframe, subresource, xhr, websocket):
-  // 1) SSRF public-destination check (fail-closed; zero request on private)
+  // Intercept every request at context scope:
+  // 1) SSRF public-destination check + Node-pinned HTTP(S) fulfillment
   // 2) robots policy for main-frame navigations when --respect-robots
-  const { assertBrowserPublicUrl } = await import('./lib/browser_ssrf.mjs');
-  await page.route('**/*', async (route) => {
-    const request = route.request();
-    const rawUrl = request.url();
-    if (/^(data:|blob:|about:)/i.test(rawUrl)) {
-      await route.continue();
-      return;
-    }
-    const ssrf = await assertBrowserPublicUrl(rawUrl);
-    if (!ssrf.ok) {
-      navigationPolicyBlock = {
-        url: rawUrl,
-        reason: ssrf.reason || 'ssrf_private_or_internal',
-        blocker: ssrf.blocker,
-      };
-      blocked.push({
-        url: rawUrl,
-        reason: ssrf.reason || 'ssrf_private_or_internal',
-        depth: 0,
-        resource_type: request.resourceType(),
-      });
-      await route.abort('blockedbyclient');
-      return;
-    }
-    if (
-      !args.respectRobots ||
-      !request.isNavigationRequest() ||
-      request.frame() !== page.mainFrame()
-    ) {
-      await route.continue();
-      return;
-    }
-
-    const requestUrl = normalizeUrl(request.url());
-    if (!requestUrl) {
-      await route.abort('blockedbyclient');
-      return;
-    }
-    const requestHost = new URL(requestUrl).hostname;
-    let reason = null;
-    if (domainStopped.has(requestHost)) {
-      reason = 'domain_stopped_robots_unknown';
-    } else {
-      const groups = await getRobots(robotsCache, requestUrl, ignoreTls);
-      const status = groups && groups.status;
-      if (status === 'rate_limited' || status === 'unknown') {
-        domainStopped.add(requestHost);
-        reason = status === 'rate_limited' ? 'robots_rate_limited' : 'robots_unknown';
-      } else if (!robotsAllows(groups, requestUrl)) {
-        reason = status === 'disallow_all' ? 'robots_auth_disallow' : 'robots_disallow';
+  const ssrfStats = await installBrowserSsrfGuard(context, {
+    allowLoopback: args.allowLoopbackFixture === true,
+    ignoreTlsErrors: ignoreTls,
+    maxResponseBytes: args.maxResponseBytes,
+    timeoutMs: args.timeout,
+    onAllowed: async (_route, request) => {
+      if (
+        !args.respectRobots ||
+        !request.isNavigationRequest() ||
+        request.frame() !== page.mainFrame()
+      ) {
+        return null;
       }
-    }
 
-    if (reason) {
-      navigationPolicyBlock = { url: requestUrl, reason };
-      await route.abort('blockedbyclient');
-      return;
-    }
-    await route.continue();
+      const requestUrl = normalizeUrl(request.url());
+      if (!requestUrl) {
+        navigationPolicyBlock = { url: request.url(), reason: 'invalid_navigation_url' };
+        return { action: 'abort', reason: 'invalid_navigation_url' };
+      }
+      const requestHost = new URL(requestUrl).hostname;
+      let reason = null;
+      if (domainStopped.has(requestHost)) {
+        reason = 'domain_stopped_robots_unknown';
+      } else {
+        const groups = await getRobots(robotsCache, requestUrl, ignoreTls, {
+          allowLoopback: args.allowLoopbackFixture === true,
+        });
+        const status = groups && groups.status;
+        if (status === 'rate_limited' || status === 'unknown') {
+          domainStopped.add(requestHost);
+          reason = status === 'rate_limited' ? 'robots_rate_limited' : 'robots_unknown';
+        } else if (!robotsAllows(groups, requestUrl)) {
+          reason = status === 'disallow_all' ? 'robots_auth_disallow' : 'robots_disallow';
+        }
+      }
+
+      if (reason) {
+        navigationPolicyBlock = { url: requestUrl, reason };
+        return { action: 'abort', reason };
+      }
+      return null;
+    },
   });
 
   while (queue.length && manifest.length < args.maxPages) {
@@ -542,6 +524,18 @@ async function run(args) {
       blocked.push({ url, reason: 'max_pages_per_domain', depth: item.depth });
       continue;
     }
+    const seedSsrf = await assertBrowserPublicUrl(url, {
+      allowLoopback: args.allowLoopbackFixture === true,
+    });
+    if (!seedSsrf.ok) {
+      blocked.push({
+        url,
+        reason: seedSsrf.reason || 'ssrf_private_or_internal',
+        blocker: seedSsrf.blocker,
+        depth: item.depth,
+      });
+      continue;
+    }
     let navigationUrl = url;
     if (args.respectRobots) {
       let resolved;
@@ -551,7 +545,8 @@ async function run(args) {
           robotsCache,
           domainStopped,
           args.timeout,
-          ignoreTls
+          ignoreTls,
+          { allowLoopback: args.allowLoopbackFixture === true }
         );
       } catch (error) {
         blocked.push({
@@ -576,12 +571,15 @@ async function run(args) {
     await sleep(args.delayMs);
     let response = null;
     navigationPolicyBlock = null;
+    ssrfStats.resourceLimit = null;
     try {
       response = await page.goto(navigationUrl, {
         waitUntil: 'domcontentloaded',
         timeout: args.timeout,
         // Manual control is limited in Playwright; re-check final URL robots.
       });
+      const routeLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
+      if (routeLimit) throw routeLimit;
       await enforceBrowserResponseLimit(
         response,
         args.maxResponseBytes,
@@ -599,7 +597,9 @@ async function run(args) {
           });
           continue;
         }
-        const finalGroups = await getRobots(robotsCache, finalUrl, ignoreTls);
+        const finalGroups = await getRobots(robotsCache, finalUrl, ignoreTls, {
+          allowLoopback: args.allowLoopbackFixture === true,
+        });
         const finalStatus = finalGroups && finalGroups.status;
         if (finalStatus === 'rate_limited' || finalStatus === 'unknown') {
           domainStopped.add(finalHost);
