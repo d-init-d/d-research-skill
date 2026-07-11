@@ -1,0 +1,5 @@
+{
+  "playwright_available": false,
+  "chromium_available": false,
+  "expected": "structured_blocker_or_fetch_fallback"
+}

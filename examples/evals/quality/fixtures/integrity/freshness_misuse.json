@@ -1,0 +1,11 @@
+{
+  "ledger_row": {
+    "claim_id": "C1",
+    "claim": "API default is 25",
+    "date_published": "",
+    "date_accessed": "2026-07-01",
+    "source_url": "https://old.example/post-2019",
+    "confidence": "high"
+  },
+  "incorrect_inference": "fact is from 2026 because date_accessed is 2026"
+}

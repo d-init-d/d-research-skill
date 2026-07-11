@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Quality eval suite (Workstream 11):** versioned held-out research-quality
+  suite (`examples/evals/quality-suite.json`, schema 1.0, 42 cases across
+  development / held_out / adversarial covering 25 themes), JSON schema,
+  hostile/integrity/stopping fixtures, and stdlib harness
+  `scripts/quality_eval.py` (validate, integrity, hostile acceptance, seeded
+  fuzz/property tests, mutation probes, perf-compare, degraded-mode checks,
+  promotion-report, triple self-test). Wired into `npm run self-test:python`
+  and `npm run eval:quality*`. Does **not** auto-claim BEST-IN-CLASS without
+  live held-out agent runs and independent blind forward evaluation.
+
 ### Fixed
 
 - **F-06:** Social/pinned HTTPS transport streams response bodies with size-aware

@@ -1,0 +1,11 @@
+{
+  "report_claims": [
+    {
+      "claim_id": "C999",
+      "text": "OpenAlex allows 10000 per page",
+      "important": true
+    }
+  ],
+  "ledger_rows": [],
+  "sources": []
+}

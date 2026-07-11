@@ -40,6 +40,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/http_cache.py`: get-key / stats / purge / self-test — shared HTTP cache (opt-in via `D_RESEARCH_HTTP_CACHE_PATH`); see `references/http-cache.md`
 - `scripts/lib/http_cache.mjs`: Node ESM helper used by `api_fetch.mjs` for the same shared cache layout
 - `scripts/bench_harness_check.py`: check / check-all / orphans / self-test — bench/fixture/harness consistency check. **NOT an agent benchmark** — only catches bench data regressions
+- `scripts/quality_eval.py`: validate / list / integrity / hostile / fuzz / mutation / perf-compare / degraded / promotion-report / self-test / triple — held-out research-quality suite (schema 1.0, ≥30 cases), evidence-integrity checks, hostile-source acceptance, seeded property tests, mutation probes, performance budgets, degraded-mode checks. See `examples/evals/quality-suite.json` and `docs/eval.md`
 - `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE); see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 
@@ -48,7 +49,8 @@ The scripts are optional. If dependencies are unavailable, follow the workflow m
 ## Verification entry points
 
 - `npm run self-test:node`: offline Node helper self-tests; CI runs this on Node 18/20/22.
-- `npm run self-test:python`: offline Python helper and contract checks through the portable Node-to-Python wrapper.
+- `npm run self-test:python`: offline Python helper and contract checks through the portable Node-to-Python wrapper (includes `quality_eval.py self-test`).
+- `npm run eval:quality`: held-out quality suite offline self-test (validate + integrity + hostile + fuzz + mutation + degraded + perf).
 - `npm run self-test`: complete offline Node + Python helper suite.
 - `npm run acceptance`: adversarial acceptance matrix; its normal local run includes the browser case.
 - `npm run browser:smoke`: one real Chromium run against local fixtures.

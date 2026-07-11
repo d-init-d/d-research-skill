@@ -1,0 +1,16 @@
+{
+  "attachments": [
+    {
+      "filename": "../../outside-secret.txt",
+      "content_b64": "c2VjcmV0"
+    },
+    {
+      "filename": "C:\\\\absolute\\\\outside.txt",
+      "content_b64": "c2VjcmV0"
+    },
+    {
+      "filename": "safe-report.txt",
+      "content_b64": "b2s="
+    }
+  ]
+}

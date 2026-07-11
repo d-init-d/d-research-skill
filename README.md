@@ -57,8 +57,8 @@ Concretely, the repo contains:
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.2, 23 columns including optional `record_type`/`license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**, **register vocab log**.
-- `scripts/` — 43 small, self-contained files (32 Python + 7 top-level Node + 4 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_contract.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`) run as CI gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version.
-- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 52-task frontier probe (bench 2.2, 26 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `scripts/` — 44 small, self-contained files (33 Python + 7 top-level Node + 4 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_contract.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`) run as CI gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, `examples/evals/quality-suite.json`, and `docs/eval.md` — offline eval: 12-task regression, 52-task frontier (bench 2.2), and a 42-case held-out quality suite (development / held-out / adversarial) with multi-dimension scoring, hostile fixtures, fuzz/mutation gates (`scripts/quality_eval.py`, `npm run eval:quality`).
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -286,6 +286,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── evals/
 │   │   ├── dogfood-bench.json            # 12-task regression eval set
 │   │   ├── frontier-bench.json           # 52-task frontier eval set (bench 2.2, 26 classes)
+│   │   ├── quality-suite.json            # 42-case held-out quality suite (dev/held-out/adversarial)
+│   │   ├── quality/                      # schema, fixtures, forward protocol
 │   │   └── fixtures/                     # deterministic empty-score fixtures
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
@@ -320,7 +322,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── extract_tables.py                 # new — HTML tables → CSV
 │   ├── score_source.py                   # new — rubric-based source scoring
 │   ├── research_plan.py                  # new — workspace, approval, context budget, and plan manager
-│   ├── run_dogfood.py                    # new — offline eval-bench harness
+│   ├── run_dogfood.py                    # offline eval-bench harness
+│   ├── quality_eval.py                   # held-out quality suite + integrity/hostile/fuzz
 │   ├── pdf_extract.py                    # new — PDF text/meta/table extraction
 │   ├── wayback.py                        # new — Wayback Machine nearest/diff
 │   ├── wikidata.py                       # new — Wikidata search/entity/disambiguate/SPARQL

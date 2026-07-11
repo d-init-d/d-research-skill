@@ -1,0 +1,7 @@
+{
+  "description": "Safe oversize metadata (not a real bomb)",
+  "declared_size_bytes": 500000000,
+  "content_length": 500000000,
+  "encoding": "identity",
+  "note": "Fixture only; do not allocate 500MB"
+}

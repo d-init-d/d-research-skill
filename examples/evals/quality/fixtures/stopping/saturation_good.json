@@ -1,0 +1,11 @@
+{
+  "coverage_achieved": 0.95,
+  "remaining_gaps": [],
+  "marginal_evidence_gain": "low",
+  "open_basins": [],
+  "contradiction_status": "resolved_or_documented",
+  "blocked_source_classes": [],
+  "confidence_impact": "stable",
+  "decision": "stop",
+  "rationale_complete": true
+}
