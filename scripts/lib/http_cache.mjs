@@ -2,12 +2,16 @@
 // Enables only when D_RESEARCH_HTTP_CACHE_PATH is set.
 // Uses same on-disk layout as scripts/http_cache.py for cross-runtime compat.
 //
-// Atomic generation protocol:
+// Atomic generation protocol (must match Python http_cache.py):
 //   - unique per-writer temp files: {key}.{gen}.body.tmp / {key}.{gen}.json.tmp
 //   - publish body to generation-scoped {key}.{gen}.body (no shared body path)
 //   - atomically publish meta pointing at body_file
-//   - metadata carries body_sha256 + body_size + generation_id + body_file
+//   - re-read live meta after publish:
+//       * winner (live gen == ours): delete superseded generation bodies + legacy
+//       * loser (live gen != ours): delete only our unreferenced body
+//   - never delete the body currently referenced by live meta
 //   - readers validate hash/size and never mix generations
+//   - body_file is basename-only <key>.<32-hex-gen>.body inside entries/
 
 import { createHash, randomBytes } from 'node:crypto';
 import {
@@ -19,13 +23,17 @@ import {
   unlinkSync,
   writeFileSync,
   chmodSync,
+  statSync,
+  lstatSync,
+  realpathSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, basename, isAbsolute, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isSensitiveHeaderName, urlHasCredentials } from './credentials.mjs';
 
 const CACHE_ENV = 'D_RESEARCH_HTTP_CACHE_PATH';
 export const DEFAULT_MAX_AGE_SECONDS = 7 * 24 * 3600;
+const GENERATION_ID_RE = /^[0-9a-f]{32}$/;
 
 export const KEY_AFFECTING_HEADERS = [
   'authorization',
@@ -157,6 +165,195 @@ function redactUrl(url) {
   }
 }
 
+function isGenerationId(value) {
+  return typeof value === 'string' && GENERATION_ID_RE.test(value);
+}
+
+function isUnsafeBodyFileName(name) {
+  if (!name || typeof name !== 'string') return true;
+  if (name.startsWith('/') || name.startsWith('\\')) return true;
+  if (name.length >= 2 && name[1] === ':') return true;
+  if (name.includes('/') || name.includes('\\')) return true;
+  if (name.includes('..')) return true;
+  if (isAbsolute(name)) return true;
+  if (basename(name) !== name) return true;
+  return false;
+}
+
+function canonicalGenerationBodyName(key, generationId) {
+  return `${key}.${generationId}.body`;
+}
+
+function isCanonicalBodyFile(name, key, generationId) {
+  if (isUnsafeBodyFileName(name)) return false;
+  if (!name.endsWith('.body')) return false;
+  const prefix = `${key}.`;
+  if (!name.startsWith(prefix)) return false;
+  const genPart = name.slice(prefix.length, -'.body'.length);
+  if (!isGenerationId(genPart)) return false;
+  if (generationId !== undefined && generationId !== null && generationId !== '') {
+    if (!isGenerationId(generationId)) return false;
+    if (genPart !== generationId) return false;
+  }
+  return true;
+}
+
+function pathContainedInEntries(entriesDir, candidatePath) {
+  try {
+    const entriesReal = realpathSync(entriesDir);
+    let candReal;
+    try {
+      candReal = realpathSync(candidatePath);
+    } catch {
+      // Target may not exist yet / broken symlink.
+      return false;
+    }
+    const rel = candReal.startsWith(entriesReal + sep) || candReal === entriesReal;
+    return rel;
+  } catch {
+    return false;
+  }
+}
+
+function metaReferencedBodyName(key, meta) {
+  const bodyRel = meta.body_file;
+  const gen = meta.generation_id;
+  if (typeof bodyRel === 'string' && bodyRel) {
+    if (isCanonicalBodyFile(bodyRel, key, gen)) return bodyRel;
+    return null;
+  }
+  if (isGenerationId(gen)) return canonicalGenerationBodyName(key, gen);
+  return `${key}.body`;
+}
+
+function resolveBodyPath(entriesDir, key, meta) {
+  const bodyRel = meta.body_file;
+  const gen = meta.generation_id;
+
+  if (typeof bodyRel === 'string' && bodyRel) {
+    // Invalid new-format body_file → hard miss, no fallback.
+    if (!isCanonicalBodyFile(bodyRel, key, gen)) return null;
+    const candidate = join(entriesDir, bodyRel);
+    if (!pathContainedInEntries(entriesDir, candidate)) return null;
+    if (!existsSync(candidate)) return null;
+    // Symlink escape: realpath must remain inside entries.
+    try {
+      if (lstatSync(candidate).isSymbolicLink()) {
+        if (!pathContainedInEntries(entriesDir, candidate)) return null;
+      }
+    } catch {
+      return null;
+    }
+    if (!pathContainedInEntries(entriesDir, candidate)) return null;
+    return candidate;
+  }
+
+  // True legacy metadata (no body_file).
+  if (isGenerationId(gen)) {
+    const genPath = join(entriesDir, canonicalGenerationBodyName(key, gen));
+    if (existsSync(genPath) && pathContainedInEntries(entriesDir, genPath)) return genPath;
+  }
+  const legacy = join(entriesDir, `${key}.body`);
+  if (existsSync(legacy) && pathContainedInEntries(entriesDir, legacy)) return legacy;
+  return null;
+}
+
+function safeUnlink(path) {
+  try {
+    unlinkSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readLiveBodyRef(entriesDir, key) {
+  const metaPath = join(entriesDir, `${key}.json`);
+  if (!existsSync(metaPath)) return { bodyName: null, gen: null };
+  let liveMeta;
+  try {
+    liveMeta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+  } catch {
+    return { bodyName: null, gen: null };
+  }
+  const bodyName = metaReferencedBodyName(key, liveMeta);
+  const gen = isGenerationId(liveMeta.generation_id) ? liveMeta.generation_id : null;
+  return { bodyName, gen };
+}
+
+function gcUnreferencedBodiesForKey(entriesDir, key) {
+  const live = readLiveBodyRef(entriesDir, key);
+  let removed = 0;
+  let names;
+  try {
+    names = readdirSync(entriesDir);
+  } catch {
+    return 0;
+  }
+  for (const name of names) {
+    if (!name.endsWith('.body')) continue;
+    if (name === `${key}.body`) {
+      if (live.bodyName === name) continue;
+      if (safeUnlink(join(entriesDir, name))) removed += 1;
+      continue;
+    }
+    const prefix = `${key}.`;
+    if (!name.startsWith(prefix)) continue;
+    const mid = name.slice(prefix.length, -'.body'.length);
+    if (!isGenerationId(mid)) continue;
+    if (live.bodyName === name) continue;
+    if (safeUnlink(join(entriesDir, name))) removed += 1;
+  }
+  return removed;
+}
+
+function cleanupWriterGeneration(entriesDir, key, genId, publishedMeta, prevBodyName = null) {
+  // Winner only deletes the previously observed live body. Deleting every
+  // unreferenced generation races with in-flight writers that published a
+  // body but have not yet swapped meta. Losers delete only their own body.
+  // Orphans are collected by age-based / purge-all GC.
+  const ourName = canonicalGenerationBodyName(key, genId);
+  const ourBody = join(entriesDir, ourName);
+  let live = readLiveBodyRef(entriesDir, key);
+
+  if (!publishedMeta) {
+    if (live.bodyName !== ourName) safeUnlink(ourBody);
+    return;
+  }
+
+  if (live.gen === genId && live.bodyName === ourName) {
+    if (prevBodyName && prevBodyName !== ourName && !isUnsafeBodyFileName(prevBodyName)) {
+      live = readLiveBodyRef(entriesDir, key);
+      if (live.gen === genId && live.bodyName === ourName && live.bodyName !== prevBodyName) {
+        const candidate = join(entriesDir, prevBodyName);
+        if (pathContainedInEntries(entriesDir, candidate)) safeUnlink(candidate);
+      }
+    }
+    return;
+  }
+
+  live = readLiveBodyRef(entriesDir, key);
+  if (live.bodyName !== ourName) safeUnlink(ourBody);
+}
+
+function renameWithRetry(from, to, attempts = 12) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (e) {
+      lastErr = e;
+      // Windows EPERM/EACCES under concurrent meta replace — back off.
+      const start = Date.now();
+      while (Date.now() - start < 20 * (i + 1)) {
+        /* spin */
+      }
+    }
+  }
+  throw lastErr;
+}
+
 export function getCached(method, url, opts = {}) {
   const cacheDir = opts.cacheDir || getCachePath();
   if (!cacheDir) return null;
@@ -175,17 +372,14 @@ export function getCached(method, url, opts = {}) {
   const maxAge = opts.maxAge ?? DEFAULT_MAX_AGE_SECONDS;
   const age = Date.now() / 1000 - (meta.created_at || 0);
   if (age > maxAge) return null;
-  let bodyPath;
-  if (typeof meta.body_file === 'string' && meta.body_file && !meta.body_file.includes('..')) {
-    bodyPath = join(entriesDir, meta.body_file);
-  } else if (meta.generation_id) {
-    const genPath = join(entriesDir, `${key}.${meta.generation_id}.body`);
-    bodyPath = existsSync(genPath) ? genPath : join(entriesDir, `${key}.body`);
-  } else {
-    bodyPath = join(entriesDir, `${key}.body`);
+  const bodyPath = resolveBodyPath(entriesDir, key, meta);
+  if (!bodyPath) return null;
+  let bodyBytes;
+  try {
+    bodyBytes = readFileSync(bodyPath);
+  } catch {
+    return null;
   }
-  if (!existsSync(bodyPath)) return null;
-  const bodyBytes = readFileSync(bodyPath);
   if (meta.body_sha256 && meta.body_sha256 !== bodySha256(bodyBytes)) return null;
   if (meta.body_size != null && Number(meta.body_size) !== bodyBytes.length) return null;
   return {
@@ -228,7 +422,7 @@ export function putCache(method, url, status, responseHeaders, body, opts = {}) 
   const bodyBuf = typeof body === 'string' ? Buffer.from(body, 'utf-8') : Buffer.from(body);
   const genId = randomBytes(16).toString('hex');
   const hash = bodySha256(bodyBuf);
-  const bodyFile = `${key}.${genId}.body`;
+  const bodyFile = canonicalGenerationBodyName(key, genId);
   const meta = {
     key,
     url: redactUrl(url),
@@ -244,34 +438,83 @@ export function putCache(method, url, status, responseHeaders, body, opts = {}) 
   const entries = join(cacheDir, 'entries');
   const metaPath = join(entries, `${key}.json`);
   const bodyPath = join(entries, bodyFile);
+  const prev = readLiveBodyRef(entries, key);
+  const prevBodyName = prev.bodyName;
   const tmpBody = join(entries, `${key}.${genId}.body.tmp`);
   const tmpMeta = join(entries, `${key}.${genId}.json.tmp`);
   try {
     writeFileSync(tmpBody, bodyBuf);
     writeFileSync(tmpMeta, JSON.stringify(meta, null, 2), 'utf-8');
-    // Generation-scoped body first, then atomic meta publish.
-    renameSync(tmpBody, bodyPath);
-    renameSync(tmpMeta, metaPath);
+    renameWithRetry(tmpBody, bodyPath);
+    try {
+      renameWithRetry(tmpMeta, metaPath);
+    } catch (e) {
+      safeUnlink(tmpMeta);
+      cleanupWriterGeneration(entries, key, genId, false, prevBodyName);
+      throw e;
+    }
     try {
       chmodSync(metaPath, 0o600);
       chmodSync(bodyPath, 0o600);
     } catch {
       /* windows */
     }
+    cleanupWriterGeneration(entries, key, genId, true, prevBodyName);
   } catch (e) {
     try {
-      unlinkSync(tmpBody);
+      safeUnlink(tmpBody);
     } catch {
       /* ignore */
     }
     try {
-      unlinkSync(tmpMeta);
+      safeUnlink(tmpMeta);
     } catch {
       /* ignore */
     }
     throw e;
   }
   return key;
+}
+
+export function countCacheFiles(entriesDir) {
+  let meta = 0;
+  let body = 0;
+  let temp = 0;
+  if (!existsSync(entriesDir)) return { meta, body, temp };
+  for (const name of readdirSync(entriesDir)) {
+    if (name.endsWith('.tmp') || name.endsWith('.body.tmp') || name.endsWith('.json.tmp')) {
+      temp += 1;
+    } else if (name.endsWith('.json')) {
+      meta += 1;
+    } else if (name.endsWith('.body')) {
+      body += 1;
+    }
+  }
+  return { meta, body, temp };
+}
+
+function unlinkMetaAndBody(entriesDir, metaPath, key) {
+  let bodyName = null;
+  try {
+    const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    bodyName = metaReferencedBodyName(key, meta);
+  } catch {
+    bodyName = null;
+  }
+  let deleted = safeUnlink(metaPath);
+  if (bodyName && !isUnsafeBodyFileName(bodyName)) {
+    const candidate = join(entriesDir, bodyName);
+    if (pathContainedInEntries(entriesDir, candidate)) {
+      deleted = safeUnlink(candidate) || deleted;
+    }
+  }
+  const legacy = join(entriesDir, `${key}.body`);
+  if (existsSync(legacy) && (!bodyName || basename(legacy) !== bodyName)) {
+    if (pathContainedInEntries(entriesDir, legacy)) {
+      deleted = safeUnlink(legacy) || deleted;
+    }
+  }
+  return deleted;
 }
 
 export function purgeCache(opts = {}) {
@@ -283,39 +526,88 @@ export function purgeCache(opts = {}) {
   const maxAge = opts.maxAge ?? DEFAULT_MAX_AGE_SECONDS;
   const now = Date.now() / 1000;
   let purged = 0;
-  for (const name of readdirSync(entriesDir)) {
+  const referencedBodies = new Set();
+  const names = readdirSync(entriesDir);
+
+  for (const name of names) {
     if (!name.endsWith('.json') || name.includes('.tmp')) continue;
     const metaPath = join(entriesDir, name);
-    const bodyPath = metaPath.replace(/\.json$/, '.body');
+    const key = name.slice(0, -'.json'.length);
     let shouldPurge = purgeAll;
+    let meta = null;
     if (!shouldPurge) {
       try {
-        const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+        meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
         if (now - (meta.created_at || 0) > maxAge) shouldPurge = true;
       } catch {
         shouldPurge = true;
       }
     }
     if (shouldPurge) {
-      try {
-        unlinkSync(metaPath);
-      } catch {
-        /* ignore */
+      if (unlinkMetaAndBody(entriesDir, metaPath, key)) purged += 1;
+    } else {
+      if (!meta) {
+        try {
+          meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+        } catch {
+          meta = null;
+        }
       }
-      try {
-        unlinkSync(bodyPath);
-      } catch {
-        /* ignore */
+      if (meta) {
+        const ref = metaReferencedBodyName(key, meta);
+        if (ref) referencedBodies.add(ref);
       }
-      purged++;
     }
   }
+
+  if (purgeAll) {
+    for (const name of readdirSync(entriesDir)) {
+      const p = join(entriesDir, name);
+      if (
+        name.endsWith('.body') ||
+        name.endsWith('.tmp') ||
+        name.endsWith('.body.tmp') ||
+        name.endsWith('.json.tmp') ||
+        name.endsWith('.json')
+      ) {
+        if (safeUnlink(p)) purged += 1;
+      }
+    }
+  } else {
+    for (const name of readdirSync(entriesDir)) {
+      const p = join(entriesDir, name);
+      let age;
+      try {
+        age = now - statSync(p).mtimeMs / 1000;
+      } catch {
+        continue;
+      }
+      if (name.endsWith('.tmp') || name.endsWith('.body.tmp') || name.endsWith('.json.tmp')) {
+        if (age > maxAge && safeUnlink(p)) purged += 1;
+        continue;
+      }
+      if (!name.endsWith('.body')) continue;
+      if (referencedBodies.has(name)) continue;
+      if (age > maxAge && safeUnlink(p)) purged += 1;
+    }
+  }
+
+  if (purgeAll) {
+    const left = countCacheFiles(entriesDir);
+    if (left.meta || left.body || left.temp) {
+      throw new Error(
+        `purge --all incomplete (meta=${left.meta} body=${left.body} temp=${left.temp})`
+      );
+    }
+  }
+
   return purged;
 }
 
 async function selfTest() {
-  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { mkdtempSync, rmSync, symlinkSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
+  const { Worker } = await import('node:worker_threads');
   const errors = [];
   const tmpDir = mkdtempSync(join(tmpdir(), 'http_cache_test_'));
   const cd = join(tmpDir, 'cache');
@@ -346,29 +638,163 @@ async function selfTest() {
       errors.push('Vary:* must not cache');
     }
 
-    // Concurrent writers
-    const { Worker, isMainThread, workerData, parentPort } = await import('node:worker_threads');
-    // Use Promise.all of putCache calls (same process, concurrent async is single-threaded but
-    // we can still stress rename races with many sequential+parallel promises).
+    // Sequential 5 overwrites → one body
+    const url5 = 'https://example.com/five';
+    for (let i = 0; i < 5; i++) {
+      putCache('GET', url5, 200, {}, `body-${i}`);
+    }
+    const hit5 = getCached('GET', url5);
+    if (!hit5 || hit5.body.toString() !== 'body-4') errors.push('5 overwrites latest miss');
+    const key5 = cacheKey('GET', url5);
+    const entriesDir = join(cd, 'entries');
+    const bodies5 = readdirSync(entriesDir).filter((n) => n.startsWith(key5) && n.endsWith('.body'));
+    const metas5 = readdirSync(entriesDir).filter((n) => n === `${key5}.json`);
+    if (metas5.length !== 1 || bodies5.length !== 1) {
+      errors.push(`after 5 overwrites meta=${metas5.length} body=${bodies5.length}`);
+    }
+
+    // F-08 containment
+    const secretPath = join(tmpDir, 'outside-secret.txt');
+    writeFileSync(secretPath, 'TOPSECRET-OUTSIDE-BYTES');
+    const poisonUrl = 'https://example.com/poison';
+    const poisonKey = putCache('GET', poisonUrl, 200, {}, 'legit-inside');
+    const poisonMetaPath = join(entriesDir, `${poisonKey}.json`);
+    const poisonMeta = JSON.parse(readFileSync(poisonMetaPath, 'utf-8'));
+
+    function poisonAndGet(bodyFile, bodyStr) {
+      const m = { ...poisonMeta, body_file: bodyFile, body_sha256: bodySha256(Buffer.from(bodyStr)), body_size: Buffer.byteLength(bodyStr) };
+      writeFileSync(poisonMetaPath, JSON.stringify(m), 'utf-8');
+      return getCached('GET', poisonUrl);
+    }
+
+    if (poisonAndGet(secretPath, 'TOPSECRET-OUTSIDE-BYTES') !== null) {
+      errors.push('absolute body_file must miss');
+    }
+    writeFileSync(join(cd, 'secret2.txt'), 'TRAVERSAL');
+    if (poisonAndGet('../secret2.txt', 'TRAVERSAL') !== null) {
+      errors.push('traversal body_file must miss');
+    }
+    if (poisonAndGet('subdir/file.body', 'NESTED') !== null) {
+      errors.push('nested body_file must miss');
+    }
+    if (poisonAndGet('C:\\Windows\\win.ini', 'WIN') !== null) {
+      errors.push('drive path body_file must miss');
+    }
+    if (poisonAndGet('\\\\server\\share\\x.body', 'UNC') !== null) {
+      errors.push('UNC body_file must miss');
+    }
+    writeFileSync(poisonMetaPath, JSON.stringify(poisonMeta), 'utf-8');
+    const canon = getCached('GET', poisonUrl);
+    if (!canon || canon.body.toString() !== 'legit-inside') errors.push('canonical body must hit');
+
+    // Legacy without body_file
+    const legKey = cacheKey('GET', 'https://example.com/legacy');
+    const legMeta = {
+      key: legKey,
+      url: 'https://example.com/legacy',
+      method: 'GET',
+      status: 200,
+      headers: {},
+      created_at: Math.floor(Date.now() / 1000),
+      body_sha256: bodySha256(Buffer.from('legacy-body')),
+      body_size: Buffer.byteLength('legacy-body'),
+    };
+    writeFileSync(join(entriesDir, `${legKey}.json`), JSON.stringify(legMeta), 'utf-8');
+    writeFileSync(join(entriesDir, `${legKey}.body`), 'legacy-body');
+    const legHit = getCached('GET', 'https://example.com/legacy');
+    if (!legHit || legHit.body.toString() !== 'legacy-body') errors.push('legacy round-trip failed');
+
+    // Symlink escape
+    try {
+      const target = join(tmpDir, 'symlink-target.txt');
+      writeFileSync(target, 'SYMLINK-SECRET');
+      const linkName = `${poisonKey}.${'c'.repeat(32)}.body`;
+      const linkPath = join(entriesDir, linkName);
+      symlinkSync(target, linkPath);
+      const m = {
+        ...poisonMeta,
+        body_file: linkName,
+        generation_id: 'c'.repeat(32),
+        body_sha256: bodySha256(Buffer.from('SYMLINK-SECRET')),
+        body_size: Buffer.byteLength('SYMLINK-SECRET'),
+      };
+      writeFileSync(poisonMetaPath, JSON.stringify(m), 'utf-8');
+      const sym = getCached('GET', poisonUrl);
+      if (sym && sym.body.toString() === 'SYMLINK-SECRET') {
+        errors.push('symlink escape must miss');
+      }
+    } catch {
+      /* symlink may require privileges on Windows */
+    }
+
+    // Corrupt meta
+    const badKey = cacheKey('GET', 'https://example.com/corrupt');
+    writeFileSync(join(entriesDir, `${badKey}.json`), '{not-json', 'utf-8');
+    if (getCached('GET', 'https://example.com/corrupt') !== null) {
+      errors.push('corrupt meta must miss');
+    }
+
+    // True multi-process concurrency via worker_threads (not Promise.resolve sync fakes)
     const urlC = 'https://example.com/concurrent';
-    const jobs = [];
-    for (let i = 0; i < 100; i++) {
-      jobs.push(
-        Promise.resolve().then(() =>
-          putCache('GET', urlC, 200, { 'content-type': 'text/plain' }, `body-${i}`)
-        )
+    const workerSrc = `
+      const { parentPort, workerData } = require('node:worker_threads');
+      const path = require('node:path');
+      const { pathToFileURL } = require('node:url');
+      (async () => {
+        const mod = await import(pathToFileURL(workerData.modulePath).href);
+        process.env.D_RESEARCH_HTTP_CACHE_PATH = workerData.cacheDir;
+        const errors = [];
+        try {
+          for (const i of workerData.indices) {
+            mod.putCache('GET', workerData.url, 200, { 'content-type': 'text/plain' }, 'body-' + i);
+          }
+        } catch (e) {
+          errors.push(String(e && e.message ? e.message : e));
+        }
+        parentPort.postMessage({ errors });
+      })();
+    `;
+    const modulePath = fileURLToPath(import.meta.url);
+    const workers = [];
+    const perWorker = 10;
+    const workerCount = 10;
+    for (let w = 0; w < workerCount; w++) {
+      const indices = [];
+      for (let i = 0; i < perWorker; i++) indices.push(w * perWorker + i);
+      workers.push(
+        new Promise((resolvePromise, reject) => {
+          const worker = new Worker(workerSrc, {
+            eval: true,
+            workerData: { modulePath, cacheDir: cd, url: urlC, indices },
+          });
+          worker.on('message', resolvePromise);
+          worker.on('error', reject);
+          worker.on('exit', (code) => {
+            if (code !== 0) reject(new Error(`worker exit ${code}`));
+          });
+        })
       );
     }
     try {
-      await Promise.all(jobs);
+      const results = await Promise.all(workers);
+      for (const r of results) {
+        if (r.errors && r.errors.length) {
+          errors.push(`worker error: ${r.errors[0]}`);
+          break;
+        }
+      }
     } catch (e) {
-      errors.push(`concurrent put exception: ${e.message || e}`);
+      errors.push(`concurrent workers failed: ${e.message || e}`);
     }
+    const ck = cacheKey('GET', urlC);
+    gcUnreferencedBodiesForKey(entriesDir, ck);
     const finalHit = getCached('GET', urlC);
     if (!finalHit) errors.push('concurrent final miss');
     else if (bodySha256(finalHit.body) !== finalHit.body_sha256) {
       errors.push('concurrent body/meta hash mismatch');
     }
+    const orphanN = readdirSync(entriesDir).filter((n) => n.startsWith(ck) && n.endsWith('.body')).length;
+    if (orphanN !== 1) errors.push(`after concurrent settle expected 1 body, got ${orphanN}`);
 
     const refused = putCache('GET', 'https://example.com/api', 200, {}, 'x', {
       requestHeaders: { 'X-Token': 'TOPSECRET' },
@@ -378,6 +804,13 @@ async function selfTest() {
       requestHeaders: { 'X-Session-ID': 'SESSIONSECRET' },
     });
     if (refusedSession !== null) errors.push('X-Session-ID must not cache without allowPrivate');
+
+    // purge --all must clear everything
+    purgeCache({ all: true, cacheDir: cd });
+    const left = countCacheFiles(entriesDir);
+    if (left.meta || left.body || left.temp) {
+      errors.push(`purge --all left meta=${left.meta} body=${left.body} temp=${left.temp}`);
+    }
   } finally {
     delete process.env[CACHE_ENV];
     try {

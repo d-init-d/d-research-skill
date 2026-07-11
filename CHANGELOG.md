@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **F-06:** Social/pinned HTTPS transport streams response bodies with size-aware
+  `read(n)`; production no longer buffers unbounded `resp.read()` before
+  `social_max_bytes` applies. Connection/TLS close on all paths; resource-limit
+  exit code 3 preserved.
+- **F-07:** HTTP cache generation bodies are reclaimed after meta publish
+  (winner deletes previous generation; loser deletes own body). `purge --all`
+  and age-based purge remove generation bodies, legacy bodies, and temps.
+  Python and Node implementations share the race protocol.
+- **F-08:** Cache `body_file` is restricted to canonical
+  `<key>.<generation>.body` basenames inside `entries/`; absolute, traversal,
+  UNC, and symlink-escape paths miss without reading outside bytes.
+
+### Security
+
+- **L-01:** Inventory in `docs/ssrf-helper-inventory.md`. `api_fetch.mjs` applies
+  `lib/ssrf_guards.mjs` on the initial URL and every redirect hop. Social path
+  remains DNS-pinned. Fixed official endpoints and browser seeds documented as
+  accepted-risk with rationale (not arbitrary URL fetchers).
+- **L-02:** GitHub Actions pin comments aligned to exact release tags that contain
+  the immutable 40-character SHAs (`checkout@v4.3.1`, `setup-python@v5.6.0`,
+  `setup-node@v4.4.0`, `upload-artifact@v4.6.2`, `lychee-action@v2.9.0`,
+  `attest-build-provenance@v2.4.0`).
 
 ## [3.2.0-rc.1] - 2026-07-10
 

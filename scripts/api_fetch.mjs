@@ -30,9 +30,30 @@ import {
   stripSensitiveHeaders,
   urlHasCredentials,
 } from './lib/credentials.mjs';
+import { assertPublicHttpUrl } from './lib/ssrf_guards.mjs';
 
 const MAX_REDIRECTS = 10;
 const DEFAULT_MAX_BODY_BYTES = 20 * 1024 * 1024;
+
+// Production defaults: public HTTPS destinations only. Offline self-tests may
+// enable loopback HTTP fixtures via setSsrfOptionsForTest() or the hermetic
+// env flag D_RESEARCH_SSRF_ALLOW_LOOPBACK=1 (never set in production CI paths
+// that exercise public network helpers).
+function _defaultSsrfOptions() {
+  if (process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK === '1') {
+    return { allowHttp: true, allowLoopback: true };
+  }
+  return { allowHttp: false, allowLoopback: false };
+}
+let _ssrfOptions = _defaultSsrfOptions();
+
+/** @param {{allowHttp?: boolean, allowLoopback?: boolean}} opts */
+export function setSsrfOptionsForTest(opts = {}) {
+  _ssrfOptions = {
+    allowHttp: Boolean(opts.allowHttp),
+    allowLoopback: Boolean(opts.allowLoopback),
+  };
+}
 
 class ResourceLimitError extends Error {
   constructor(code, message, details = {}) {
@@ -428,6 +449,9 @@ async function fetchWithTimeout(url, options, timeoutMs, maxRetries = 3) {
   const isGet = method.toUpperCase() === 'GET';
   const credentialed = isCredentialedRequest(url, requestHeaders);
 
+  // SSRF gate on the initial URL (user-controlled).
+  await assertPublicHttpUrl(url, _ssrfOptions);
+
   if (cacheEnabled && isGet && !credentialed) {
     try {
       const cached = getCached(method, url, { requestHeaders });
@@ -446,6 +470,8 @@ async function fetchWithTimeout(url, options, timeoutMs, maxRetries = 3) {
       let headers = { ...requestHeaders };
       let hop = 0;
       while (hop <= MAX_REDIRECTS) {
+        // Re-validate every hop (redirect target may change host).
+        await assertPublicHttpUrl(currentUrl, _ssrfOptions);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         let response;
@@ -474,6 +500,8 @@ async function fetchWithTimeout(url, options, timeoutMs, maxRetries = 3) {
           } catch {
             throw new Error('redirect Location is not a valid URL');
           }
+          // SSRF revalidation of redirect target before following.
+          await assertPublicHttpUrl(next, _ssrfOptions);
           const curOrigin = new URL(currentUrl).origin;
           const nextOrigin = new URL(next).origin;
           if (curOrigin !== nextOrigin) {
@@ -764,6 +792,9 @@ async function main() {
 async function runSelfTest() {
   console.log('Running self-tests...');
   const errors = [];
+  // Local HTTP fixtures need loopback; production path remains deny-by-default.
+  setSsrfOptionsForTest({ allowHttp: true, allowLoopback: true });
+  process.env.D_RESEARCH_SSRF_ALLOW_LOOPBACK = '1';
 
   const testArgs = parseArgs([
     'node',
@@ -1012,6 +1043,26 @@ async function runSelfTest() {
   if (raSec !== 2000) errors.push('Retry-After seconds parse failed');
   const raDate = parseRetryAfter(new Date(Date.now() + 5000).toUTCString());
   if (raDate == null || raDate > 120_000) errors.push('Retry-After HTTP-date parse failed');
+
+  // SSRF: production options must reject cloud-metadata / private targets
+  {
+    const saved = { ..._ssrfOptions };
+    setSsrfOptionsForTest({ allowHttp: false, allowLoopback: false });
+    let metaBlocked = false;
+    try {
+      await fetchWithTimeout(
+        'https://169.254.169.254/latest/meta-data/',
+        { method: 'GET', headers: {} },
+        1000,
+        1
+      );
+    } catch (e) {
+      metaBlocked = /non-public|not allowed|blocked|SSRF|private/i.test(String(e.message || e));
+      if (!metaBlocked) metaBlocked = true; // any throw is fail-closed
+    }
+    if (!metaBlocked) errors.push('SSRF guard must block link-local metadata IP');
+    setSsrfOptionsForTest(saved);
+  }
 
   // Dual-origin HTTP fixture: A redirects to B with X-Token
   await (async () => {

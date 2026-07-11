@@ -30,6 +30,23 @@ Production/Stable) implementing remaining High/Medium plan items:
 - Safety language: captcha/stealth are **never allowed**
 - Tested v3.1.1 workspace migration guide and committed upgrade fixture
 
+## Post-candidate transport/cache hard-fixes (this branch)
+
+Independent verification closed three regressions before dogfood:
+
+- **F-06** bounded social transport (streaming pinned HTTPS; no unbounded
+  `resp.read()` before `social_max_bytes`)
+- **F-07** generation cache body lifecycle + purge (Python + Node)
+- **F-08** `body_file` path containment (no absolute/traversal/symlink escape)
+
+Low findings:
+
+- **L-01** SSRF inventory (`docs/ssrf-helper-inventory.md`); `api_fetch.mjs`
+  validates public destinations on every hop; fixed endpoints documented
+- **L-02** Action pin comments matched to exact tags containing the immutable SHAs
+
+Do **not** dogfood or tag a superseded intermediate SHA after these fixes.
+
 ## Remaining external blockers (truthful)
 
 1. **Live dogfood** Tier 1 + Tier 2 vs v3.1.1 under identical runtime/model/tool

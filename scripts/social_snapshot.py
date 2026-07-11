@@ -270,13 +270,20 @@ def _fetch_json(url: str) -> dict:
     except FetchError:
         raise
     except urllib.error.HTTPError as e:
-        if e.code in (404, 410):
-            raise FetchError("deleted", f"post not found at {url}", e.code) from e
-        if e.code == 403:
-            raise FetchError("access_denied", f"access denied for {url}", e.code) from e
-        if e.code == 429:
-            raise FetchError("rate_limited", f"rate limited for {url}", e.code) from e
-        raise FetchError("unavailable", f"HTTP {e.code} for {url}", e.code) from e
+        try:
+            if e.code in (404, 410):
+                raise FetchError("deleted", f"post not found at {url}", e.code) from e
+            if e.code == 403:
+                raise FetchError("access_denied", f"access denied for {url}", e.code) from e
+            if e.code == 429:
+                raise FetchError("rate_limited", f"rate limited for {url}", e.code) from e
+            raise FetchError("unavailable", f"HTTP {e.code} for {url}", e.code) from e
+        finally:
+            # Close pinned streaming error body without draining it unbounded.
+            try:
+                e.close()
+            except Exception:
+                pass
     except urllib.error.URLError as e:
         raise FetchError("unavailable", f"could not resolve or connect to {url}: {e.reason}") from e
     except TimeoutError as e:

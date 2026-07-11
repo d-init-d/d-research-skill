@@ -15,7 +15,8 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via Crossref with DataCite fallback
 - `scripts/resource_limits.py`: conservative HTTP/file/Excel/PDF/OCR/subprocess/table/Wayback/social caps; structured incomplete blockers on violation
 - `scripts/check_contract.py`: dynamic version/config/path/count/CLI contract checks for release readiness
-- `scripts/_ssrf_helpers.py`: shared public-host / SSRF guard helpers
+- `scripts/_ssrf_helpers.py`: shared public-host / SSRF guard helpers (Python; DNS-pinned open for social)
+- `scripts/lib/ssrf_guards.mjs`: shared public-host / SSRF guard helpers (Node; used by `api_fetch.mjs` on URL + redirect hops)
 - `scripts/lib/credentials.mjs`: credential classification and redaction for Node HTTP clients
 - `scripts/lib/browser_limits.mjs`: shared Playwright main-document response cap, structured exit-3 blocker, and limit parsing used by probe/extract/crawl
 - `scripts/browser_smoke.mjs`: real Chromium launch + local fixture smoke (probe/extract/crawl/robots/TLS/local-only)

@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -32,6 +33,25 @@ from typing import Any
 
 CACHE_ENV = "D_RESEARCH_HTTP_CACHE_PATH"
 DEFAULT_MAX_AGE_SECONDS = 7 * 24 * 3600  # 7 days
+
+# Generation ids are uuid4().hex / 16 random bytes as hex (32 lowercase hex).
+_GENERATION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+# ---------------------------------------------------------------------------
+# Generation lifecycle protocol (Python ↔ Node must match)
+# ---------------------------------------------------------------------------
+# Writers A and B may both observe old generation O, then:
+#   1) each publishes body to a unique {key}.{gen}.body path
+#   2) each atomically publishes {key}.json meta pointing at its body
+#   3) after meta publish, re-read live meta:
+#        - if live generation == ours: we won → delete O and other non-live
+#          generation bodies for this key (never delete live body)
+#        - if live generation != ours: we lost → delete only our body
+#   4) if meta publish fails: delete our temp meta and our body if unreferenced
+# Readers must return one consistent generation (meta+body hash/size match)
+# or a miss — never mixed generations. Concurrent purge may cause a temporary
+# miss; that is acceptable. Never delete a body still referenced by live meta.
+# ---------------------------------------------------------------------------
 
 # Headers that affect response shape and must be hashed into the cache key.
 # Listed in lowercase for case-insensitive comparison.
@@ -172,6 +192,219 @@ def _ensure_cache_dir(cache_dir: Path) -> None:
     (cache_dir / "entries").mkdir(exist_ok=True)
 
 
+def _is_generation_id(value: object) -> bool:
+    return isinstance(value, str) and bool(_GENERATION_ID_RE.fullmatch(value))
+
+
+def _is_unsafe_body_file_name(name: str) -> bool:
+    """True when body_file cannot be a safe basenamed generation body."""
+    if not name or not isinstance(name, str):
+        return True
+    # Absolute, drive-relative, UNC, or any directory component.
+    if name.startswith(("/", "\\")):
+        return True
+    if len(name) >= 2 and name[1] == ":":
+        return True
+    if "\\" in name or "/" in name:
+        return True
+    if ".." in name:
+        return True
+    try:
+        if Path(name).is_absolute():
+            return True
+    except (OSError, ValueError):
+        return True
+    # Must be a single path segment (basename only).
+    if Path(name).name != name:
+        return True
+    return False
+
+
+def _canonical_generation_body_name(key: str, generation_id: str) -> str:
+    return f"{key}.{generation_id}.body"
+
+
+def _is_canonical_body_file(name: str, key: str, generation_id: object | None) -> bool:
+    """Accept only ``<key>.<generation>.body`` under the declared generation."""
+    if _is_unsafe_body_file_name(name):
+        return False
+    if not name.endswith(".body"):
+        return False
+    prefix = f"{key}."
+    if not name.startswith(prefix):
+        return False
+    gen_part = name[len(prefix) : -len(".body")]
+    if not _is_generation_id(gen_part):
+        return False
+    if generation_id is not None and generation_id != "":
+        if not _is_generation_id(generation_id):
+            return False
+        if gen_part != generation_id:
+            return False
+    return True
+
+
+def _path_contained_in_entries(entries: Path, candidate: Path) -> bool:
+    """True when resolved *candidate* stays inside resolved *entries*."""
+    try:
+        entries_r = entries.resolve()
+        cand_r = candidate.resolve()
+        cand_r.relative_to(entries_r)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _resolve_body_path(entries: Path, key: str, meta: dict[str, Any]) -> Path | None:
+    """Resolve a safe on-disk body path for *meta*, or None (cache miss).
+
+    New-format metadata with ``body_file`` must pass strict filename and
+    containment checks. Invalid ``body_file`` is a hard miss — no fallback to
+    alternate paths (prevents poisoned-meta path escape).
+
+    Legacy entries without ``body_file`` may use ``{key}.{generation}.body`` or
+    ``{key}.body``.
+    """
+    body_rel = meta.get("body_file")
+    gen = meta.get("generation_id")
+
+    if isinstance(body_rel, str) and body_rel:
+        # Invalid new-format body_file → miss (do not fall back).
+        if not _is_canonical_body_file(body_rel, key, gen):
+            return None
+        candidate = entries / body_rel
+        if not _path_contained_in_entries(entries, candidate):
+            return None
+        if not candidate.is_file():
+            return None
+        # Symlink escape: resolve must still be inside entries.
+        if not _path_contained_in_entries(entries, candidate):
+            return None
+        return candidate
+
+    # True legacy metadata (no body_file field).
+    if _is_generation_id(gen):
+        gen_path = entries / _canonical_generation_body_name(key, str(gen))
+        if gen_path.is_file() and _path_contained_in_entries(entries, gen_path):
+            return gen_path
+    legacy = entries / f"{key}.body"
+    if legacy.is_file() and _path_contained_in_entries(entries, legacy):
+        return legacy
+    return None
+
+
+def _meta_referenced_body_name(key: str, meta: dict[str, Any]) -> str | None:
+    """Return the basenamed body file referenced by *meta*, if determinable."""
+    body_rel = meta.get("body_file")
+    gen = meta.get("generation_id")
+    if isinstance(body_rel, str) and body_rel:
+        if _is_canonical_body_file(body_rel, key, gen):
+            return body_rel
+        return None
+    if _is_generation_id(gen):
+        return _canonical_generation_body_name(key, str(gen))
+    return f"{key}.body"
+
+
+def _safe_unlink(path: Path) -> bool:
+    try:
+        path.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _gc_unreferenced_bodies_for_key(entries: Path, key: str) -> int:
+    """Delete generation/legacy bodies for *key* not referenced by live meta.
+
+    Safe only when no concurrent writers are publishing that key (post-settle
+    or purge). Returns number of unlinks attempted.
+    """
+    live_body, _live_gen = _read_live_body_ref(entries, key)
+    removed = 0
+    for path in list(entries.glob(f"{key}*.body")):
+        # Match {key}.body or {key}.{gen}.body — not unrelated keys that share prefix.
+        name = path.name
+        if name == f"{key}.body":
+            if live_body == name:
+                continue
+            if _safe_unlink(path):
+                removed += 1
+            continue
+        prefix = f"{key}."
+        if not name.startswith(prefix) or not name.endswith(".body"):
+            continue
+        mid = name[len(prefix) : -len(".body")]
+        if not _is_generation_id(mid):
+            continue
+        if live_body == name:
+            continue
+        if _safe_unlink(path):
+            removed += 1
+    return removed
+
+
+def _read_live_body_ref(entries: Path, key: str) -> tuple[str | None, str | None]:
+    """Return (live_body_name, live_generation_id) for *key*, or (None, None)."""
+    meta_path = entries / f"{key}.json"
+    if not meta_path.is_file():
+        return None, None
+    try:
+        live_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None, None
+    live_body_name = _meta_referenced_body_name(key, live_meta)
+    lg = live_meta.get("generation_id")
+    live_gen = str(lg) if _is_generation_id(lg) else None
+    return live_body_name, live_gen
+
+
+def _cleanup_writer_generation(
+    entries: Path,
+    key: str,
+    gen_id: str,
+    *,
+    published_meta: bool,
+    prev_body_name: str | None = None,
+) -> None:
+    """Apply post-publish / failed-publish generation body cleanup.
+
+    See module protocol comment. Winner only deletes the previously observed
+    live body (``prev_body_name``), never every unreferenced generation — that
+    would race with in-flight writers that have published a body but not yet
+    swapped meta. Loser deletes only its own body when unreferenced. Orphan
+    generation bodies are collected by age-based / purge-all GC.
+    """
+    our_name = _canonical_generation_body_name(key, gen_id)
+    our_body = entries / our_name
+    live_body_name, live_gen = _read_live_body_ref(entries, key)
+
+    if not published_meta:
+        # Meta publish failed: drop our body only if live meta does not ref it.
+        if live_body_name != our_name:
+            _safe_unlink(our_body)
+        return
+
+    if live_gen == gen_id and live_body_name == our_name:
+        # We own live meta: delete only the superseded body we observed.
+        if (
+            prev_body_name
+            and prev_body_name != our_name
+            and not _is_unsafe_body_file_name(prev_body_name)
+        ):
+            cur_body, cur_gen = _read_live_body_ref(entries, key)
+            if cur_gen == gen_id and cur_body == our_name and cur_body != prev_body_name:
+                candidate = entries / prev_body_name
+                if _path_contained_in_entries(entries, candidate):
+                    _safe_unlink(candidate)
+        return
+
+    # We lost the meta race (or meta missing): delete only our unreferenced body.
+    live_body_name, _live_gen = _read_live_body_ref(entries, key)
+    if live_body_name != our_name:
+        _safe_unlink(our_body)
+
+
 def get(
     method: str,
     url: str,
@@ -207,21 +440,14 @@ def get(
     if age > age_limit:
         return None
 
-    # Prefer generation-scoped body path (atomic publish); fall back to legacy key.body.
-    body_rel = meta.get("body_file")
-    if isinstance(body_rel, str) and body_rel and ".." not in Path(body_rel).parts:
-        body_path = entries / body_rel
-    else:
-        gen = meta.get("generation_id")
-        if isinstance(gen, str) and gen:
-            candidate = entries / f"{key}.{gen}.body"
-            body_path = candidate if candidate.is_file() else entries / f"{key}.body"
-        else:
-            body_path = entries / f"{key}.body"
-    if not body_path.is_file():
+    body_path = _resolve_body_path(entries, key, meta)
+    if body_path is None:
         return None
 
-    body_bytes = body_path.read_bytes()
+    try:
+        body_bytes = body_path.read_bytes()
+    except OSError:
+        return None
     expected_hash = meta.get("body_sha256")
     expected_size = meta.get("body_size")
     if expected_hash is not None and expected_hash != _body_sha256(body_bytes):
@@ -371,6 +597,8 @@ def put(
     entries = cd / "entries"
     meta_path = entries / f"{key}.json"
     body_path = entries / body_file
+    # Snapshot the live body we intend to supersede (winner cleanup target only).
+    prev_body_name, _prev_gen = _read_live_body_ref(entries, key)
     # Unique temps per writer — never shared .tmp names
     tmp_body = entries / f"{key}.{gen_id}.body.tmp"
     tmp_meta = entries / f"{key}.{gen_id}.json.tmp"
@@ -380,8 +608,9 @@ def put(
             json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         # 1) Publish body to a unique generation path (no cross-writer collision).
-        # 2) Atomically publish meta pointing at that body. Losers of the meta
-        # race leave orphan generation bodies; the live entry always matches.
+        # 2) Atomically publish meta pointing at that body.
+        # 3) Re-read live meta and cleanup: winner deletes prev body only;
+        #    loser deletes only its own unreferenced body (see module protocol).
         last_err: Exception | None = None
         for attempt in range(12):
             try:
@@ -393,10 +622,7 @@ def put(
                 time.sleep(0.02 * (attempt + 1))
         if last_err is not None:
             for p in (tmp_body, tmp_meta):
-                try:
-                    p.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                _safe_unlink(p)
             return key
         last_err = None
         for attempt in range(12):
@@ -408,23 +634,40 @@ def put(
                 last_err = exc
                 time.sleep(0.02 * (attempt + 1))
         if last_err is not None:
-            try:
-                tmp_meta.unlink(missing_ok=True)
-            except OSError:
-                pass
-            # Contended concurrent writers: another generation may already be live.
+            _safe_unlink(tmp_meta)
+            # Meta not published: drop our body if not referenced by live meta.
+            _cleanup_writer_generation(
+                entries,
+                key,
+                gen_id,
+                published_meta=False,
+                prev_body_name=prev_body_name,
+            )
             return key
         try:
             os.chmod(meta_path, 0o600)
             os.chmod(body_path, 0o600)
         except OSError:
             pass
+        _cleanup_writer_generation(
+            entries,
+            key,
+            gen_id,
+            published_meta=True,
+            prev_body_name=prev_body_name,
+        )
     except Exception:
         for p in (tmp_body, tmp_meta):
-            try:
-                p.unlink(missing_ok=True)
-            except OSError:
-                pass
+            _safe_unlink(p)
+        # Best-effort: if body was published but meta was not, drop unreferenced.
+        if body_path.is_file() and not meta_path.is_file():
+            _cleanup_writer_generation(
+                entries,
+                key,
+                gen_id,
+                published_meta=False,
+                prev_body_name=prev_body_name,
+            )
         return key
     return key
 
@@ -444,6 +687,26 @@ def cmd_get_key(args: argparse.Namespace) -> int:
     return 0
 
 
+def _count_cache_files(entries_dir: Path) -> tuple[int, int, int]:
+    """Return (meta_count, body_count, temp_count) excluding nested junk."""
+    meta = 0
+    body = 0
+    temp = 0
+    if not entries_dir.is_dir():
+        return 0, 0, 0
+    for p in entries_dir.iterdir():
+        if not p.is_file():
+            continue
+        name = p.name
+        if name.endswith(".tmp") or ".tmp." in name or name.endswith(".json.tmp") or name.endswith(".body.tmp"):
+            temp += 1
+        elif name.endswith(".json"):
+            meta += 1
+        elif name.endswith(".body"):
+            body += 1
+    return meta, body, temp
+
+
 def cmd_stats(args: argparse.Namespace) -> int:
     """Show cache statistics."""
     cd = Path(args.cache_path) if args.cache_path else get_cache_path()
@@ -460,18 +723,46 @@ def cmd_stats(args: argparse.Namespace) -> int:
     if not entries_dir.is_dir():
         print(f"cache directory has no entries/: {cd}")
         return 0
-    meta_files = list(entries_dir.glob("*.json"))
-    body_files = list(entries_dir.glob("*.body"))
-    total_size = sum(f.stat().st_size for f in meta_files + body_files)
+    meta_n, body_n, temp_n = _count_cache_files(entries_dir)
+    total_size = 0
+    for p in entries_dir.iterdir():
+        if p.is_file():
+            try:
+                total_size += p.stat().st_size
+            except OSError:
+                pass
     print(f"cache_dir: {cd}")
-    print(f"entries:   {len(meta_files)}")
-    print(f"body_files: {len(body_files)}")
+    print(f"entries:   {meta_n}")
+    print(f"body_files: {body_n}")
+    print(f"temp_files: {temp_n}")
     print(f"size_bytes: {total_size}")
     return 0
 
 
+def _unlink_meta_and_body(entries_dir: Path, meta_path: Path) -> bool:
+    """Parse meta, delete meta + referenced body. Return True if work done."""
+    key = meta_path.name[: -len(".json")] if meta_path.name.endswith(".json") else meta_path.stem
+    body_name: str | None = None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        body_name = _meta_referenced_body_name(key, meta)
+    except (json.JSONDecodeError, OSError):
+        body_name = None
+    deleted_any = _safe_unlink(meta_path)
+    if body_name and not _is_unsafe_body_file_name(body_name):
+        candidate = entries_dir / body_name
+        if _path_contained_in_entries(entries_dir, candidate):
+            deleted_any = _safe_unlink(candidate) or deleted_any
+    # Also remove legacy companion if present and distinct.
+    legacy = entries_dir / f"{key}.body"
+    if legacy.is_file() and (body_name is None or legacy.name != body_name):
+        if _path_contained_in_entries(entries_dir, legacy):
+            deleted_any = _safe_unlink(legacy) or deleted_any
+    return deleted_any
+
+
 def cmd_purge(args: argparse.Namespace) -> int:
-    """Remove expired or all entries."""
+    """Remove expired or all entries, including generation bodies and temps."""
     cd = Path(args.cache_path) if args.cache_path else get_cache_path()
     if cd is None:
         print("error: cache not configured", file=sys.stderr)
@@ -484,8 +775,15 @@ def cmd_purge(args: argparse.Namespace) -> int:
     max_age = args.max_age if args.max_age is not None else DEFAULT_MAX_AGE_SECONDS
     now = time.time()
     purged = 0
-    for meta_path in entries_dir.glob("*.json"):
+    referenced_bodies: set[str] = set()
+
+    for meta_path in list(entries_dir.glob("*.json")):
+        # Skip temp meta names if any match the glob oddly
+        if meta_path.name.endswith(".tmp") or ".json.tmp" in meta_path.name:
+            continue
         should_purge = purge_all
+        meta: dict[str, Any] | None = None
+        key = meta_path.name[: -len(".json")]
         if not should_purge:
             try:
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -495,10 +793,65 @@ def cmd_purge(args: argparse.Namespace) -> int:
             except (json.JSONDecodeError, OSError):
                 should_purge = True
         if should_purge:
-            body_path = meta_path.with_suffix(".body")
-            meta_path.unlink(missing_ok=True)
-            body_path.unlink(missing_ok=True)
-            purged += 1
+            if _unlink_meta_and_body(entries_dir, meta_path):
+                purged += 1
+        else:
+            if meta is None:
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    meta = None
+            if meta is not None:
+                ref = _meta_referenced_body_name(key, meta)
+                if ref:
+                    referenced_bodies.add(ref)
+
+    if purge_all:
+        # Remove every remaining body, orphan, and temp.
+        for path in list(entries_dir.iterdir()):
+            if not path.is_file():
+                continue
+            name = path.name
+            if name.endswith((".body", ".tmp")) or name.endswith(".body.tmp") or name.endswith(".json.tmp"):
+                if _safe_unlink(path):
+                    purged += 1
+            elif name.endswith(".json"):
+                if _safe_unlink(path):
+                    purged += 1
+    else:
+        # Age-based: collect orphan generation bodies older than max_age.
+        # Do not delete fresh in-flight temps/bodies (age <= max_age).
+        for path in list(entries_dir.iterdir()):
+            if not path.is_file():
+                continue
+            name = path.name
+            try:
+                age = now - path.stat().st_mtime
+            except OSError:
+                continue
+            if name.endswith(".tmp") or name.endswith(".body.tmp") or name.endswith(".json.tmp"):
+                if age > max_age:
+                    if _safe_unlink(path):
+                        purged += 1
+                continue
+            if not name.endswith(".body"):
+                continue
+            if name in referenced_bodies:
+                continue
+            if age > max_age:
+                if _safe_unlink(path):
+                    purged += 1
+
+    # Do not claim a clean purge-all if known bodies remain.
+    if purge_all:
+        _m, bodies_left, temps_left = _count_cache_files(entries_dir)
+        if bodies_left or temps_left or _m:
+            print(
+                f"error: purge --all incomplete (meta={_m} body={bodies_left} temp={temps_left})",
+                file=sys.stderr,
+            )
+            return 1
+
     print(f"purged {purged} entries from {cd}")
     return 0
 
@@ -771,6 +1124,8 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                     f"concurrent writers raised {len(exceptions)} exception(s): "
                     f"{exceptions[0][:200]}"
                 )
+            # Post-settle GC for this key (no writers active).
+            _gc_unreferenced_bodies_for_key(cd / "entries", cache_key("GET", url_c))
             final = get("GET", url_c)
             if final is None:
                 errors.append("concurrent writers left unreadable cache entry")
@@ -793,7 +1148,178 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             if rc != 0:
                 errors.append("stats failed")
 
-            # Test 19: purge all
+            # Test 19: sequential overwrites leave one referenced body
+            url5 = "https://example.com/five-overwrites"
+            for i in range(5):
+                put(
+                    "GET",
+                    url5,
+                    200,
+                    {"Content-Type": "text/plain"},
+                    f"gen-body-{i}".encode("utf-8"),
+                )
+            hit5 = get("GET", url5)
+            if not hit5 or hit5.get("body") != b"gen-body-4":
+                errors.append("5 overwrites should hit latest generation body")
+            entries_dir = cd / "entries"
+            key5 = cache_key("GET", url5)
+            metas5 = list(entries_dir.glob(f"{key5}.json"))
+            bodies5 = list(entries_dir.glob(f"{key5}*.body"))
+            temps5 = [
+                p
+                for p in entries_dir.iterdir()
+                if p.is_file() and p.name.startswith(key5) and p.name.endswith(".tmp")
+            ]
+            if len(metas5) != 1 or len(bodies5) != 1 or temps5:
+                errors.append(
+                    f"after 5 overwrites expected meta=1 body=1 temp=0, "
+                    f"got meta={len(metas5)} body={len(bodies5)} temp={len(temps5)}"
+                )
+
+            # Test 20: F-08 body_file containment — absolute / traversal / bad gen
+            secret_path = Path(tmpdir) / "outside-secret.txt"
+            secret_bytes = b"TOPSECRET-OUTSIDE-BYTES"
+            secret_path.write_bytes(secret_bytes)
+            poison_url = "https://example.com/poison"
+            poison_key = put("GET", poison_url, 200, {}, b"legit-inside")
+            poison_meta_path = entries_dir / f"{poison_key}.json"
+            poison_meta = json.loads(poison_meta_path.read_text(encoding="utf-8"))
+
+            def _poison_and_get(body_file_val: str, body: bytes) -> dict[str, Any] | None:
+                m = dict(poison_meta)
+                m["body_file"] = body_file_val
+                m["body_sha256"] = _body_sha256(body)
+                m["body_size"] = len(body)
+                poison_meta_path.write_text(json.dumps(m), encoding="utf-8")
+                return get("GET", poison_url)
+
+            abs_hit = _poison_and_get(str(secret_path), secret_bytes)
+            if abs_hit is not None:
+                errors.append("absolute body_file must miss (F-08)")
+            if abs_hit and abs_hit.get("body") == secret_bytes:
+                errors.append("poisoned absolute body_file leaked outside bytes")
+
+            (cd / "secret2.txt").write_bytes(b"TRAVERSAL")
+            trav_hit = _poison_and_get("../secret2.txt", b"TRAVERSAL")
+            if trav_hit is not None:
+                errors.append("traversal body_file must miss")
+
+            nested_hit = _poison_and_get("subdir/file.body", b"NESTED")
+            if nested_hit is not None:
+                errors.append("nested body_file must miss")
+
+            win_hit = _poison_and_get(r"C:\Windows\win.ini", b"WIN")
+            if win_hit is not None:
+                errors.append("Windows drive body_file must miss")
+
+            unc_hit = _poison_and_get(r"\\server\share\x.body", b"UNC")
+            if unc_hit is not None:
+                errors.append("UNC body_file must miss")
+
+            wrong_key = _poison_and_get(
+                f"{'0' * 64}.{poison_meta.get('generation_id')}.body",
+                b"WRONGKEY",
+            )
+            if wrong_key is not None:
+                errors.append("wrong key prefix body_file must miss")
+
+            wrong_gen = _poison_and_get(
+                f"{poison_key}.{'a' * 32}.body",
+                b"WRONGGEN",
+            )
+            if wrong_gen is not None:
+                errors.append("wrong generation body_file must miss")
+
+            # Canonical generation body still hits
+            poison_meta_path.write_text(json.dumps(poison_meta), encoding="utf-8")
+            canon_hit = get("GET", poison_url)
+            if not canon_hit or canon_hit.get("body") != b"legit-inside":
+                errors.append("canonical generation body must hit")
+
+            # Legacy body without body_file
+            legacy_key = cache_key("GET", "https://example.com/legacy")
+            legacy_meta = {
+                "key": legacy_key,
+                "url": "https://example.com/legacy",
+                "method": "GET",
+                "status": 200,
+                "headers": {},
+                "created_at": int(time.time()),
+                "body_sha256": _body_sha256(b"legacy-body"),
+                "body_size": len(b"legacy-body"),
+            }
+            (entries_dir / f"{legacy_key}.json").write_text(
+                json.dumps(legacy_meta), encoding="utf-8"
+            )
+            (entries_dir / f"{legacy_key}.body").write_bytes(b"legacy-body")
+            leg_hit = get("GET", "https://example.com/legacy")
+            if not leg_hit or leg_hit.get("body") != b"legacy-body":
+                errors.append("legacy cache without body_file must hit")
+
+            # Symlink escape (POSIX / Windows reparse when supported)
+            try:
+                outside_link_target = Path(tmpdir) / "symlink-target.txt"
+                outside_link_target.write_bytes(b"SYMLINK-SECRET")
+                link_name = f"{poison_key}.{'b' * 32}.body"
+                link_path = entries_dir / link_name
+                if link_path.exists():
+                    link_path.unlink()
+                link_path.symlink_to(outside_link_target)
+                m = dict(poison_meta)
+                m["body_file"] = link_name
+                m["generation_id"] = "b" * 32
+                m["body_sha256"] = _body_sha256(b"SYMLINK-SECRET")
+                m["body_size"] = len(b"SYMLINK-SECRET")
+                poison_meta_path.write_text(json.dumps(m), encoding="utf-8")
+                sym_hit = get("GET", poison_url)
+                if sym_hit is not None and sym_hit.get("body") == b"SYMLINK-SECRET":
+                    errors.append("symlink escape body_file must miss")
+            except (OSError, NotImplementedError):
+                pass  # platform may disallow symlinks without elevation
+
+            # Corrupt meta does not crash
+            bad_key = cache_key("GET", "https://example.com/corrupt")
+            (entries_dir / f"{bad_key}.json").write_text("{not-json", encoding="utf-8")
+            if get("GET", "https://example.com/corrupt") is not None:
+                errors.append("corrupt meta must miss without crash")
+
+            # Missing body → miss
+            miss_body_url = "https://example.com/missing-body"
+            mk = put("GET", miss_body_url, 200, {}, b"will-delete")
+            for bp in entries_dir.glob(f"{mk}*.body"):
+                bp.unlink(missing_ok=True)
+            if get("GET", miss_body_url) is not None:
+                errors.append("missing body must miss")
+
+            # Hash mismatch → miss
+            hm_url = "https://example.com/hash-mismatch"
+            hk = put("GET", hm_url, 200, {}, b"original")
+            for bp in entries_dir.glob(f"{hk}*.body"):
+                bp.write_bytes(b"tampered-content!!")
+            if get("GET", hm_url) is not None:
+                errors.append("body hash mismatch must miss")
+
+            # Test 21: age-based purge removes generation body
+            aged_url = "https://example.com/aged"
+            ak = put("GET", aged_url, 200, {}, b"old-entry")
+            ameta = entries_dir / f"{ak}.json"
+            data = json.loads(ameta.read_text(encoding="utf-8"))
+            data["created_at"] = int(time.time()) - 10_000
+            ameta.write_text(json.dumps(data), encoding="utf-8")
+            # also age the body mtime for orphan GC path coverage
+            for bp in entries_dir.glob(f"{ak}*.body"):
+                os.utime(bp, (time.time() - 10_000, time.time() - 10_000))
+            ns_age = argparse.Namespace(cache_path=str(cd), all=False, max_age=60)
+            rc_age = cmd_purge(ns_age)
+            if rc_age != 0:
+                errors.append("age-based purge failed")
+            if get("GET", aged_url) is not None:
+                errors.append("aged entry should be purged")
+            aged_bodies = list(entries_dir.glob(f"{ak}*.body"))
+            if aged_bodies:
+                errors.append("age-based purge must remove generation body")
+
+            # Test 22: purge all clears meta/body/temp
             ns = argparse.Namespace(cache_path=str(cd), all=True, max_age=None)
             rc = cmd_purge(ns)
             if rc != 0:
@@ -801,6 +1327,45 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             result = get("GET", "https://example.com/api")
             if result is not None:
                 errors.append("entry still exists after purge --all")
+            m_left, b_left, t_left = _count_cache_files(entries_dir)
+            if m_left or b_left or t_left:
+                errors.append(
+                    f"purge --all left meta={m_left} body={b_left} temp={t_left}"
+                )
+
+            # Re-check concurrent writers still valid after cleanup changes
+            url_c2 = "https://example.com/concurrent2"
+            exceptions2: list[str] = []
+
+            def _writer2(i: int) -> None:
+                try:
+                    put(
+                        "GET",
+                        url_c2,
+                        200,
+                        {"Content-Type": "text/plain"},
+                        f"c2-{i}".encode("utf-8"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    exceptions2.append(f"{type(exc).__name__}: {exc}")
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
+                list(pool.map(_writer2, range(100)))
+            if exceptions2:
+                errors.append(f"concurrent2 raised: {exceptions2[0]}")
+            ck = cache_key("GET", url_c2)
+            _gc_unreferenced_bodies_for_key(entries_dir, ck)
+            final_c2 = get("GET", url_c2)
+            if final_c2 is None:
+                errors.append("concurrent2 final miss")
+            elif _body_sha256(final_c2["body"]) != final_c2.get("body_sha256"):
+                errors.append("concurrent2 hash mismatch")
+            else:
+                orphan_n = len(list(entries_dir.glob(f"{ck}*.body")))
+                if orphan_n != 1:
+                    errors.append(
+                        f"after concurrent settle expected 1 body, got {orphan_n}"
+                    )
 
             os.environ.pop(CACHE_ENV, None)
     finally:

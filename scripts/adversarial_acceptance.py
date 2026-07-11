@@ -79,6 +79,10 @@ def run_node(
     args: list[str], env: dict | None = None, timeout: int = 120
 ) -> subprocess.CompletedProcess:
     e = os.environ.copy()
+    # Local HTTP fixtures in this matrix use 127.0.0.1. Production api_fetch
+    # denies loopback unless this hermetic flag is set; never export it in
+    # production runbooks. Cases that assert SSRF denial must clear it.
+    e.setdefault("D_RESEARCH_SSRF_ALLOW_LOOPBACK", "1")
     if env:
         e.update(env)
     return subprocess.run(
