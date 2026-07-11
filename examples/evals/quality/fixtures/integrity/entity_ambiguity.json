@@ -1,0 +1,33 @@
+{
+  "report_claims": [
+    {
+      "claim_id": "E1",
+      "text": "Ada Example published the OpenAlex work in 2020",
+      "important": true
+    }
+  ],
+  "ledger_rows": [
+    {
+      "claim_id": "E1",
+      "claim": "Ada Example published the OpenAlex work in 2020",
+      "source_url": "https://openalex.org/W123",
+      "evidence": "author Ada Example",
+      "quote_or_anchor": "Ada Example",
+      "date_published": "2020-01-01",
+      "date_accessed": "2026-01-01",
+      "confidence": "high",
+      "record_type": "fact",
+      "entity_id": "ada-merged",
+      "notes": "merged two people named Ada Example without disambiguation"
+    }
+  ],
+  "sources": [{"url": "https://openalex.org/W123"}],
+  "entity_candidates": [
+    {"id": "ada-1970", "name": "Ada Example", "birth_year": 1970, "role": "researcher"},
+    {"id": "ada-1995", "name": "Ada Example", "birth_year": 1995, "role": "developer"}
+  ],
+  "entity_resolution": {
+    "chosen_id": "ada-merged",
+    "disambiguated": false
+  }
+}
