@@ -1,1 +1,0 @@
-﻿{"skill":"d-research","model":"grok-4.5","agent":"grok-build-implementer","no_synthetic_scores":true,"tools":["web_search","web_fetch","github","playwright","python-stdlib"],"version":"d-research-dogfood-1.0","baseline_sha":"9cd4588100875c89e2efbefec4fb940c6ff2f61e","candidate_sha":"661230a7bf90346eef77158aced988442edb8735"}
