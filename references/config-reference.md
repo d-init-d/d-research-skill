@@ -69,7 +69,7 @@ flag for an individual invocation. Every value must be positive and finite.
 
 | Scope | Environment | CLI flag |
 |---|---|---|
-| HTTP response body | `D_RESEARCH_HTTP_MAX_BYTES` | `api_fetch.mjs`, `web_search.mjs`, and `playwright_probe/extract/crawl.mjs` use `--max-response-bytes`; Python extraction helpers use `--max-http-bytes` where exposed |
+| HTTP/browser bytes | `D_RESEARCH_HTTP_MAX_BYTES` | `api_fetch.mjs` and `web_search.mjs` cap HTTP bodies; `playwright_probe/extract/crawl.mjs` use `--max-response-bytes` as the per-response and extracted-output ceiling, with additional aggregate/request-count guards; Python extraction helpers use `--max-http-bytes` where exposed |
 | HTTP deadline | `D_RESEARCH_HTTP_TIMEOUT_SEC` | Python helpers `--http-timeout-sec` where exposed; `web_search.mjs --timeout-ms` |
 | Local input file | `D_RESEARCH_DOWNLOAD_MAX_BYTES` | `--max-file-bytes` |
 | Excel cells / column | `D_RESEARCH_EXCEL_MAX_CELLS`, `D_RESEARCH_EXCEL_MAX_COL` | `--max-excel-cells`, `--max-excel-column-index` |

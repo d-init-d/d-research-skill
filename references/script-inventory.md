@@ -6,26 +6,26 @@ The `scripts/` directory contains helper scripts for agents running in a local N
 
 Use them when Playwright is installed and the task benefits from repeatable extraction:
 
-- `scripts/playwright_probe.mjs`: classify a page, detect blockers, list links/files/tables, optionally screenshot, and fail closed on an oversized main response
-- `scripts/playwright_extract.mjs`: extract visible text, tables, links, metadata, and files into JSON or Markdown with the shared response cap
-- `scripts/playwright_crawl.mjs`: bounded same-domain crawl with RFC 9309 percent-octet-aware robots matching, page manifests, and truthful structured incomplete output for page/domain/depth/resource ceilings
+- `scripts/playwright_probe.mjs`: classify a page, detect blockers, list links/files/tables, optionally screenshot, and fail closed on response, aggregate-network, request-count, or rendered-output limits
+- `scripts/playwright_extract.mjs`: extract visible text, tables, links, metadata, and files into bounded JSON or Markdown under the shared browser limits
+- `scripts/playwright_crawl.mjs`: bounded same-domain crawl with RFC 9309 percent-octet-aware robots matching, page manifests, and truthful structured incomplete output for page/domain/depth/network/output ceilings
 - `scripts/evidence_ledger.py`: initialize, validate, and **HMAC-sign / verify** CSV evidence ledgers
 - `scripts/api_fetch.mjs`: paginated API fetch with rate limiting, retry, and multiple output formats
 - `scripts/data_clean.py`: data cleaning, deduplication, validation, statistics, and merging
 - `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via Crossref with DataCite fallback
 - `scripts/resource_limits.py`: conservative HTTP/file/Excel/PDF/OCR/subprocess/table/Wayback/social caps; structured incomplete blockers on violation
-- `scripts/check_contract.py`: dynamic version/config/path/count/CLI contract checks for release readiness
+- `scripts/check_contract.py`: dynamic version/config/path/count/CLI checks, strict post-RC metadata/path validation, and version-scoped release-waiver verification
 - `scripts/package_manifest_check.mjs`: fail-closed npm tarball validation in Git worktrees and extracted source archives; rejects untracked/local/sensitive artifacts, missing tracked runtime files, and path-fingerprint drift
-- `scripts/release_verify.py`: offline validation of exact-SHA GitHub Actions success, annotated GitHub-verified tag objects, and exact-commit reviewer approvals bound to the promotion SHA256
+- `scripts/release_verify.py`: offline validation of exact-SHA GitHub Actions success and the default-policy GitHub tag/reviewer API responses; scoped waivers are authorized only by `check_contract.py`
 - `scripts/_ssrf_helpers.py`: shared Python public-host / SSRF guards, DNS-pinned streaming HTTPS transport, and bounded same-origin-only private redirect policy for social, translation, and embedding callers
 - `scripts/content_sanitize.py`: production HTML/visible-text extraction, secret redaction, hostile-source processing, safe download names (used by multi_extract + quality eval)
 - `scripts/lib/ssrf_guards.mjs`: shared public-host / SSRF guards + **connection-bound** `fetchPublicHttp` (Node; used by `api_fetch.mjs`)
-- `scripts/lib/browser_ssrf.mjs`: context-level browser SSRF guard with Node-pinned HTTP(S) fulfillment, service-worker blocking, and WebSocket fail-closed behavior; used by playwright probe/extract/crawl
+- `scripts/lib/browser_ssrf.mjs`: context-level browser SSRF/read-only guard with Node-pinned GET/HEAD fulfillment, page-originated mutation-method blocking, aggregate/request budgets, service-worker blocking, and WebSocket fail-closed behavior; used by playwright probe/extract/crawl
 - `scripts/lib/credentials.mjs`: credential classification and redaction for Node HTTP clients
-- `scripts/lib/browser_limits.mjs`: shared Playwright main-document response cap, structured exit-3 blocker, and limit parsing used by probe/extract/crawl
+- `scripts/lib/browser_limits.mjs`: shared Playwright response/output caps, structured exit-3 blockers, and limit parsing used by probe/extract/crawl
 - `scripts/browser_smoke.mjs`: real Chromium launch + local fixture smoke (probe/extract/crawl/robots/TLS/local-only/browser SSRF adversarial/service-worker blocking)
 - `scripts/adversarial_acceptance.py`: mandatory 27-case adversarial acceptance matrix; CI sets `D_RESEARCH_SKIP_BROWSER_SMOKE=1` and runs one explicit browser smoke per OS
-- `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + CSL
+- `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + path-contained official CSL slug caching
 - `scripts/extract_tables.py`: extract HTML `<table>` elements into CSV (handles `colspan`/`rowspan`, stdlib only)
 - `scripts/score_source.py`: apply the `references/source-quality-rubric.md` rubric to an evidence ledger and emit per-row scores + bands
 - `scripts/research_plan.py`: init / configure-execution / set-execution / render / approve / revoke / check / status / parallelizable / mark / block / add-task / gate — drives the long-horizon context-safe protocol in `references/research-plan-protocol.md`
@@ -34,7 +34,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/pdf_extract.py`: text / meta / tables / to-ledger / self-test — PDF text, metadata, and table extraction via pdftotext / pdfinfo / pdfplumber with soft-fail when binaries are missing (see `references/pdf-extraction.md`)
 - `scripts/wayback.py`: lookup / nearest / save / diff [--summarize --top-n N] / self-test — Wayback Machine snapshot lookup, archival, and diff summarization (see `references/wayback-archive.md` and `references/monitoring-change-detection.md`)
 - `scripts/citation_resolver.py`: doi / pmid / arxiv / isbn / oa / to-ledger / to-bibtex / batch / self-test — academic identifier resolution via free public APIs (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall); see `adapters/citation-resolver.md`
-- `scripts/report_render.py`: init / render / to-pdf / to-docx / to-html / list-styles / lint / self-test — final report generator from research workspace (plan + ledger + screening log); see `references/report-generation.md`
+- `scripts/report_render.py`: init / render / to-pdf / to-docx / to-html / list-styles / lint / self-test — final report generator with workspace containment, inert generated ledger metadata, and HTTP(S)-only source rendering; see `references/report-generation.md`
 - `scripts/ocr.py`: text / pdf / to-ledger / langs / self-test — OCR via tesseract (optional system binary, soft-fail if missing); see `references/ocr.md`
 - `scripts/translate.py`: text / detect / instances / self-test — translation adapter with stdlib trigram language detection and LibreTranslate/DeepL/Google/Argos backends; see `adapters/translation.md`
 - `scripts/embed_corpus.py`: index / query / query-ledger / dedupe / self-test — semantic retrieval over text corpora using cosine similarity with stub/sentence-transformers/cohere/llama-cli backends; see `references/semantic-retrieval.md`

@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.2.0-rc.3] - 2026-07-13
+
+Final production-hardening candidate. This candidate closes the approval,
+workspace-concurrency, report-signature, evaluator-input, browser resource, and
+release-policy gaps found during the final adversarial review of rc.2.
+
+### Added
+
+- **Immutable plan approval:** approvals bind a domain-separated SHA-256 digest
+  of research intent; legacy or changed intent fails closed until re-approved.
+- **Canonical reproducibility checklist:** versioned `DRC-001` through
+  `DRC-037` assertions prevent arbitrary checked text from satisfying the
+  release gate and require reasons for every `N/A` item.
+- **Portable output locking:** task outputs reject absolute, traversal, ADS,
+  device-name, case-alias, and ancestor/descendant collisions across hosts.
+- **Browser-wide budgets:** request count, aggregate response bytes, and final
+  output bytes are enforced across probe, extract, crawl, navigation, and
+  subresources; browser-initiated mutation methods are blocked.
+- **Scoped maintainer release decision:** v3.2.0 records an exact, reviewable
+  waiver set for unavailable live dogfood, independent review, and
+  GitHub-verified tag signatures. It requires hash-bound local verification and
+  cannot waive annotated tags, exact-SHA CI, RC ancestry, archive/checksum, or
+  provenance gates.
+
+### Fixed
+
+- **Report signature preflight:** `--require-signature` now verifies the ledger,
+  sidecar, key, and HMAC before reading or creating any report output, then
+  verifies again after ledger validation.
+- **Generated-report injection:** generated plan/ledger metadata is redacted,
+  control-normalized, escaped, URL-filtered, and bounded without altering the
+  authored narrative.
+- **Citation style containment:** remote CSL identifiers and cache paths are
+  portable and containment-checked; local styles require explicit `.csl` paths.
+- **Evaluator totality:** malformed suites, manifests, score files, task IDs,
+  artifact paths, non-finite weights, and nested type confusion now return
+  structured validation errors instead of tracebacks.
+- **Post-RC allowlist traversal:** path normalization no longer strips leading
+  traversal characters; backslash, drive, UNC, ADS, empty segment, and Windows
+  device-name forms fail closed on every host.
+
+### Verified
+
+- Expanded research-plan, report, evaluation, browser, release-contract, and
+  hostile-input self-tests, including real local Chromium integration.
+- Release checks cover Python 3.10/3.12 locally, the locked Node toolchain,
+  archive replay without `.git`, npm package-boundary verification, dependency
+  audit, and exact-SHA CI before tag promotion.
+
 ## [3.2.0-rc.2] - 2026-07-13
 
 Second production-hardening candidate. This candidate closes the independently
@@ -813,7 +862,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0-rc.2...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0-rc.3...HEAD
+[3.2.0-rc.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.3
 [3.2.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.2
 [3.2.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.1
 [3.1.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.1

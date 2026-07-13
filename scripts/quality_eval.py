@@ -18,6 +18,7 @@ Stdlib-only. Subcommands:
 from __future__ import annotations
 
 import argparse
+import copy
 import contextlib
 import hashlib
 import hmac
@@ -210,11 +211,14 @@ def validate_promotion_thresholds(value: Any) -> list[str]:
         return ["promotion_thresholds must be an object"]
 
     errors: list[str] = []
-    keys = set(value)
+    string_keys = {key for key in value if isinstance(key, str)}
+    for key in value:
+        if not isinstance(key, str):
+            errors.append(f"promotion_thresholds key {key!r} must be a string")
     required = set(PROMOTION_THRESHOLD_SPECS)
-    for key in sorted(required - keys):
+    for key in sorted(required - string_keys):
         errors.append(f"promotion_thresholds missing {key}")
-    for key in sorted(keys - required - PROMOTION_THRESHOLD_METADATA):
+    for key in sorted(string_keys - required - PROMOTION_THRESHOLD_METADATA):
         errors.append(f"promotion_thresholds unsupported key {key}")
 
     integer_keys = {"fabricated_citations_allowed", "deterministic_triple_runs"}
@@ -223,7 +227,7 @@ def validate_promotion_thresholds(value: Any) -> list[str]:
         "min_quality_gains_vs_baseline",
         "deterministic_triple_runs",
     }
-    for key in sorted(required & keys):
+    for key in sorted(required & string_keys):
         threshold = value[key]
         if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
             errors.append(f"promotion_thresholds {key} must be numeric")
@@ -246,112 +250,398 @@ def validate_promotion_thresholds(value: Any) -> list[str]:
     return errors
 
 
-def validate_suite(suite: dict[str, Any], schema: dict[str, Any] | None = None) -> list[str]:
+SUITE_REQUIRED_KEYS = (
+    "schema_version",
+    "suite_version",
+    "name",
+    "description",
+    "partitions",
+    "required_themes",
+    "quality_dimensions",
+    "critical_failures",
+    "promotion_thresholds",
+    "cases",
+)
+SUITE_ALLOWED_KEYS = frozenset((*SUITE_REQUIRED_KEYS, "held_out_policy"))
+CASE_REQUIRED_FIELDS = (
+    "case_id",
+    "partition",
+    "themes",
+    "task_shape",
+    "expected_route",
+    "required_gates",
+    "prohibited_actions",
+    "minimum_evidence_behavior",
+    "expected_blocker_behavior",
+    "deterministic_assertions",
+    "scoring_rubric",
+    "critical_failure_conditions",
+    "prompt",
+)
+SAFETY_CLASSES = {
+    "normal",
+    "critical_safety",
+    "release_integrity",
+    "path_credential",
+    "hostile",
+}
+_PORTABLE_INVALID_CHARS = frozenset('<>:"|?*')
+_WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def _validate_string_list(
+    value: Any,
+    label: str,
+    errors: list[str],
+    *,
+    min_items: int = 0,
+    unique: bool = False,
+    allowed: set[str] | frozenset[str] | tuple[str, ...] | None = None,
+) -> list[str]:
+    """Validate a JSON array of non-empty strings without type-dependent crashes."""
+    if not isinstance(value, list):
+        errors.append(f"{label} must be an array")
+        return []
+    if len(value) < min_items:
+        errors.append(f"{label} must have >={min_items} entries, got {len(value)}")
+    valid: list[str] = []
+    seen: set[str] = set()
+    duplicate = False
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            errors.append(f"{label}[{index}] must be a non-empty string")
+            continue
+        valid.append(item)
+        if item in seen:
+            duplicate = True
+        seen.add(item)
+        if allowed is not None and item not in allowed:
+            errors.append(f"{label}[{index}] has unsupported value {item!r}")
+    if unique and duplicate:
+        errors.append(f"{label} must be unique")
+    return valid
+
+
+def _portable_fixture_path(
+    value: Any, *, fixtures_root: Path = FIXTURES
+) -> tuple[Path | None, str | None]:
+    """Resolve ``fixtures/...`` portably and reject traversal, ADS, and escapes."""
+    if not isinstance(value, str) or not value.strip():
+        return None, "fixture must be a non-empty string"
+    if value != value.strip():
+        return None, "fixture path must not have leading or trailing whitespace"
+    if "\\" in value:
+        return None, "fixture path must use portable '/' separators"
+    if value.startswith("/") or value.startswith("//") or re.match(r"^[A-Za-z]:", value):
+        return None, "fixture path must be relative"
+
+    parts = value.split("/")
+    if len(parts) < 2 or parts[0] != "fixtures":
+        return None, "fixture path must be under fixtures/"
+    relative_parts = parts[1:]
+    for part in relative_parts:
+        if not part or part in {".", ".."}:
+            return None, "fixture path contains an empty or traversal component"
+        if part.endswith((" ", ".")):
+            return None, "fixture path component must not end in a space or dot"
+        if any(ord(char) < 32 or char in _PORTABLE_INVALID_CHARS for char in part):
+            return None, "fixture path contains a non-portable character"
+        device_name = part.split(".", 1)[0].upper()
+        if device_name in _WINDOWS_RESERVED_NAMES:
+            return None, "fixture path contains a reserved device name"
+
+    try:
+        root = fixtures_root.resolve(strict=False)
+        candidate = root.joinpath(*relative_parts).resolve(strict=False)
+        candidate.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None, "fixture path escapes fixtures/"
+    if not candidate.is_file():
+        return None, "fixture file does not exist"
+    return candidate, None
+
+
+def validate_suite(suite: Any, schema: Any | None = None) -> list[str]:
+    """Validate the complete suite contract and always return diagnostics."""
+    if not isinstance(suite, dict):
+        return ["suite must be an object"]
+
     errors: list[str] = []
-    if suite.get("schema_version") != SUITE_SCHEMA_VERSION:
-        errors.append(
-            f"schema_version must be {SUITE_SCHEMA_VERSION!r}, got {suite.get('schema_version')!r}"
-        )
-    for key in (
-        "suite_version",
-        "name",
-        "description",
-        "partitions",
-        "required_themes",
-        "quality_dimensions",
-        "critical_failures",
-        "promotion_thresholds",
-        "cases",
-    ):
+    for key in suite:
+        if not isinstance(key, str):
+            errors.append(f"top-level key {key!r} must be a string")
+        elif key not in SUITE_ALLOWED_KEYS:
+            errors.append(f"unsupported top-level key: {key}")
+    for key in SUITE_REQUIRED_KEYS:
         if key not in suite:
             errors.append(f"missing top-level key: {key}")
 
-    partitions = suite.get("partitions") or []
-    if set(partitions) != set(PARTITIONS):
+    schema_version = suite.get("schema_version")
+    if not isinstance(schema_version, str) or schema_version != SUITE_SCHEMA_VERSION:
+        errors.append(
+            f"schema_version must be {SUITE_SCHEMA_VERSION!r}, got {schema_version!r}"
+        )
+    for key in ("suite_version", "name", "description"):
+        if key in suite and (
+            not isinstance(suite[key], str) or not suite[key].strip()
+        ):
+            errors.append(f"{key} must be a non-empty string")
+
+    partitions = _validate_string_list(
+        suite.get("partitions"),
+        "partitions",
+        errors,
+        min_items=3,
+        unique=True,
+        allowed=PARTITIONS,
+    )
+    if partitions and set(partitions) != set(PARTITIONS):
         errors.append(f"partitions must be exactly {list(PARTITIONS)}, got {partitions}")
 
-    themes = suite.get("required_themes") or []
-    if len(themes) < 25:
-        errors.append(f"required_themes must have >=25 entries, got {len(themes)}")
-    if len(set(themes)) != len(themes):
-        errors.append("required_themes must be unique")
+    themes = _validate_string_list(
+        suite.get("required_themes"),
+        "required_themes",
+        errors,
+        min_items=25,
+        unique=True,
+    )
+    dims = _validate_string_list(
+        suite.get("quality_dimensions"),
+        "quality_dimensions",
+        errors,
+        min_items=18,
+        unique=True,
+    )
+    critical_failures = _validate_string_list(
+        suite.get("critical_failures"),
+        "critical_failures",
+        errors,
+        min_items=1,
+        unique=True,
+    )
+    if "held_out_policy" in suite and not isinstance(suite["held_out_policy"], dict):
+        errors.append("held_out_policy must be an object")
 
-    dims = suite.get("quality_dimensions") or []
-    if len(dims) < 18:
-        errors.append(f"quality_dimensions must have >=18 entries, got {len(dims)}")
-
-    cases = suite.get("cases") or []
-    if len(cases) < 30:
-        errors.append(f"cases must have >=30 entries, got {len(cases)}")
+    cases_raw = suite.get("cases")
+    if not isinstance(cases_raw, list):
+        errors.append("cases must be an array")
+        cases: list[Any] = []
+    else:
+        cases = cases_raw
+        if len(cases) < 30:
+            errors.append(f"cases must have >=30 entries, got {len(cases)}")
 
     ids: set[str] = set()
     covered: set[str] = set()
     part_counts: Counter[str] = Counter()
-    required_case_fields = [
-        "case_id",
-        "partition",
-        "themes",
-        "task_shape",
-        "expected_route",
-        "required_gates",
-        "prohibited_actions",
-        "minimum_evidence_behavior",
-        "expected_blocker_behavior",
-        "deterministic_assertions",
-        "scoring_rubric",
-        "critical_failure_conditions",
-        "prompt",
-    ]
-    for i, c in enumerate(cases):
-        prefix = f"cases[{i}]"
-        if not isinstance(c, dict):
-            errors.append(f"{prefix}: must be object")
+    known_themes = set(themes)
+    known_dims = set(dims)
+    known_critical = set(critical_failures)
+    for index, case in enumerate(cases):
+        prefix = f"cases[{index}]"
+        if not isinstance(case, dict):
+            errors.append(f"{prefix}: must be an object")
             continue
-        for f in required_case_fields:
-            if f not in c:
-                errors.append(f"{prefix}: missing field {f}")
-        cid = c.get("case_id")
-        if not isinstance(cid, str) or not CASE_ID_RE.match(cid):
-            errors.append(f"{prefix}: invalid case_id {cid!r}")
-        elif cid in ids:
-            errors.append(f"{prefix}: duplicate case_id {cid}")
-        else:
-            ids.add(cid)
-        part = c.get("partition")
-        if part not in PARTITIONS:
-            errors.append(f"{prefix}: invalid partition {part!r}")
-        else:
-            part_counts[part] += 1
-        th = c.get("themes") or []
-        if not th:
-            errors.append(f"{prefix}: themes empty")
-        covered.update(th)
-        if not c.get("deterministic_assertions"):
-            errors.append(f"{prefix}: deterministic_assertions empty")
-        rubric = c.get("scoring_rubric") or {}
-        if not isinstance(rubric, dict) or not rubric.get("dimensions") or not rubric.get("weights"):
-            errors.append(f"{prefix}: scoring_rubric needs dimensions+weights")
-        if not c.get("critical_failure_conditions"):
-            errors.append(f"{prefix}: critical_failure_conditions empty")
-        if c.get("fixture"):
-            fix = QUALITY_ROOT / str(c["fixture"])
-            if not fix.is_file():
-                errors.append(f"{prefix}: fixture missing: {c['fixture']}")
+        for field in CASE_REQUIRED_FIELDS:
+            if field not in case:
+                errors.append(f"{prefix}: missing field {field}")
 
-    for p in PARTITIONS:
-        if part_counts[p] < 1:
-            errors.append(f"partition {p} has zero cases")
+        case_id = case.get("case_id")
+        if not isinstance(case_id, str) or not CASE_ID_RE.fullmatch(case_id):
+            errors.append(f"{prefix}: invalid case_id {case_id!r}")
+        elif case_id in ids:
+            errors.append(f"{prefix}: duplicate case_id {case_id}")
+        else:
+            ids.add(case_id)
 
-    missing_themes = set(themes) - covered
+        partition = case.get("partition")
+        if not isinstance(partition, str) or partition not in PARTITIONS:
+            errors.append(f"{prefix}: invalid partition {partition!r}")
+        else:
+            part_counts[partition] += 1
+
+        for field in (
+            "task_shape",
+            "expected_route",
+            "minimum_evidence_behavior",
+            "expected_blocker_behavior",
+            "prompt",
+        ):
+            if field in case and (
+                not isinstance(case[field], str) or not case[field].strip()
+            ):
+                errors.append(f"{prefix}.{field} must be a non-empty string")
+
+        case_themes = _validate_string_list(
+            case.get("themes"), f"{prefix}.themes", errors, min_items=1
+        )
+        covered.update(case_themes)
+        for theme in case_themes:
+            if known_themes and theme not in known_themes:
+                errors.append(f"{prefix}.themes contains undeclared theme {theme!r}")
+        _validate_string_list(
+            case.get("required_gates"), f"{prefix}.required_gates", errors
+        )
+        _validate_string_list(
+            case.get("prohibited_actions"),
+            f"{prefix}.prohibited_actions",
+            errors,
+        )
+
+        assertions = case.get("deterministic_assertions")
+        if not isinstance(assertions, list):
+            errors.append(f"{prefix}.deterministic_assertions must be an array")
+        else:
+            if not assertions:
+                errors.append(f"{prefix}.deterministic_assertions must have >=1 entries")
+            assertion_ids: set[str] = set()
+            for assertion_index, assertion in enumerate(assertions):
+                aprefix = f"{prefix}.deterministic_assertions[{assertion_index}]"
+                if not isinstance(assertion, dict):
+                    errors.append(f"{aprefix} must be an object")
+                    continue
+                for field in ("id", "kind", "expect"):
+                    if field not in assertion:
+                        errors.append(f"{aprefix}: missing field {field}")
+                for field in ("id", "kind"):
+                    if field in assertion and (
+                        not isinstance(assertion[field], str)
+                        or not assertion[field].strip()
+                    ):
+                        errors.append(f"{aprefix}.{field} must be a non-empty string")
+                assertion_id = assertion.get("id")
+                if isinstance(assertion_id, str) and assertion_id.strip():
+                    if assertion_id in assertion_ids:
+                        errors.append(f"{aprefix}.id duplicates {assertion_id!r}")
+                    assertion_ids.add(assertion_id)
+
+        rubric = case.get("scoring_rubric")
+        if not isinstance(rubric, dict):
+            errors.append(f"{prefix}.scoring_rubric must be an object")
+        else:
+            for field in ("dimensions", "weights"):
+                if field not in rubric:
+                    errors.append(f"{prefix}.scoring_rubric missing {field}")
+            rubric_dims = _validate_string_list(
+                rubric.get("dimensions"),
+                f"{prefix}.scoring_rubric.dimensions",
+                errors,
+                min_items=1,
+            )
+            for dimension in rubric_dims:
+                if known_dims and dimension not in known_dims:
+                    errors.append(
+                        f"{prefix}.scoring_rubric.dimensions contains "
+                        f"undeclared dimension {dimension!r}"
+                    )
+            weights = rubric.get("weights")
+            if not isinstance(weights, dict):
+                errors.append(f"{prefix}.scoring_rubric.weights must be an object")
+            else:
+                weight_keys: set[str] = set()
+                numeric_weights: list[float] = []
+                for key, weight in weights.items():
+                    if not isinstance(key, str) or not key.strip():
+                        errors.append(
+                            f"{prefix}.scoring_rubric.weights key {key!r} "
+                            "must be a non-empty string"
+                        )
+                        continue
+                    weight_keys.add(key)
+                    if (
+                        isinstance(weight, bool)
+                        or not isinstance(weight, (int, float))
+                        or not math.isfinite(float(weight))
+                        or float(weight) < 0
+                    ):
+                        errors.append(
+                            f"{prefix}.scoring_rubric.weights[{key!r}] "
+                            "must be a finite non-negative number"
+                        )
+                    else:
+                        numeric_weights.append(float(weight))
+                for dimension in sorted(set(rubric_dims) - weight_keys):
+                    errors.append(
+                        f"{prefix}.scoring_rubric.weights missing dimension {dimension!r}"
+                    )
+                for dimension in sorted(weight_keys - set(rubric_dims)):
+                    errors.append(
+                        f"{prefix}.scoring_rubric.weights has undeclared dimension "
+                        f"{dimension!r}"
+                    )
+                if (
+                    len(numeric_weights) == len(weights)
+                    and not math.isclose(
+                        sum(numeric_weights), 1.0, rel_tol=0.0, abs_tol=1e-6
+                    )
+                ):
+                    errors.append(
+                        f"{prefix}.scoring_rubric.weights must sum to 1.0"
+                    )
+            if "notes" in rubric and not isinstance(rubric["notes"], str):
+                errors.append(f"{prefix}.scoring_rubric.notes must be a string")
+
+        case_critical = _validate_string_list(
+            case.get("critical_failure_conditions"),
+            f"{prefix}.critical_failure_conditions",
+            errors,
+            min_items=1,
+        )
+        for condition in case_critical:
+            if known_critical and condition not in known_critical:
+                errors.append(
+                    f"{prefix}.critical_failure_conditions contains "
+                    f"undeclared condition {condition!r}"
+                )
+
+        if "fixture" in case:
+            _, fixture_error = _portable_fixture_path(case.get("fixture"))
+            if fixture_error:
+                errors.append(
+                    f"{prefix}.fixture {case.get('fixture')!r}: {fixture_error}"
+                )
+        if "safety_class" in case:
+            safety_class = case.get("safety_class")
+            if not isinstance(safety_class, str) or safety_class not in SAFETY_CLASSES:
+                errors.append(f"{prefix}: invalid safety_class {safety_class!r}")
+        if "fingerprint" in case:
+            fingerprint = case.get("fingerprint")
+            if not isinstance(fingerprint, str) or not re.fullmatch(
+                r"[0-9a-f]{16}", fingerprint
+            ):
+                errors.append(
+                    f"{prefix}.fingerprint must be 16 lowercase hexadecimal characters"
+                )
+
+    for partition in PARTITIONS:
+        if part_counts[partition] < 1:
+            errors.append(f"partition {partition} has zero cases")
+    missing_themes = known_themes - covered
     if missing_themes:
         errors.append(f"themes not covered by any case: {sorted(missing_themes)}")
 
     errors.extend(validate_promotion_thresholds(suite.get("promotion_thresholds")))
 
     if schema is not None:
-        for req in schema.get("required") or []:
-            if req not in suite:
-                errors.append(f"schema required key missing: {req}")
+        if not isinstance(schema, dict):
+            errors.append("schema must be an object")
+        else:
+            schema_required = schema.get("required")
+            if not isinstance(schema_required, list) or not all(
+                isinstance(item, str) for item in schema_required
+            ):
+                errors.append("schema.required must be an array of strings")
+            else:
+                for required in schema_required:
+                    if required not in suite:
+                        errors.append(f"schema required key missing: {required}")
     return errors
 
 
@@ -2490,7 +2780,11 @@ def _validate_promotion_evaluation(
 ) -> list[str]:
     """Reject incomplete or invalid promotion scorecards fail-closed."""
     errors: list[str] = []
-    required_fields = EVALUATION_REQUIRED_FIELDS_BY_RUN.get((run_kind, role))
+    required_fields = (
+        EVALUATION_REQUIRED_FIELDS_BY_RUN.get((run_kind, role))
+        if isinstance(run_kind, str) and isinstance(role, str)
+        else None
+    )
     if required_fields is None:
         errors.append(
             f"unsupported evaluation context run_kind={run_kind!r} role={role!r}"
@@ -2554,17 +2848,24 @@ def _sha256_file(path: Path) -> str:
 
 
 def _resolve_under(root: Path, rel: str) -> Path | None:
-    """Resolve rel under root; reject traversal/symlink escape."""
-    if not rel or not isinstance(rel, str):
+    """Resolve one portable relative artifact path under root, fail-closed."""
+    if not isinstance(rel, str) or not rel or rel != rel.strip():
         return None
-    if rel.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", rel):
-        # absolute paths only allowed if they stay under root after resolve
-        pass
+    if "\\" in rel or rel.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", rel):
+        return None
+    parts = rel.split("/")
+    for part in parts:
+        if not part or part in {".", ".."} or part.endswith((" ", ".")):
+            return None
+        if any(ord(char) < 32 or char in _PORTABLE_INVALID_CHARS for char in part):
+            return None
+        if part.split(".", 1)[0].upper() in _WINDOWS_RESERVED_NAMES:
+            return None
     try:
-        candidate = (root / rel).resolve() if not Path(rel).is_absolute() else Path(rel).resolve()
+        candidate = root.joinpath(*parts).resolve(strict=False)
         root_r = root.resolve()
         candidate.relative_to(root_r)
-    except Exception:
+    except (OSError, RuntimeError, ValueError):
         return None
     if not candidate.exists():
         return None
@@ -2608,10 +2909,12 @@ def validate_run_manifest(
             r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}", identity
         ):
             errors.append(f"{identity_key} has invalid format")
-    if data.get("role") not in ALLOWED_ROLES:
-        errors.append(f"invalid role {data.get('role')!r}")
-    if data.get("run_kind") not in ALLOWED_RUN_KINDS:
-        errors.append(f"invalid run_kind {data.get('run_kind')!r}")
+    role = data.get("role")
+    if not isinstance(role, str) or role not in ALLOWED_ROLES:
+        errors.append(f"invalid role {role!r}")
+    run_kind = data.get("run_kind")
+    if not isinstance(run_kind, str) or run_kind not in ALLOWED_RUN_KINDS:
+        errors.append(f"invalid run_kind {run_kind!r}")
     for text_key in ("skill_version", "agent_runtime", "model"):
         if not isinstance(data.get(text_key), str) or not data.get(text_key, "").strip():
             errors.append(f"{text_key} must be a non-empty string")
@@ -2637,10 +2940,10 @@ def validate_run_manifest(
         art_paths_raw = []
     artifact_paths: set[str] = set()
     for raw_path in art_paths_raw:
-        rel = str(raw_path or "")
-        if not rel:
-            errors.append("artifact_paths contains empty path")
+        if not isinstance(raw_path, str) or not raw_path:
+            errors.append("artifact_paths must contain non-empty strings")
             continue
+        rel = raw_path
         if Path(rel).is_absolute() or rel.startswith(("/", "\\")) or re.match(
             r"^[A-Za-z]:", rel
         ):
@@ -2722,8 +3025,11 @@ def validate_run_manifest(
         triple_refs = []
     validated_triples: list[dict[str, Any]] = []
     for raw_result_path in triple_refs:
-        result_rel = str(raw_result_path or "")
+        result_rel = raw_result_path if isinstance(raw_result_path, str) else ""
         prefix = f"triple_run_results[{result_rel or '?'}]"
+        if not result_rel:
+            errors.append(f"{prefix} path must be a non-empty string")
+            continue
         if result_rel not in artifact_paths or result_rel not in hash_paths:
             errors.append(f"{prefix} result must be declared and hashed")
             continue
@@ -2914,10 +3220,21 @@ def compute_metrics_from_runs(
     if not manifests:
         return metrics
 
-    forward = [m for m in manifests if m.get("run_kind") == "forward"]
-    held = [m for m in manifests if m.get("run_kind") == "held_out"]
+    forward = [
+        m for m in manifests if isinstance(m, dict) and m.get("run_kind") == "forward"
+    ]
+    held = [
+        m for m in manifests if isinstance(m, dict) and m.get("run_kind") == "held_out"
+    ]
 
-    roles = sorted({m.get("role") for m in forward if m.get("role") in ALLOWED_ROLES})
+    roles = sorted(
+        {
+            role
+            for m in forward
+            if isinstance((role := m.get("role")), str)
+            and role in ALLOWED_ROLES
+        }
+    )
     metrics["valid_forward_roles"] = roles
     metrics["independent_forward_tests"] = len(forward)
     if len(set(roles)) >= 3 and len(forward) >= 3:
@@ -4221,6 +4538,98 @@ def cmd_self_test(args: argparse.Namespace) -> int:
     print(f"  [{'PASS' if spot_ok else 'FAIL'}] spot_check_fields n=5")
     if not spot_ok:
         failures.append("spot_check")
+
+    hostile_suites: list[tuple[str, Any]] = [("non-object root", [])]
+    for key in ("partitions", "required_themes", "quality_dimensions", "cases"):
+        mutated = copy.deepcopy(suite)
+        mutated[key] = "not-an-array"
+        hostile_suites.append((f"top-level {key} type", mutated))
+    for key in (
+        "themes",
+        "required_gates",
+        "deterministic_assertions",
+        "scoring_rubric",
+        "critical_failure_conditions",
+    ):
+        mutated = copy.deepcopy(suite)
+        mutated["cases"][0][key] = "not-the-declared-type"
+        hostile_suites.append((f"case {key} type", mutated))
+    hostile_suite_ok = True
+    for label, mutated in hostile_suites:
+        try:
+            hostile_errors = validate_suite(mutated, schema)
+        except Exception as exc:
+            print(f"  [FAIL] suite validator crashed for {label}: {exc}")
+            hostile_suite_ok = False
+            continue
+        if not hostile_errors:
+            print(f"  [FAIL] suite validator accepted {label}")
+            hostile_suite_ok = False
+    print(
+        f"  [{'PASS' if hostile_suite_ok else 'FAIL'}] "
+        f"suite_hostile_types n={len(hostile_suites)}"
+    )
+    if not hostile_suite_ok:
+        failures.append("suite_hostile_types")
+
+    fixture_paths_ok = True
+    for hostile_path in (
+        "../../../package.json",
+        "fixtures/../../../package.json",
+        r"C:\package.json",
+        "fixtures/file:hidden.json",
+        "fixtures/../integrity/good_claim_chain.json",
+    ):
+        resolved, detail = _portable_fixture_path(hostile_path)
+        if resolved is not None or not detail:
+            fixture_paths_ok = False
+            print(f"  [FAIL] fixture path accepted: {hostile_path!r}")
+    print(f"  [{'PASS' if fixture_paths_ok else 'FAIL'}] fixture_path_containment")
+    if not fixture_paths_ok:
+        failures.append("fixture_path_containment")
+
+    with tempfile.TemporaryDirectory() as manifest_td:
+        manifest_root = Path(manifest_td)
+        hostile_manifest = {key: None for key in RUN_MANIFEST_REQUIRED}
+        hostile_manifest.update(
+            {
+                "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
+                "role": [],
+                "run_kind": {},
+                "artifact_paths": [],
+                "integrity_hashes": {},
+                "triple_run_results": [],
+                "provenance": {},
+            }
+        )
+        hostile_manifest_path = manifest_root / "run-manifest.json"
+        hostile_manifest_path.write_text(
+            json.dumps(hostile_manifest), encoding="utf-8"
+        )
+        try:
+            _data, manifest_errors = validate_run_manifest(
+                hostile_manifest_path,
+                expected_candidate_sha=None,
+                artifacts_root=manifest_root,
+            )
+            manifest_types_ok = bool(manifest_errors)
+        except Exception as exc:
+            print(f"  [FAIL] run manifest validator crashed: {exc}")
+            manifest_types_ok = False
+        try:
+            evaluation_errors = _validate_promotion_evaluation(
+                {}, run_kind=[], role={}
+            )
+            manifest_types_ok = manifest_types_ok and bool(evaluation_errors)
+        except Exception as exc:
+            print(f"  [FAIL] evaluation validator crashed: {exc}")
+            manifest_types_ok = False
+        print(
+            f"  [{'PASS' if manifest_types_ok else 'FAIL'}] "
+            "run_manifest_hostile_enums"
+        )
+        if not manifest_types_ok:
+            failures.append("run_manifest_hostile_enums")
 
     class NS:
         verbose = False

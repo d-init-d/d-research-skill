@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   browserResourceLimitErrorFromPayload,
+  enforceBrowserOutputLimit,
   enforceBrowserResponseLimit,
   resolveBrowserResponseLimit,
   resourceLimitPayload,
@@ -143,6 +144,11 @@ async function run(args) {
     throw error;
   }
   await page.waitForTimeout(args.waitMs);
+  const delayedRouteLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
+  if (delayedRouteLimit) {
+    await browser.close();
+    throw delayedRouteLimit;
+  }
 
   const data = await page.evaluate((selector) => {
     const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
@@ -186,10 +192,23 @@ async function run(args) {
     };
   }, args.selector || null);
 
+  const evaluateRouteLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
+  if (evaluateRouteLimit) {
+    await browser.close();
+    throw evaluateRouteLimit;
+  }
+
   if (args.screenshot) {
     await ensureDirFor(args.screenshot);
     await page.screenshot({ path: args.screenshot, fullPage: true });
     data.screenshotPath = args.screenshot;
+    const screenshotRouteLimit = browserResourceLimitErrorFromPayload(
+      ssrfStats.resourceLimit,
+    );
+    if (screenshotRouteLimit) {
+      await browser.close();
+      throw screenshotRouteLimit;
+    }
   }
 
   const result = {
@@ -202,9 +221,20 @@ async function run(args) {
       maxResponseBytes: args.maxResponseBytes,
       responseBytes,
     },
+    ssrfStats,
     timestamp: new Date().toISOString(),
     ...data
   };
+  try {
+    result.limits.extractedBytes = enforceBrowserOutputLimit(
+      result,
+      args.maxResponseBytes,
+      page.url(),
+    );
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
   await browser.close();
   return result;
 }
@@ -231,6 +261,7 @@ async function main() {
   try {
     const result = await run(args);
     const output = args.format === 'md' ? toMarkdown(result) : JSON.stringify(result, null, 2) + '\n';
+    enforceBrowserOutputLimit(output, args.maxResponseBytes, result.finalUrl);
     if (args.out) {
       await ensureDirFor(args.out);
       await fs.writeFile(args.out, output);

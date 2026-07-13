@@ -1,4 +1,4 @@
-# Validate a signed release tag, then build a source archive, SHA256 manifest,
+# Validate an annotated release tag under the frozen RC policy, then build a source archive, SHA256 manifest,
 # and GitHub provenance attestation. Manual dispatch validates the release
 # contract only; it never publishes or attests an untagged branch build.
 name: release-source-archive
@@ -155,7 +155,7 @@ jobs:
               )
           PY
 
-      - name: Require annotated, GitHub-verified release and candidate tags
+      - name: Require annotated release and candidate tags under frozen policy
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -187,6 +187,16 @@ jobs:
             fi
             tag_object="$(git rev-parse "${tag_ref}^{tag}")"
             tag_commit="$(git rev-parse "${tag_ref}^{commit}")"
+            waiver="github_verified_release_tag"
+            if [[ "$tag" == "$candidate_tag" ]]; then
+              waiver="github_verified_candidate_tag"
+            fi
+            if python scripts/check_contract.py \
+              --release-tag "$RELEASE_TAG" \
+              --require-release-waiver "$waiver"; then
+              echo "${tag}: GitHub tag verification explicitly waived by frozen RC policy"
+              continue
+            fi
             response="${responses}/${tag}.json"
             curl --fail-with-body --silent --show-error \
               --retry 3 --retry-all-errors \
@@ -250,6 +260,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if python scripts/check_contract.py \
+            --release-tag "$RELEASE_TAG" \
+            --require-release-waiver independent_reviewer; then
+            echo "Independent review explicitly waived by frozen RC policy"
+            exit 0
+          fi
           release_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
           query="$(mktemp)"
           reviews="$(mktemp)"

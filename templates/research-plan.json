@@ -30,7 +30,8 @@
   "approval": {
     "approved_by": "",
     "approved_at": "",
-    "notes": ""
+    "notes": "",
+    "plan_sha256": ""
   },
   "stopping_criteria": "",
   "stopping_criteria_satisfied": false,

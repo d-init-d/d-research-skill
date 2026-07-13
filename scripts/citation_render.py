@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -72,6 +73,8 @@ DEFAULT_STYLES: dict[str, str] = {
 }
 
 CSL_BASE_URL = "https://raw.githubusercontent.com/citation-style-language/styles/master"
+_REMOTE_STYLE_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+_MAX_REMOTE_STYLE_LENGTH = 128
 
 
 def cache_dir() -> Path:
@@ -80,6 +83,34 @@ def cache_dir() -> Path:
     if base:
         return Path(base)
     return Path.home() / ".cache" / "d-research-skill" / "csl"
+
+
+def _canonical_remote_style(style: str) -> str:
+    """Return a path-safe official CSL repository identifier."""
+
+    canonical = DEFAULT_STYLES.get(style.lower(), style.lower())
+    if (
+        len(canonical) > _MAX_REMOTE_STYLE_LENGTH
+        or _REMOTE_STYLE_RE.fullmatch(canonical) is None
+    ):
+        raise ValueError(
+            "remote CSL style must be a lowercase alphanumeric slug with "
+            "single hyphen separators; pass an existing local .csl path for "
+            "custom files"
+        )
+    return canonical
+
+
+def _cache_target(canonical: str) -> tuple[Path, Path]:
+    """Return resolved cache root/target and reject symlink/path escapes."""
+
+    root = cache_dir().expanduser().resolve()
+    target = (root / f"{canonical}.csl").resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("resolved CSL cache target escapes the configured cache") from exc
+    return root, target
 
 
 def pandoc_supports_citeproc() -> bool:
@@ -138,15 +169,15 @@ def resolve_csl(style: str, *, allow_download: bool = True) -> Path | None:
     if style.endswith(".csl"):
         raise FileNotFoundError(f"CSL file not found: {style}")
     # 3. Alias map
-    canonical = DEFAULT_STYLES.get(style.lower(), style.lower())
+    canonical = _canonical_remote_style(style)
     # 4. Cache
-    cached = cache_dir() / f"{canonical}.csl"
+    cache_root, cached = _cache_target(canonical)
     if cached.is_file() and cached.stat().st_size > 0:
         return cached
     if not allow_download:
         return None
     # 5. Download
-    cache_dir().mkdir(parents=True, exist_ok=True)
+    cache_root.mkdir(parents=True, exist_ok=True)
     url = f"{CSL_BASE_URL}/{canonical}.csl"
     try:
         req = urllib.request.Request(
@@ -228,7 +259,7 @@ def render(
     csl: Path | None
     try:
         csl = resolve_csl(style, allow_download=allow_download)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
@@ -312,7 +343,42 @@ def cmd_self_test() -> int:
         raise AssertionError("expected FileNotFoundError for missing .csl path")
     print("  [PASS] missing-file path style rejected")
 
-    # 5. Optional integration test (only when pandoc >= 2.11 is present)
+    # 5. Remote style ids cannot escape the cache or alter the fixed URL path.
+    traversal_styles = (
+        "../outside/owned",
+        r"..\outside\owned",
+        "/absolute/path",
+        r"C:\outside\owned",
+        ".",
+        "..",
+        "style.csl",
+        "style%2fescape",
+        "style--double",
+        "-leading",
+        "trailing-",
+        "x" * (_MAX_REMOTE_STYLE_LENGTH + 1),
+    )
+    for hostile_style in traversal_styles:
+        try:
+            resolve_csl(hostile_style, allow_download=False)
+        except (FileNotFoundError, ValueError):
+            continue
+        raise AssertionError(f"unsafe remote style accepted: {hostile_style!r}")
+    with tempfile.TemporaryDirectory() as td:
+        previous_cache = os.environ.get("D_RESEARCH_CSL_CACHE")
+        os.environ["D_RESEARCH_CSL_CACHE"] = str(Path(td) / "cache")
+        try:
+            root, target = _cache_target(_canonical_remote_style("chicago"))
+            assert target.name == "chicago-author-date.csl"
+            assert target.parent == root
+        finally:
+            if previous_cache is None:
+                os.environ.pop("D_RESEARCH_CSL_CACHE", None)
+            else:
+                os.environ["D_RESEARCH_CSL_CACHE"] = previous_cache
+    print("  [PASS] remote style slug and cache containment")
+
+    # 6. Optional integration test (only when pandoc >= 2.11 is present)
     if pandoc_supports_citeproc():
         with tempfile.TemporaryDirectory() as td:
             bib = Path(td) / "test.bib"
@@ -362,7 +428,8 @@ def main() -> int:
         default="apa",
         help=(
             "Style alias (apa, mla, ieee, chicago, vancouver, harvard, "
-            "nature, science, acm, ama, ...) OR a path to a .csl file "
+            "nature, science, acm, ama, ...), an official lowercase CSL "
+            "repository slug, OR a path to a .csl file "
             "OR the literal 'default' for pandoc's built-in default."
         ),
     )

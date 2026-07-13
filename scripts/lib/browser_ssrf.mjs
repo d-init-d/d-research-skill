@@ -204,6 +204,17 @@ function asResourceLimitPayload(error) {
   return null;
 }
 
+function positiveIntegerOr(value, fallback) {
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+function recordResourceLimit(stats, url, payload, reason) {
+  const recorded = { url, ...payload };
+  if (!stats.resourceLimit) stats.resourceLimit = recorded;
+  stats.blocked += 1;
+  stats.blockedUrls.push({ url, reason, ...payload });
+}
+
 /**
  * Install a context-level network guard. HTTP(S) requests are fulfilled via
  * fetchPublicHttp so Chromium never performs its own destination DNS/connect.
@@ -214,14 +225,26 @@ function asResourceLimitPayload(error) {
  *   allowLoopback?: boolean,
  *   ignoreTlsErrors?: boolean,
  *   maxResponseBytes?: number|null,
+ *   maxTotalResponseBytes?: number|null,
+ *   maxRequests?: number|null,
  *   timeoutMs?: number,
  *   onAllowed?: Function
  * }} opts
  */
 export async function installBrowserSsrfGuard(target, opts = {}) {
+  const perResponseLimit = positiveIntegerOr(opts.maxResponseBytes, 20 * 1024 * 1024);
+  const maxTotalResponseBytes = positiveIntegerOr(
+    opts.maxTotalResponseBytes,
+    perResponseLimit,
+  );
+  const maxRequests = positiveIntegerOr(opts.maxRequests, 100);
   const stats = {
+    requests: 0,
     allowed: 0,
     fulfilled: 0,
+    responseBytes: 0,
+    maxRequests,
+    maxTotalResponseBytes,
     blocked: 0,
     blockedUrls: [],
     zeroRequestDenials: [],
@@ -262,6 +285,32 @@ export async function installBrowserSsrfGuard(target, opts = {}) {
       return;
     }
 
+    const method = String(request.method() || '').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') {
+      stats.blocked += 1;
+      stats.blockedUrls.push({ url, reason: 'read_only_method_required', method });
+      await route.abort('blockedbyclient');
+      return;
+    }
+
+    stats.requests += 1;
+    if (stats.requests > maxRequests) {
+      const payload = asResourceLimitPayload(
+        new HttpResourceLimitError(
+          'browser_max_requests',
+          `browser request count exceeds ${maxRequests}`,
+          { limit: maxRequests, actual: stats.requests },
+        ),
+      );
+      recordResourceLimit(stats, url, payload, 'request_count_resource_limit');
+      await route.fulfill({
+        status: 429,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+        body: `D Research resource limit: ${payload.message}`,
+      });
+      return;
+    }
+
     if (typeof opts.onAllowed === 'function') {
       const decision = await opts.onAllowed(route, request, stats);
       if (decision && decision.action === 'abort') {
@@ -282,7 +331,7 @@ export async function installBrowserSsrfGuard(target, opts = {}) {
       const response = await fetchPublicHttp(
         url,
         {
-          method: request.method(),
+          method,
           headers: requestHeadersForNode(request),
           body: request.postDataBuffer?.() || undefined,
           signal: controller.signal,
@@ -297,6 +346,18 @@ export async function installBrowserSsrfGuard(target, opts = {}) {
       );
       try {
         const body = await responseBodyBuffer(response);
+        const totalAfterResponse = stats.responseBytes + body.length;
+        if (totalAfterResponse > maxTotalResponseBytes) {
+          throw new HttpResourceLimitError(
+            'browser_total_max_bytes',
+            `browser aggregate response bytes exceed ${maxTotalResponseBytes}`,
+            {
+              limit: maxTotalResponseBytes,
+              actual: totalAfterResponse,
+            },
+          );
+        }
+        stats.responseBytes = totalAfterResponse;
         await route.fulfill({
           status: response.status,
           headers: responseHeadersForBrowser(response),
@@ -311,19 +372,14 @@ export async function installBrowserSsrfGuard(target, opts = {}) {
       if (timer) clearTimeout(timer);
       const limitPayload = asResourceLimitPayload(error);
       if (limitPayload) {
-        stats.blocked += 1;
-        if (request.isNavigationRequest()) {
-          stats.resourceLimit = {
-            url,
-            ...limitPayload,
-          };
-        } else {
-          stats.blockedUrls.push({
-            url,
-            reason: 'subresource_resource_limit',
-            ...limitPayload,
-          });
-        }
+        recordResourceLimit(
+          stats,
+          url,
+          limitPayload,
+          request.isNavigationRequest()
+            ? 'navigation_resource_limit'
+            : 'subresource_resource_limit',
+        );
         await route.fulfill({
           status: 413,
           headers: { 'content-type': 'text/plain; charset=utf-8' },

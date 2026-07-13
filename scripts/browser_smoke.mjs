@@ -145,7 +145,13 @@ function startFixtureServer() {
     const hits = [];
     const server = http.createServer((req, res) => {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
-      hits.push({ path: url.pathname, headers: { ...req.headers } });
+      const hit = {
+        path: url.pathname,
+        method: req.method || 'GET',
+        headers: { ...req.headers },
+        body: '',
+      };
+      hits.push(hit);
       if (url.pathname === '/robots.txt') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('User-agent: DResearchBot\nDisallow: /private/\n');
@@ -190,6 +196,83 @@ function startFixtureServer() {
       if (url.pathname === '/private/secret') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end('<html><body>SECRET SHOULD NOT BE EXTRACTED</body></html>');
+        return;
+      }
+      if (url.pathname === '/post-page') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(
+          '<html><body><h1>read only</h1><script>' +
+          "fetch('/mutate',{method:'POST',body:'changed-by-page'}).catch(()=>{});" +
+          '</script></body></html>',
+        );
+        return;
+      }
+      if (url.pathname === '/mutate') {
+        const chunks = [];
+        req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on('end', () => {
+          hit.body = Buffer.concat(chunks).toString('utf8');
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('mutation received');
+        });
+        return;
+      }
+      if (url.pathname === '/dom-expand') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(
+          '<html><body><script>' +
+          "document.body.textContent='D'.repeat(5*1024*1024);" +
+          '</script></body></html>',
+        );
+        return;
+      }
+      if (url.pathname === '/oversized-subresource') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(
+          '<html><body><h1>subresource cap</h1>' +
+          '<img src="/subresource-large"></body></html>',
+        );
+        return;
+      }
+      if (url.pathname === '/subresource-large') {
+        const body = Buffer.alloc(4096, 120);
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(body.length),
+        });
+        res.end(body);
+        return;
+      }
+      if (url.pathname === '/aggregate-page') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(
+          '<html><body><h1>aggregate cap</h1><script>' +
+          "Promise.allSettled(Array.from({length:20},(_,i)=>fetch('/aggregate-chunk?i='+i)));" +
+          '</script></body></html>',
+        );
+        return;
+      }
+      if (url.pathname === '/aggregate-chunk') {
+        const body = Buffer.alloc(128, 97);
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(body.length),
+        });
+        res.end(body);
+        return;
+      }
+      if (url.pathname === '/request-fanout') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(
+          '<html><body><h1>request cap</h1><script>' +
+          "Promise.allSettled(Array.from({length:105},(_,i)=>fetch('/tiny?i='+i)));" +
+          '</script></body></html>',
+        );
+        return;
+      }
+      if (url.pathname === '/tiny') {
+        res.writeHead(204);
+        res.end();
         return;
       }
       if (url.pathname === '/%70rivate/secret') {
@@ -562,6 +645,94 @@ async function testBrowserResponseLimits(base) {
   return 'browser_response_limits';
 }
 
+async function testBrowserReadOnlyMethods(fixture) {
+  const { base, hits } = fixture;
+  const extract = path.join(ROOT, 'scripts', 'playwright_extract.mjs');
+  const tmp = ensureSmokeTmp('smoke-read-only-');
+  const hitStart = hits.length;
+  try {
+    const out = path.join(tmp, 'extract.json');
+    const result = await runNode(extract, [
+      '--url', `${base}/post-page`,
+      '--out', out,
+      '--wait-ms', '500',
+      '--allow-loopback-fixture',
+    ]);
+    assert(result.code === 0, `read-only extract failed: ${result.stderr}`);
+    const output = JSON.parse(fs.readFileSync(out, 'utf8'));
+    const newHits = hits.slice(hitStart);
+    assert(
+      !newHits.some((row) => row.path === '/mutate'),
+      'page-originated POST reached the fixture server',
+    );
+    assert(
+      output.ssrfStats?.blockedUrls?.some(
+        (row) => row.reason === 'read_only_method_required' && row.method === 'POST',
+      ),
+      'blocked POST was not recorded in browser network accounting',
+    );
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  return 'browser_read_only_methods';
+}
+
+async function testBrowserDynamicLimits(base) {
+  const probe = path.join(ROOT, 'scripts', 'playwright_probe.mjs');
+  const extract = path.join(ROOT, 'scripts', 'playwright_extract.mjs');
+  const tmp = ensureSmokeTmp('smoke-dynamic-limits-');
+  const expectLimit = async (script, endpoint, limit, expectedCode, label) => {
+    const out = path.join(tmp, `${label}.json`);
+    const result = await runNode(script, [
+      '--url', `${base}${endpoint}`,
+      '--out', out,
+      '--wait-ms', '750',
+      '--max-response-bytes', String(limit),
+      '--allow-loopback-fixture',
+    ]);
+    assert(result.code === 3, `${label} must exit 3, got ${result.code}: ${result.stderr}`);
+    assert(
+      result.stderr.includes('"error":"resource_limit"') &&
+        result.stderr.includes(`"code":"${expectedCode}"`),
+      `${label} emitted the wrong structured limit: ${result.stderr}`,
+    );
+    assert(!fs.existsSync(out), `${label} wrote output after a limit failure`);
+  };
+  try {
+    await expectLimit(
+      extract,
+      '/dom-expand',
+      1024,
+      'browser_output_max_bytes',
+      'dom_output',
+    );
+    await expectLimit(
+      probe,
+      '/oversized-subresource',
+      1024,
+      'http_max_bytes',
+      'subresource',
+    );
+    await expectLimit(
+      probe,
+      '/aggregate-page',
+      1024,
+      'browser_total_max_bytes',
+      'aggregate',
+    );
+    await expectLimit(
+      probe,
+      '/request-fanout',
+      1024 * 1024,
+      'browser_max_requests',
+      'request_count',
+    );
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  return 'browser_dynamic_limits';
+}
+
 async function testRobotsStatuses() {
   const crawl = path.join(ROOT, 'scripts', 'playwright_crawl.mjs');
   const cases = [
@@ -856,6 +1027,16 @@ async function main() {
       results.push(await testBrowserResponseLimits(fixture.base));
     } catch (e) {
       errors.push(`browser_response_limits: ${e.message}`);
+    }
+    try {
+      results.push(await testBrowserReadOnlyMethods(fixture));
+    } catch (e) {
+      errors.push(`browser_read_only_methods: ${e.message}`);
+    }
+    try {
+      results.push(await testBrowserDynamicLimits(fixture.base));
+    } catch (e) {
+      errors.push(`browser_dynamic_limits: ${e.message}`);
     }
     try {
       results.push(await testServiceWorkersBlocked(fixture.base));

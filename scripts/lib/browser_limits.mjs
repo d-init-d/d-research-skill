@@ -1,10 +1,16 @@
 const DEFAULT_MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 
 export class BrowserResourceLimitError extends Error {
-  constructor({ url, limit, observed = null, detail = null }) {
+  constructor({
+    url,
+    limit,
+    observed = null,
+    detail = null,
+    code = 'http_max_bytes',
+  }) {
     super(detail || `browser response exceeds ${limit} bytes`);
     this.name = 'BrowserResourceLimitError';
-    this.code = 'http_max_bytes';
+    this.code = code;
     this.url = url || null;
     this.limit = limit;
     this.observed = observed;
@@ -97,7 +103,23 @@ export function browserResourceLimitErrorFromPayload(payload) {
     limit: payload.limit,
     observed: payload.actual ?? payload.observed ?? null,
     detail: payload.message || null,
+    code: payload.code || 'http_max_bytes',
   });
+}
+
+export function enforceBrowserOutputLimit(value, limit, url = null) {
+  const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+  const observed = Buffer.byteLength(serialized, 'utf8');
+  if (observed > limit) {
+    throw new BrowserResourceLimitError({
+      url,
+      limit,
+      observed,
+      code: 'browser_output_max_bytes',
+      detail: `browser extracted output exceeds ${limit} bytes`,
+    });
+  }
+  return observed;
 }
 
 export function selfTestBrowserLimits() {
@@ -124,5 +146,19 @@ export function selfTestBrowserLimits() {
   const restored = browserResourceLimitErrorFromPayload(payload);
   if (!(restored instanceof BrowserResourceLimitError) || restored.code !== 'http_max_bytes') {
     throw new Error('browser resource-limit payload restore failed');
+  }
+  if (enforceBrowserOutputLimit('abc', 3) !== 3) {
+    throw new Error('browser output byte accounting failed');
+  }
+  try {
+    enforceBrowserOutputLimit('four', 3, 'https://example.test/');
+    throw new Error('browser output limit accepted oversized content');
+  } catch (error) {
+    if (String(error?.message || error).startsWith('browser output limit accepted')) {
+      throw error;
+    }
+    if (error?.code !== 'browser_output_max_bytes') {
+      throw new Error('browser output limit emitted the wrong error code');
+    }
   }
 }

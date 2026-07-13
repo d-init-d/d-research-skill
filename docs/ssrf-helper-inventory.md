@@ -1,4 +1,4 @@
-# Network helper SSRF inventory (v3.2.0-rc.2 clean)
+# Network helper SSRF inventory (v3.2.0-rc.3 clean)
 
 Status of public-address validation for outbound HTTP(S) helpers. Arbitrary
 user-controlled URL fetchers must validate destinations, bind the TCP

@@ -1,5 +1,17 @@
 # Report Generation
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Script](#script)
+- [Workspace Requirements](#workspace-requirements)
+- [Signature Verification Behavior](#signature-verification-behavior)
+- [Report Structure](#report-structure)
+- [Lint Checks](#lint-checks)
+- [Export Formats](#export-formats)
+- [Workflow Integration](#workflow-integration)
+- [See Also](#see-also)
+
 This reference covers the final report generation step of the research workflow. After evidence collection, ledger signing, and synthesis, the agent produces a structured Markdown report with citations, evidence tables, and PRISMA flow summaries.
 
 ## When to Use
@@ -40,6 +52,13 @@ The `render` command enforces ledger integrity:
 3. If no signature exists, **warns** and continues by default
 4. If `--require-signature` is set and no valid signature exists, **hard-fails**
 
+With `--require-signature`, the signature gate runs before the plan, narrative,
+or output path is loaded. The command requires all three inputs to the gate:
+`evidence-ledger.csv`, its adjacent `evidence-ledger.csv.hmac` sidecar, and a
+matching `D_RESEARCH_LEDGER_KEY`. A missing ledger, missing sidecar, malformed
+sidecar, unavailable key, or HMAC mismatch returns non-zero without writing a
+report.
+
 This ensures tamper-evident research output when signatures are available.
 
 ## Report Structure
@@ -52,6 +71,12 @@ The generated `report.md` contains:
 4. **Evidence Summary** — table of claims from the ledger (capped at 50 rows)
 5. **Screening Summary** — PRISMA counts if `screening-log.csv` exists
 6. **References** — deduplicated source URLs from the ledger
+
+Generated evidence/reference fields are untrusted metadata: the renderer
+redacts known secret patterns, collapses control/newline characters, escapes
+HTML and Markdown syntax, and emits only credential-free `http`/`https` source
+URLs. Invalid schemes are shown as omitted. Authored report narrative is kept
+verbatim and remains the author's responsibility.
 7. **Caveats and Limitations** — placeholder for documenting gaps
 
 ## Lint Checks

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   browserResourceLimitErrorFromPayload,
+  enforceBrowserOutputLimit,
   enforceBrowserResponseLimit,
   resolveBrowserResponseLimit,
   resourceLimitPayload,
@@ -508,6 +509,11 @@ async function run(args) {
     allowLoopback: args.allowLoopbackFixture === true,
     ignoreTlsErrors: ignoreTls,
     maxResponseBytes: args.maxResponseBytes,
+    maxTotalResponseBytes: Math.min(
+      args.maxResponseBytes * Math.max(1, args.maxPages),
+      256 * 1024 * 1024,
+    ),
+    maxRequests: Math.min(Math.max(100, args.maxPages * 100), 10_000),
     timeoutMs: args.timeout,
     onAllowed: async (_route, request) => {
       if (
@@ -665,7 +671,15 @@ async function run(args) {
         }
       }
       await page.waitForTimeout(500);
+      const delayedRouteLimit = browserResourceLimitErrorFromPayload(
+        ssrfStats.resourceLimit,
+      );
+      if (delayedRouteLimit) throw delayedRouteLimit;
       const data = await extractPage(page, url, response);
+      const extractionRouteLimit = browserResourceLimitErrorFromPayload(
+        ssrfStats.resourceLimit,
+      );
+      if (extractionRouteLimit) throw extractionRouteLimit;
       const record = {
         id: manifest.length + 1,
         inputUrl: url,
@@ -676,6 +690,7 @@ async function run(args) {
         timestamp: new Date().toISOString(),
         ...data
       };
+      enforceBrowserOutputLimit(record, args.maxResponseBytes, page.url());
       manifest.push(record);
       await writeJson(path.join(args.outDir, 'pages', `${String(record.id).padStart(4, '0')}.json`), record);
       for (const link of data.links) {
@@ -703,6 +718,12 @@ async function run(args) {
           depth: item.depth,
           ...limitPayload,
         });
+        if (
+          limitPayload.code === 'browser_total_max_bytes' ||
+          limitPayload.code === 'browser_max_requests'
+        ) {
+          break;
+        }
       } else if (navigationPolicyBlock) {
         blocked.push({
           ...navigationPolicyBlock,

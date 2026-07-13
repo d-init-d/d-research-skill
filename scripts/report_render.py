@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,9 +33,15 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+
+from content_sanitize import redact_secrets
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = REPO_ROOT / "templates" / "report-template.md"
+_MARKDOWN_SPECIAL_RE = re.compile(r"([\\`*_[\]{}()#+!|])")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
+_MAX_SOURCE_URL_LENGTH = 2048
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +66,38 @@ def _load_ledger(path: Path) -> list[dict[str, str]]:
         return []
     with path.open(newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def _generated_markdown_text(value: Any, *, limit: int) -> str:
+    """Render untrusted generated metadata as inert single-line Markdown text."""
+
+    text = _CONTROL_RE.sub(" ", str(value or ""))
+    text = re.sub(r"\s+", " ", redact_secrets(text)).strip()
+    text = text[:limit]
+    text = html.escape(text, quote=True)
+    return _MARKDOWN_SPECIAL_RE.sub(r"\\\1", text)
+
+
+def _safe_source_url(value: Any) -> str | None:
+    """Return a displayable HTTP(S) URL without credentials or controls."""
+
+    raw = str(value or "").strip()
+    if not raw or len(raw) > _MAX_SOURCE_URL_LENGTH:
+        return None
+    if any(ch.isspace() or ord(ch) < 0x20 or ord(ch) == 0x7F for ch in raw):
+        return None
+    if redact_secrets(raw) != raw:
+        return None
+    try:
+        parsed = urlsplit(raw)
+        _ = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    return raw
 
 
 def _path_in_workspace(workspace: Path, raw: str | Path, *, label: str) -> Path:
@@ -125,10 +165,15 @@ def _validate_ledger(ledger_path: Path) -> int:
 
 
 def _verify_signature(ledger_path: Path) -> bool:
-    """Verify ledger signature if sidecar exists. Returns True if valid."""
+    """Verify the ledger HMAC sidecar. Return ``True`` only when valid."""
+    if not ledger_path.is_file():
+        print(f"error: evidence ledger not found: {ledger_path}", file=sys.stderr)
+        return False
+
     hmac_path = Path(str(ledger_path) + ".hmac")
     if not hmac_path.is_file():
-        return True  # No signature = not signed yet
+        print(f"error: signature file not found: {hmac_path}", file=sys.stderr)
+        return False
 
     key = os.environ.get("D_RESEARCH_LEDGER_KEY", "")
     if not key:
@@ -151,9 +196,41 @@ def _verify_signature(ledger_path: Path) -> bool:
     import contextlib
     import io as _io
 
-    with contextlib.redirect_stdout(_io.StringIO()):
-        rc = el_mod.verify_ledger(ledger_path, "D_RESEARCH_LEDGER_KEY", hmac_path)
+    try:
+        with contextlib.redirect_stdout(_io.StringIO()):
+            rc = el_mod.verify_ledger(
+                ledger_path, "D_RESEARCH_LEDGER_KEY", hmac_path
+            )
+    except Exception as exc:
+        print(f"error: ledger signature verification failed: {exc}", file=sys.stderr)
+        return False
     return rc == 0
+
+
+def _required_signature_preflight(ledger_path: Path) -> bool:
+    """Fail closed before report inputs are loaded when HMAC is mandatory."""
+    if not ledger_path.is_file():
+        print(
+            "error: --require-signature requires evidence-ledger.csv",
+            file=sys.stderr,
+        )
+        return False
+
+    hmac_path = Path(str(ledger_path) + ".hmac")
+    if not hmac_path.is_file():
+        print(
+            "error: --require-signature set but no signature sidecar found",
+            file=sys.stderr,
+        )
+        return False
+
+    if not _verify_signature(ledger_path):
+        print(
+            "error: ledger signature verification FAILED - refusing to render",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -182,10 +259,16 @@ def cmd_init(args: argparse.Namespace) -> int:
     sections: list[str] = []
     if plan_path.is_file():
         plan = _load_json(plan_path)
-        title = plan.get("title", plan.get("slug", "Research Report"))
+        title = _generated_markdown_text(
+            plan.get("title", plan.get("slug", "Research Report")), limit=200
+        )
         tasks = plan.get("tasks", [])
         for task in tasks:
-            task_title = task.get("title", task.get("id", "Section"))
+            if not isinstance(task, dict):
+                continue
+            task_title = _generated_markdown_text(
+                task.get("title", task.get("id", "Section")), limit=160
+            )
             sections.append(f"## {task_title}\n\n<!-- findings from task -->\n")
 
     # Fill template
@@ -338,9 +421,14 @@ def _build_evidence_block(rows: list[dict[str, str]]) -> list[str]:
         "|---|-------|--------|------------|",
     ]
     for i, row in enumerate(claim_rows[:50], 1):
-        claim = (row.get("claim", "") or "")[:80].replace("|", "\\|")
-        source = (row.get("source_url", "") or "")[:60].replace("|", "\\|")
-        conf = row.get("confidence", "")
+        claim = _generated_markdown_text(row.get("claim", ""), limit=160)
+        safe_url = _safe_source_url(row.get("source_url", ""))
+        source = (
+            _generated_markdown_text(safe_url, limit=_MAX_SOURCE_URL_LENGTH)
+            if safe_url
+            else "[invalid URL omitted]"
+        )
+        conf = _generated_markdown_text(row.get("confidence", ""), limit=32)
         lines.append(f"| {i} | {claim} | {source} | {conf} |")
     if len(claim_rows) > 50:
         lines.append(f"| ... | *{len(claim_rows) - 50} more rows* | | |")
@@ -353,11 +441,15 @@ def _build_references_block(rows: list[dict[str, str]]) -> list[str]:
     seen_urls: set[str] = set()
     ref_num = 1
     for row in rows:
-        url = (row.get("source_url", "") or "").strip()
-        title_ref = (row.get("source_title", "") or "").strip()
+        url = _safe_source_url(row.get("source_url", ""))
+        title_ref = _generated_markdown_text(row.get("source_title", ""), limit=300)
         if url and url not in seen_urls:
             seen_urls.add(url)
-            lines.append(f"{ref_num}. {title_ref or url} — {url}")
+            display_url = _generated_markdown_text(url, limit=_MAX_SOURCE_URL_LENGTH)
+            lines.append(f"{ref_num}. {title_ref or display_url} — {display_url}")
+            ref_num += 1
+        elif not url and title_ref:
+            lines.append(f"{ref_num}. {title_ref} — [invalid URL omitted]")
             ref_num += 1
     lines.extend(["", GENERATED_REFS_END, ""])
     return lines
@@ -402,7 +494,10 @@ def _collect_narrative(workspace: Path, plan: dict[str, Any] | None) -> str | No
                 if path.is_file() and path.suffix.lower() in {".md", ".txt"}:
                     body = path.read_text(encoding="utf-8").strip()
                     if body:
-                        heading = task.get("title") or task.get("id") or path.stem
+                        heading = _generated_markdown_text(
+                            task.get("title") or task.get("id") or path.stem,
+                            limit=160,
+                        )
                         parts.append(f"## {heading}\n\n{body}")
     if not parts:
         return None
@@ -420,6 +515,13 @@ def cmd_render(args: argparse.Namespace) -> int:
     plan_path = workspace / "research-plan.json"
     screening_path = workspace / "screening-log.csv"
     require_sig = getattr(args, "require_signature", False)
+
+    # Signature-required rendering is a preflight gate. Run it before parsing
+    # the plan, collecting narrative, resolving the output path, or validating
+    # any other report input so a missing/tampered ledger always fails first.
+    if require_sig and not _required_signature_preflight(ledger_path):
+        return 1
+
     plan: dict[str, Any] | None = None
     if plan_path.is_file():
         plan = _load_json(plan_path)
@@ -439,6 +541,8 @@ def cmd_render(args: argparse.Namespace) -> int:
             return 1
 
         hmac_path = Path(str(ledger_path) + ".hmac")
+        # Re-verify after schema validation as a defense-in-depth check against
+        # changes between the early required-signature preflight and rendering.
         if hmac_path.is_file():
             if not _verify_signature(ledger_path):
                 print(
@@ -446,13 +550,7 @@ def cmd_render(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 return 1
-        elif require_sig:
-            print(
-                "error: --require-signature set but no signature sidecar found",
-                file=sys.stderr,
-            )
-            return 1
-        else:
+        elif not hmac_path.is_file():
             print(
                 "warning: ledger is not signed; rendering without signature verification",
                 file=sys.stderr,
@@ -686,6 +784,24 @@ Generated: {{date}}
 def cmd_self_test(_args: argparse.Namespace) -> int:
     """Offline self-test with synthetic workspace."""
     errors: list[str] = []
+    original_ledger_key = os.environ.get("D_RESEARCH_LEDGER_KEY")
+    test_key = "test-key-for-self-test-only-32chars!"
+
+    import contextlib as _selftest_contextlib
+    import io as _selftest_io
+
+    def run_render_captured(
+        namespace: argparse.Namespace,
+    ) -> tuple[int, str, bool]:
+        captured = _selftest_io.StringIO()
+        raised_system_exit = False
+        with _selftest_contextlib.redirect_stderr(captured):
+            try:
+                rc = cmd_render(namespace)
+            except SystemExit as exc:
+                raised_system_exit = True
+                rc = int(exc.code) if isinstance(exc.code, int) else 1
+        return rc, captured.getvalue(), raised_system_exit
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ws = Path(tmpdir) / "test-workspace"
@@ -743,6 +859,48 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             writer.writeheader()
             for row in ledger_rows:
                 writer.writerow(row)
+
+        # Signature-required rendering must gate before parsing any other
+        # report input. A malformed plan makes regressions in this ordering
+        # observable without relying only on the final return code.
+        preflight_ws = Path(tmpdir) / "signature-preflight"
+        preflight_ws.mkdir()
+        (preflight_ws / "research-plan.json").write_text("{", encoding="utf-8")
+        preflight_out = preflight_ws / "must-not-exist.md"
+        preflight_ns = argparse.Namespace(
+            workspace=str(preflight_ws),
+            out=str(preflight_out),
+            style="apa",
+            require_signature=True,
+        )
+
+        rc, stderr_text, raised = run_render_captured(preflight_ns)
+        if rc == 0 or "requires evidence-ledger.csv" not in stderr_text:
+            errors.append("required-signature preflight did not reject missing ledger")
+        if raised:
+            errors.append("missing-ledger preflight parsed another report input")
+
+        preflight_ledger = preflight_ws / "evidence-ledger.csv"
+        shutil.copyfile(ledger_path, preflight_ledger)
+        rc, stderr_text, raised = run_render_captured(preflight_ns)
+        if rc == 0 or "no signature sidecar found" not in stderr_text:
+            errors.append("required-signature preflight did not reject missing sidecar")
+        if raised:
+            errors.append("missing-sidecar preflight parsed another report input")
+
+        os.environ["D_RESEARCH_LEDGER_KEY"] = test_key
+        preflight_sidecar = Path(str(preflight_ledger) + ".hmac")
+        preflight_sidecar.write_text(
+            "d-research-skill/hmac-sha256/v1 " + ("0" * 64) + "\n",
+            encoding="utf-8",
+        )
+        rc, stderr_text, raised = run_render_captured(preflight_ns)
+        if rc == 0 or "signature verification FAILED" not in stderr_text:
+            errors.append("required-signature preflight did not reject invalid HMAC")
+        if raised:
+            errors.append("invalid-HMAC preflight parsed another report input")
+        if preflight_out.exists():
+            errors.append("required-signature preflight wrote a report on failure")
 
         # Create screening log
         screening_path = ws / "screening-log.csv"
@@ -818,7 +976,6 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         _el_mod = _ilu.module_from_spec(_el_spec)
         _el_spec.loader.exec_module(_el_mod)
 
-        test_key = "test-key-for-self-test-only-32chars!"
         os.environ["D_RESEARCH_LEDGER_KEY"] = test_key
         import contextlib
         import io as _io
@@ -830,7 +987,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             # Render with valid signature should succeed
             render_signed_ns = argparse.Namespace(
                 workspace=str(ws), out=str(ws / "report-signed.md"),
-                style="apa", require_signature=False
+                style="apa", require_signature=True
             )
             old_stderr = sys.stderr
             sys.stderr = _io.StringIO()
@@ -853,8 +1010,11 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             if rc == 0:
                 errors.append("render should fail with tampered signed ledger")
 
-        # Clean up env
-        del os.environ["D_RESEARCH_LEDGER_KEY"]
+        # Restore the caller's environment before unsigned-signature tests.
+        if original_ledger_key is None:
+            os.environ.pop("D_RESEARCH_LEDGER_KEY", None)
+        else:
+            os.environ["D_RESEARCH_LEDGER_KEY"] = original_ledger_key
 
         # Test 4: render with --require-signature but no signature (fresh ledger)
         # Recreate fresh unsigned ledger
@@ -996,6 +1156,77 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if rc == 0:
             errors.append("lint accepted an explicit report outside the workspace")
 
+        # Test 10: ledger metadata is inert in generated Markdown and HTML.
+        hostile_rows = [
+            {
+                "record_type": "claim",
+                "claim": (
+                    "claim | <img src=x onerror=alert(1)>\n"
+                    + GENERATED_EVIDENCE_END
+                    + " SECRET_TOKEN_DO_NOT_LEAK"
+                ),
+                "source_title": '<script id="title-xss">alert(2)</script>',
+                "source_url": "https://example.com/<svg/onload=alert(3)>",
+                "confidence": '<img src=x onerror="alert(4)">',
+            },
+            {
+                "record_type": "claim",
+                "claim": "invalid URL scheme",
+                "source_title": "Unsafe link",
+                "source_url": "javascript:alert(5)",
+                "confidence": "high",
+            },
+            {
+                "record_type": "claim",
+                "claim": "credential URL",
+                "source_title": "Credential-bearing source",
+                "source_url": "https://user:pass@example.com/private",
+                "confidence": "low",
+            },
+        ]
+        hostile_md = "\n".join(
+            [*_build_evidence_block(hostile_rows), *_build_references_block(hostile_rows)]
+        )
+        if hostile_md.count(GENERATED_EVIDENCE_END) != 1:
+            errors.append("ledger metadata injected a generated-block marker")
+        for active_fragment in ("<script", "<img", "<svg", "javascript:", "user:pass"):
+            if active_fragment.lower() in hostile_md.lower():
+                errors.append(f"generated Markdown contains active fragment {active_fragment!r}")
+        if "REDACTED" not in hostile_md or "SECRET_TOKEN_DO_NOT_LEAK" in hostile_md:
+            errors.append("generated Markdown did not redact known secret material")
+        if "[invalid URL omitted]" not in hostile_md:
+            errors.append("generated Markdown did not omit an unsafe source URL")
+        if _has_pandoc():
+            hostile_md_path = Path(tmpdir) / "hostile-generated.md"
+            hostile_html_path = Path(tmpdir) / "hostile-generated.html"
+            hostile_md_path.write_text(hostile_md, encoding="utf-8")
+            pandoc_result = subprocess.run(
+                [
+                    "pandoc",
+                    str(hostile_md_path),
+                    "--standalone",
+                    "-o",
+                    str(hostile_html_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if pandoc_result.returncode != 0:
+                errors.append("pandoc failed hostile generated-metadata regression")
+            else:
+                hostile_html = hostile_html_path.read_text(encoding="utf-8")
+                active_html = re.search(
+                    r"(?is)<(?:script|img|svg)\b[^>]*(?:on\w+\s*=)?",
+                    hostile_html,
+                )
+                if active_html:
+                    errors.append(
+                        "generated ledger metadata produced an active HTML element: "
+                        f"{active_html.group(0)!r}"
+                    )
+
     if errors:
         print("report_render self-test FAILED:", file=sys.stderr)
         for e in errors:
@@ -1028,7 +1259,7 @@ def main() -> int:
     render_p.add_argument("--style", default="apa", help="Citation style (default: apa).")
     render_p.add_argument("--out", default=None, help="Output path (default: workspace/report.md).")
     render_p.add_argument("--require-signature", action="store_true", default=False,
-                          help="Hard-fail if ledger has no valid signature.")
+                          help="Preflight: require a ledger and valid HMAC sidecar.")
 
     # to-pdf
     pdf_p = sub.add_parser("to-pdf", help="Convert markdown to PDF via pandoc.")

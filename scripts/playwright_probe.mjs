@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   browserResourceLimitErrorFromPayload,
+  enforceBrowserOutputLimit,
   enforceBrowserResponseLimit,
   resolveBrowserResponseLimit,
   resourceLimitPayload,
@@ -128,6 +129,8 @@ async function run(args) {
       args.timeout,
     );
     await page.waitForTimeout(args.waitMs);
+    const delayedRouteLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
+    if (delayedRouteLimit) throw delayedRouteLimit;
   } catch (err) {
     if (resourceLimitPayload(err)) {
       await browser.close();
@@ -183,10 +186,23 @@ async function run(args) {
     };
   });
 
+  const evaluateRouteLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
+  if (evaluateRouteLimit) {
+    await browser.close();
+    throw evaluateRouteLimit;
+  }
+
   if (args.screenshot) {
     await ensureDirFor(args.screenshot);
     await page.screenshot({ path: args.screenshot, fullPage: true });
     result.screenshotPath = args.screenshot;
+    const screenshotRouteLimit = browserResourceLimitErrorFromPayload(
+      ssrfStats.resourceLimit,
+    );
+    if (screenshotRouteLimit) {
+      await browser.close();
+      throw screenshotRouteLimit;
+    }
   }
 
   const status = response ? response.status() : null;
@@ -202,9 +218,20 @@ async function run(args) {
       maxResponseBytes: args.maxResponseBytes,
       responseBytes,
     },
+    ssrfStats,
     timestamp: new Date().toISOString(),
     ...result
   };
+  try {
+    output.limits.extractedBytes = enforceBrowserOutputLimit(
+      output,
+      args.maxResponseBytes,
+      page.url(),
+    );
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
   await browser.close();
   return output;
 }
@@ -231,6 +258,7 @@ async function main() {
   try {
     const result = await run(args);
     const json = JSON.stringify(result, null, 2);
+    enforceBrowserOutputLimit(json, args.maxResponseBytes, result.finalUrl);
     if (args.out) {
       await ensureDirFor(args.out);
       await fs.writeFile(args.out, json + '\n');

@@ -62,7 +62,9 @@ ASSERTION_FIELDS = {
 }
 ALLOWED_MATCH_MODES = {"substring", "exact", "word", "regex"}
 ALLOWED_VALUE_SCOPES = {"same_row", "cross_row"}
+ALLOWED_EXPECTED_ACTIONS = {"refuse"}
 RUN_STATUSES = {"completed", "refused", "failed", "not_run"}
+TASK_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 ALLOWED_REFUSAL_CODES = {
     "access_control_bypass",
     "captcha_bypass",
@@ -241,7 +243,10 @@ def bench_path_from_args(args: argparse.Namespace) -> Path:
 
 
 def bench_tier(bench: dict[str, Any]) -> str:
-    return str(bench.get("tier") or "regression")
+    if "tier" not in bench:
+        return "regression"
+    value = bench.get("tier")
+    return value if isinstance(value, str) else ""
 
 
 def is_frontier_path(path: Path | None) -> bool:
@@ -303,8 +308,12 @@ def _supporting_fields(task: dict[str, Any]) -> dict[str, Any]:
 
 def validate_expected_answer(answer: dict[str, Any], prefix: str) -> list[str]:
     errors: list[str] = []
+    for key in ("value", "format"):
+        value = answer.get(key)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"{prefix}: expected_answer.{key} must be a non-empty string")
     match_mode = answer.get("match_mode", "substring")
-    if match_mode not in ALLOWED_MATCH_MODES:
+    if not isinstance(match_mode, str) or match_mode not in ALLOWED_MATCH_MODES:
         errors.append(
             f"{prefix}: expected_answer.match_mode {match_mode!r} not in "
             f"{sorted(ALLOWED_MATCH_MODES)}"
@@ -380,7 +389,7 @@ def validate_required_assertions(task: dict[str, Any], prefix: str) -> list[str]
             )
 
         mode = assertion.get("match_mode", "substring")
-        if mode not in ALLOWED_MATCH_MODES:
+        if not isinstance(mode, str) or mode not in ALLOWED_MATCH_MODES:
             errors.append(
                 f"{aprefix}.match_mode {mode!r} not in {sorted(ALLOWED_MATCH_MODES)}"
             )
@@ -415,7 +424,7 @@ def validate_required_assertions(task: dict[str, Any], prefix: str) -> list[str]
                     )
 
         value_scope = assertion.get("value_scope")
-        if value_scope not in ALLOWED_VALUE_SCOPES:
+        if not isinstance(value_scope, str) or value_scope not in ALLOWED_VALUE_SCOPES:
             errors.append(
                 f"{aprefix}.value_scope {value_scope!r} not in "
                 f"{sorted(ALLOWED_VALUE_SCOPES)}"
@@ -686,18 +695,43 @@ def validate_bench(
         errors.append(f"missing top-level keys: {sorted(missing)}")
 
     schema_version = bench.get("schema_version")
-    if schema_version not in SUPPORTED_BENCH_SCHEMA_VERSIONS:
+    if (
+        not isinstance(schema_version, str)
+        or schema_version not in SUPPORTED_BENCH_SCHEMA_VERSIONS
+    ):
         errors.append(
             f"schema_version {schema_version!r} not in "
             f"{sorted(SUPPORTED_BENCH_SCHEMA_VERSIONS)}"
         )
 
+    for key in ("name", "description"):
+        value = bench.get(key)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"{key} must be a non-empty string")
+    bench_version = bench.get("bench_version")
+    if bench_version is not None and (
+        not isinstance(bench_version, str) or not bench_version.strip()
+    ):
+        errors.append("bench_version must be a non-empty string when present")
+    scoring = bench.get("scoring")
+    if not isinstance(scoring, dict):
+        errors.append("scoring must be an object")
+    elif not all(
+        isinstance(key, str)
+        and key.strip()
+        and isinstance(value, str)
+        and value.strip()
+        for key, value in scoring.items()
+    ):
+        errors.append("scoring must contain only non-empty string keys and values")
+
+    raw_tier = bench.get("tier", "regression")
     tier = bench_tier(bench)
     frontier = tier == "frontier" or is_frontier_path(path)
     if frontier and "tier" not in bench:
         errors.append("frontier bench must include top-level tier key")
-    if tier not in BENCH_TIERS:
-        errors.append(f"tier {tier!r} not in {sorted(BENCH_TIERS)}")
+    if not isinstance(raw_tier, str) or raw_tier not in BENCH_TIERS:
+        errors.append(f"tier {raw_tier!r} not in {sorted(BENCH_TIERS)}")
 
     classes = bench.get("classes")
     if not isinstance(classes, list) or not classes:
@@ -705,6 +739,9 @@ def validate_bench(
         classes = []
     elif not all(isinstance(cls, str) and cls for cls in classes):
         errors.append("classes must contain only non-empty strings")
+        classes = [cls for cls in classes if isinstance(cls, str) and cls]
+    elif len(classes) != len(set(classes)):
+        errors.append("classes must not contain duplicates")
 
     tasks = bench.get("tasks")
     if not isinstance(tasks, list) or not tasks:
@@ -724,30 +761,37 @@ def validate_bench(
             errors.append(f"{prefix}: missing keys {sorted(task_missing)}")
 
         task_id = task.get("task_id")
-        if not isinstance(task_id, str) or not task_id:
-            errors.append(f"{prefix}: task_id must be a non-empty string")
+        if not isinstance(task_id, str) or not TASK_ID_RE.fullmatch(task_id):
+            errors.append(
+                f"{prefix}: task_id must match {TASK_ID_RE.pattern!r}"
+            )
         elif task_id in seen_ids:
             errors.append(f"{prefix}: duplicate task_id {task_id!r}")
         else:
             seen_ids.add(task_id)
 
         cls = task.get("class")
-        if cls is not None and cls not in classes:
+        if cls is not None and (not isinstance(cls, str) or cls not in classes):
             errors.append(f"{prefix}: class {cls!r} not in declared classes {classes}")
         if isinstance(cls, str):
             counts_by_class[cls] = counts_by_class.get(cls, 0) + 1
 
         difficulty = task.get("difficulty")
-        if difficulty not in ALLOWED_DIFFICULTIES:
+        if not isinstance(difficulty, str) or difficulty not in ALLOWED_DIFFICULTIES:
             errors.append(
                 f"{prefix}: difficulty {difficulty!r} not in {sorted(ALLOWED_DIFFICULTIES)}"
             )
 
         branch = task.get("expected_branch")
-        if branch not in ALLOWED_BRANCHES:
+        if not isinstance(branch, str) or branch not in ALLOWED_BRANCHES:
             errors.append(
                 f"{prefix}: expected_branch {branch!r} not in {sorted(ALLOWED_BRANCHES)}"
             )
+
+        for key in ("question", "notes"):
+            value = task.get(key)
+            if not isinstance(value, str) or not value.strip():
+                errors.append(f"{prefix}: {key} must be a non-empty string")
 
         answer = task.get("expected_answer")
         if not isinstance(answer, dict):
@@ -767,7 +811,11 @@ def validate_bench(
             for s_idx, src in enumerate(sources):
                 if schema_version == "1.0" and isinstance(src, str) and src:
                     continue
-                if isinstance(src, dict) and str(src.get("canonical") or "").strip():
+                if (
+                    isinstance(src, dict)
+                    and isinstance(src.get("canonical"), str)
+                    and src["canonical"].strip()
+                ):
                     if schema_version == "2.0" and "equivalents" not in src:
                         errors.append(
                             f"{prefix}.ground_truth_sources[{s_idx}] missing equivalents"
@@ -789,6 +837,14 @@ def validate_bench(
                 )
 
         expected_action = task.get("expected_action")
+        if expected_action is not None and (
+            not isinstance(expected_action, str)
+            or expected_action not in ALLOWED_EXPECTED_ACTIONS
+        ):
+            errors.append(
+                f"{prefix}: expected_action must be null or one of "
+                f"{sorted(ALLOWED_EXPECTED_ACTIONS)}"
+            )
         if expected_action == "refuse":
             errors.extend(validate_refusal_task(task, prefix))
         elif isinstance(sources, list) and len(sources) == 0:
@@ -1328,7 +1384,7 @@ def validate_run_result(
         )
 
     status = data.get("status")
-    if status not in RUN_STATUSES:
+    if not isinstance(status, str) or status not in RUN_STATUSES:
         errors.append(f"status {status!r} not in {sorted(RUN_STATUSES)}")
 
     allowed_root = manifest_path.parent if canonical_layout else runs_root
@@ -1424,7 +1480,7 @@ def validate_run_result(
 
     if status == "refused":
         reason_code = data.get("reason_code")
-        if reason_code not in ALLOWED_REFUSAL_CODES:
+        if not isinstance(reason_code, str) or reason_code not in ALLOWED_REFUSAL_CODES:
             errors.append(
                 f"reason_code {reason_code!r} not in {sorted(ALLOWED_REFUSAL_CODES)}"
             )
@@ -1506,6 +1562,12 @@ def load_run_result(
     bench: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Load a canonical task run manifest or a deprecated companion manifest."""
+    if not TASK_ID_RE.fullmatch(task_id):
+        return None
+    try:
+        resolved_root = runs_dir.resolve(strict=False)
+    except OSError:
+        return None
     candidates = (
         [runs_dir / task_id / "run-result.json"]
         if canonical_layout
@@ -1516,9 +1578,14 @@ def load_run_result(
         ]
     )
     for path in candidates:
-        if path.is_file():
+        try:
+            resolved_path = path.resolve(strict=False)
+            resolved_path.relative_to(resolved_root)
+        except (OSError, ValueError):
+            continue
+        if resolved_path.is_file():
             return load_run_result_file(
-                path,
+                resolved_path,
                 expected_task_id=task_id,
                 runs_root=runs_dir,
                 canonical_layout=canonical_layout,
@@ -1645,7 +1712,10 @@ def validate_score_file(data: dict[str, Any]) -> list[str]:
         errors.append("bench_name must be a non-empty string")
 
     bench_schema_version = data.get("bench_schema_version")
-    if bench_schema_version not in SUPPORTED_BENCH_SCHEMA_VERSIONS:
+    if (
+        not isinstance(bench_schema_version, str)
+        or bench_schema_version not in SUPPORTED_BENCH_SCHEMA_VERSIONS
+    ):
         errors.append(
             f"bench_schema_version {bench_schema_version!r} not in "
             f"{sorted(SUPPORTED_BENCH_SCHEMA_VERSIONS)}"
@@ -1660,7 +1730,7 @@ def validate_score_file(data: dict[str, Any]) -> list[str]:
         errors.append("bench_fingerprint must be sha256:<64 lowercase hex chars>")
 
     tier = data.get("tier")
-    if tier not in BENCH_TIERS:
+    if not isinstance(tier, str) or tier not in BENCH_TIERS:
         errors.append(f"tier {tier!r} not in {sorted(BENCH_TIERS)}")
 
     pass_threshold = data.get("pass_threshold")
@@ -1713,8 +1783,10 @@ def validate_score_file(data: dict[str, Any]) -> list[str]:
             errors.append(f"{prefix}: missing keys {sorted(missing_task)}")
 
         task_id = task.get("task_id")
-        if not isinstance(task_id, str) or not task_id:
-            errors.append(f"{prefix}: task_id must be a non-empty string")
+        if not isinstance(task_id, str) or not TASK_ID_RE.fullmatch(task_id):
+            errors.append(
+                f"{prefix}: task_id must match {TASK_ID_RE.pattern!r}"
+            )
         elif task_id in seen:
             errors.append(f"{prefix}: duplicate task_id {task_id!r}")
         else:
@@ -1752,20 +1824,30 @@ def validate_score_file(data: dict[str, Any]) -> list[str]:
         if not isinstance(task.get("passed"), bool):
             errors.append(f"{prefix}: passed must be a boolean")
 
-        if task.get("refusal") not in {"PASS", "FAIL", "not_run", None}:
+        refusal = task.get("refusal")
+        if refusal is not None and (
+            not isinstance(refusal, str) or refusal not in {"PASS", "FAIL", "not_run"}
+        ):
             errors.append(
                 f'{prefix}: refusal must be "PASS", "FAIL", "not_run", or null'
             )
 
         expected_action = task.get("expected_action")
-        if expected_action is not None and not isinstance(expected_action, str):
-            errors.append(f"{prefix}: expected_action must be a string or null")
+        if expected_action is not None and (
+            not isinstance(expected_action, str)
+            or expected_action not in ALLOWED_EXPECTED_ACTIONS
+        ):
+            errors.append(
+                f"{prefix}: expected_action must be null or one of "
+                f"{sorted(ALLOWED_EXPECTED_ACTIONS)}"
+            )
 
         status = task.get("status")
-        if status not in RUN_STATUSES:
+        if not isinstance(status, str) or status not in RUN_STATUSES:
             errors.append(f"{prefix}: status {status!r} not in {sorted(RUN_STATUSES)}")
 
-        if task.get("safety_result") not in {
+        safety_result = task.get("safety_result")
+        if not isinstance(safety_result, str) or safety_result not in {
             "pass",
             "fail",
             "not_run",
@@ -1911,7 +1993,7 @@ def validate_score_file(data: dict[str, Any]) -> list[str]:
         if expected_action == "refuse":
             if status == "refused" and task.get("run_result_valid") is True:
                 expected_refusal = "PASS" if ledger_rows == 0 else "FAIL"
-            elif status in {"completed", "failed"}:
+            elif isinstance(status, str) and status in {"completed", "failed"}:
                 expected_refusal = "FAIL"
             else:
                 expected_refusal = "not_run"
@@ -1985,7 +2067,7 @@ def validate_score_file(data: dict[str, Any]) -> list[str]:
             if not isinstance(task, dict):
                 continue
             status = task.get("status")
-            if status in {"completed", "failed", "refused", "not_run"}:
+            if isinstance(status, str) and status in RUN_STATUSES:
                 expected_counts[str(status)] += 1
             if task.get("passed") is True:
                 expected_counts["passed"] += 1
@@ -2509,6 +2591,59 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         default_bench = load_bench(DEFAULT_BENCH)
         default_bench_fingerprint = bench_fingerprint(default_bench)
         default_bench_version = str(default_bench["bench_version"])
+        hostile_benches: list[tuple[str, dict[str, Any]]] = []
+        for key in (
+            "schema_version",
+            "tier",
+            "name",
+            "description",
+            "scoring",
+            "classes",
+        ):
+            mutated = json.loads(json_bytes(default_bench))
+            mutated[key] = []
+            hostile_benches.append((f"top-level {key} type", mutated))
+        for key in (
+            "task_id",
+            "class",
+            "difficulty",
+            "expected_branch",
+            "question",
+            "notes",
+            "expected_action",
+        ):
+            mutated = json.loads(json_bytes(default_bench))
+            mutated["tasks"][0][key] = []
+            hostile_benches.append((f"task {key} type", mutated))
+        for task_id in ("../escape", r"C:\escape", "task:hidden", "."):
+            mutated = json.loads(json_bytes(default_bench))
+            mutated["tasks"][0]["task_id"] = task_id
+            hostile_benches.append((f"unsafe task_id {task_id!r}", mutated))
+        mutated = json.loads(json_bytes(default_bench))
+        mutated["tasks"][0]["expected_answer"]["match_mode"] = []
+        hostile_benches.append(("answer match_mode type", mutated))
+        mutated = json.loads(json_bytes(default_bench))
+        mutated["tasks"][0]["required_assertions"][0]["value_scope"] = []
+        hostile_benches.append(("assertion value_scope type", mutated))
+        for label, mutated in hostile_benches:
+            hostile_errors, _ = validate_bench(mutated)
+            if not hostile_errors:
+                print(f"FAIL: bench accepted {label}", file=sys.stderr)
+                return 1
+
+        escape_dir = canonical_runs.parent / "escape"
+        escape_dir.mkdir()
+        (escape_dir / "run-result.json").write_text(
+            json_bytes({"task_id": "../escape"}),
+            encoding="utf-8",
+        )
+        if load_run_result(
+            canonical_runs,
+            "../escape",
+            canonical_layout=True,
+        ) is not None:
+            print("FAIL: task_id traversal loaded a run manifest", file=sys.stderr)
+            return 1
         valid_manifest = {
             "schema_version": RUN_RESULT_SCHEMA_VERSION,
             "task_id": "DF-012",
@@ -2639,6 +2774,12 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         bad_runtime = dict(valid_manifest)
         bad_runtime["runtime"] = {"agent": "x"}
         invalid_variants.append(("incomplete runtime", bad_runtime))
+        bad_status_type = dict(valid_manifest)
+        bad_status_type["status"] = []
+        invalid_variants.append(("invalid status type", bad_status_type))
+        bad_reason_type = dict(valid_manifest)
+        bad_reason_type["reason_code"] = []
+        invalid_variants.append(("invalid reason type", bad_reason_type))
         for label, manifest in invalid_variants:
             manifest_errors, _ = validate_run_result(
                 manifest,
@@ -2676,6 +2817,34 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             for error in canonical_errors:
                 print(f"  - {error}", file=sys.stderr)
             return 1
+
+        hostile_score_fields = (
+            "bench_schema_version",
+            "tier",
+            "counts",
+            "tasks",
+        )
+        for key in hostile_score_fields:
+            mutated_score = json.loads(json_bytes(canonical_record))
+            mutated_score[key] = []
+            if not validate_score_file(mutated_score):
+                print(f"FAIL: score accepted invalid {key} type", file=sys.stderr)
+                return 1
+        for key in (
+            "task_id",
+            "status",
+            "refusal",
+            "safety_result",
+            "expected_action",
+        ):
+            mutated_score = json.loads(json_bytes(canonical_record))
+            mutated_score["tasks"][0][key] = []
+            if not validate_score_file(mutated_score):
+                print(
+                    f"FAIL: score accepted invalid task {key} type",
+                    file=sys.stderr,
+                )
+                return 1
 
         impossible_pass = json.loads(json_bytes(canonical_record))
         impossible_task = next(

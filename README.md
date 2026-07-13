@@ -87,12 +87,14 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.2.0-rc.2 is the production-hardening release candidate: plan schema 2.0,
-tamper-evident release gates, claim-coverage linting, credential and robots
-hardening, deterministic resource limits, scoring/citation fixes, and real
-cross-platform Chromium integration. It remains Beta until live Tier-1/Tier-2
-dogfood against v3.1.1 is complete. See
-[`docs/release-v3.2.0-rc.2.md`](docs/release-v3.2.0-rc.2.md).
+v3.2.0-rc.3 is the final production-hardening candidate. It adds immutable
+approval fingerprints, portable output locking, canonical checklist IDs,
+fail-closed report signatures, strict eval manifests, and browser-wide
+read-only/resource budgets. Its frozen release policy transparently records
+maintainer-authorized waivers for live dogfood, independent review, and
+GitHub-verified tag signatures while retaining annotated tags, exhaustive local
+verification, exact-SHA CI, RC ancestry, archive checksums, and provenance. See
+[`docs/release-v3.2.0-rc.3.md`](docs/release-v3.2.0-rc.3.md).
 Existing v3.1.1 workspaces should follow the tested
 [`docs/upgrade-v3.1.1-to-v3.2.0.md`](docs/upgrade-v3.1.1-to-v3.2.0.md).
 
@@ -342,15 +344,17 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── eval.md                           # eval-harness usage guide
 │   ├── eval-upgrade-prompt.md            # external-runner dogfood contract
 │   ├── upgrade-v3.1.1-to-v3.2.0.md       # tested workspace migration guide
-│   ├── release-v3.2.0-rc.1.md            # prior RC scope and external gates
-│   └── release-v3.2.0-rc.2.md            # current RC scope and ship gates
+│   ├── release-v3.2.0-rc.1.md            # first RC scope and external gates
+│   ├── release-v3.2.0-rc.2.md            # second RC hardening record
+│   ├── release-v3.2.0-rc.3.md            # final RC scope and ship gates
+│   └── release-v3.2.0.md                 # stable release notes
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates
 │   └── workflows/
 │       ├── lint-and-self-test.yml        # version matrices + full integration
 │       ├── link-check.yml                # internal and external link integrity
-│       └── release-source-archive.yml    # signed-tag archive/SHA/provenance
+│       └── release-source-archive.yml    # annotated-tag archive/SHA/provenance
 │
 ├── CONTRIBUTING.md                       # how to add references/adapters/examples/scripts
 └── .agents/

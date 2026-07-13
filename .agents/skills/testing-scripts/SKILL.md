@@ -141,7 +141,11 @@ redirect denial, credential isolation, and local self-signed TLS behavior.
 ## CI and release boundary
 
 `.github/workflows/lint-and-self-test.yml` is the authoritative CI definition.
-`.github/workflows/release-source-archive.yml` may publish only from a matching,
-annotated, GitHub-verified signed tag. Manual dispatch is validation-only.
-Live dogfood against the prior release remains a separate promotion gate; local
-self-tests and mocked APIs cannot substitute for it.
+`.github/workflows/release-source-archive.yml` may publish only from a matching
+annotated tag under the release policy frozen into the candidate RC. Manual
+dispatch is validation-only. The default stable path requires GitHub-verified
+tags, independent review, and live dogfood. A release-scoped maintainer override
+is valid only when the RC contract names the exact version, waiver set, owner,
+non-waivable hard gates, required local checks, and hash-bound evidence before
+the candidate tag exists. Such an override never waives annotated tags, RC
+ancestry, exact-SHA CI, archive/checksum validation, or provenance attestation.

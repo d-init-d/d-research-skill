@@ -213,6 +213,11 @@ Available style aliases (short name → official CSL): `apa`, `apa7`,
 python3 scripts/citation_render.py list-styles
 ```
 
+An official CSL repository identifier may also be supplied directly when it is
+a lowercase alphanumeric slug separated by single hyphens. Paths, URL syntax,
+dot segments, encoded separators, and arbitrary cache filenames are rejected;
+use an existing local `.csl` path for custom files.
+
 If the agent is offline or downloads are disabled, the script will
 refuse to fetch a CSL file unless `--no-download` is omitted; in fully
 offline mode the script can still emit the BibTeX-as-prose default

@@ -44,11 +44,14 @@ Design notes
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -109,6 +112,8 @@ PLACEHOLDER_PATTERNS = (
 )
 
 REQUIRED_APPROVAL_KEYS = {"approved_by", "approved_at", "notes"}
+APPROVAL_DIGEST_KEY = "plan_sha256"
+_SHA256_VALUE_RE = re.compile(r"sha256:[0-9a-f]{64}")
 REQUIRED_EXECUTION_KEYS = {
     "agent",
     "subagent_slot",
@@ -132,6 +137,21 @@ EVIDENCE_LEDGER_HEADER = (
     "verifiability,verifiability_note,license_spdx,robots_status,"
     "prov_activity_id,record_type\n"
 )
+
+CHECKLIST_CONTRACT_VERSION = "v1"
+CHECKLIST_TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "references"
+    / "reproducibility-checklist.md"
+)
+_CHECKLIST_VERSION_RE = re.compile(
+    r"<!--\s*d-research-checklist:(?P<version>v[0-9]+)\s*-->"
+)
+_CHECKLIST_ITEM_RE = re.compile(
+    r"^\s*[-*+]\s*\[(?P<state>[ xX])\]\s*"
+    r"<!--\s*(?P<id>DRC-[0-9]{3})\s*-->\s*(?P<label>.*)$"
+)
+_CHECKBOX_LINE_RE = re.compile(r"^\s*[-*+]\s*\[[ xX]\].*$")
 
 # Loaded from templates/route-manifest.json when present; fallback embedded.
 CANONICAL_GATES: dict[str, list[str]] = {
@@ -589,19 +609,117 @@ def _workspace_from_config(
     return _unique_workspace(base, workspace_name), warning
 
 
-def _is_safe_relative_path(raw: str) -> bool:
-    if not isinstance(raw, str) or not raw.strip():
-        return False
-    # Reject absolute Windows/Unix forms and drive letters before Path normalizes.
-    s = raw.strip().replace("\\", "/")
-    if s.startswith("/") or s.startswith("~") or re.match(r"^[A-Za-z]:", s):
-        return False
-    if ".." in Path(raw).parts or ".." in s.split("/"):
-        return False
-    p = Path(raw)
-    if p.is_absolute():
-        return False
-    return True
+_WINDOWS_RESERVED_PATH_CHARS = frozenset('<>:"|?*')
+_WINDOWS_DEVICE_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "CONIN$",
+        "CONOUT$",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+        *(f"COM{number}" for number in "¹²³"),
+        *(f"LPT{number}" for number in "¹²³"),
+    }
+)
+_WINDOWS_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+
+
+def _portable_relative_path(
+    raw: Any, *, allow_current_dir: bool = False
+) -> tuple[str | None, str]:
+    """Validate and canonicalize a workspace-relative portable path.
+
+    Backslashes are treated as separators on every host. This makes the same
+    plan fail or pass consistently on POSIX and Windows instead of relying on
+    the path semantics of the machine running the checker.
+    """
+
+    if not isinstance(raw, str) or not raw or not raw.strip():
+        return None, "path must be a non-empty string"
+    if any(unicodedata.category(char) == "Cc" for char in raw):
+        return None, "path contains a control character"
+
+    portable = raw.replace("\\", "/")
+    if allow_current_dir and portable == ".":
+        return ".", "OK"
+    if portable.startswith("/"):
+        return None, "absolute, UNC, and root-relative paths are not allowed"
+    if portable.startswith("~"):
+        return None, "home-relative paths are not allowed"
+    if _WINDOWS_DRIVE_PREFIX_RE.match(portable):
+        return None, "Windows drive-qualified paths are not allowed"
+
+    parts = portable.split("/")
+    if any(part == "" for part in parts):
+        return None, "path contains an empty segment"
+    for part in parts:
+        if part in {".", ".."}:
+            return None, f"path contains forbidden segment {part!r}"
+        if part.endswith((".", " ")):
+            return None, f"path segment ends in a dot or space: {part!r}"
+        reserved = sorted(set(part) & _WINDOWS_RESERVED_PATH_CHARS)
+        if reserved:
+            return (
+                None,
+                "path segment contains a Windows-reserved character "
+                f"{reserved[0]!r}: {part!r}",
+            )
+        device_stem = part.split(".", 1)[0].rstrip(" .").upper()
+        if device_stem in _WINDOWS_DEVICE_NAMES:
+            return None, f"path uses a Windows-reserved device name: {part!r}"
+
+    return "/".join(parts), "OK"
+
+
+def _is_safe_relative_path(raw: str, *, allow_current_dir: bool = False) -> bool:
+    canonical, _detail = _portable_relative_path(
+        raw, allow_current_dir=allow_current_dir
+    )
+    return canonical is not None
+
+
+def _portable_path_key(raw: Any) -> tuple[str, ...] | None:
+    """Return a normalized case-insensitive key for a valid portable path."""
+
+    canonical, _detail = _portable_relative_path(raw)
+    if canonical is None:
+        return None
+    return tuple(
+        unicodedata.normalize("NFC", part).casefold()
+        for part in canonical.split("/")
+    )
+
+
+def _portable_paths_overlap(
+    left: tuple[str, ...], right: tuple[str, ...]
+) -> bool:
+    """Return true for exact or ancestor/descendant portable path aliases."""
+
+    shared = min(len(left), len(right))
+    return left[:shared] == right[:shared]
+
+
+def _portable_output_keys(outputs: Any) -> list[tuple[str, ...]] | None:
+    """Validate one task's output tree declarations for safe dispatch."""
+
+    if not isinstance(outputs, list) or not outputs:
+        return None
+    keys: list[tuple[str, ...]] = []
+    for output in outputs:
+        canonical, _detail = _portable_relative_path(output)
+        key = _portable_path_key(output)
+        if (
+            canonical is None
+            or key is None
+            or not canonical.startswith("research-output/")
+            or any(_portable_paths_overlap(key, other) for other in keys)
+        ):
+            return None
+        keys.append(key)
+    return keys
 
 
 def _resolve_workspace_path(base: Path, raw: str) -> tuple[Path | None, str]:
@@ -610,11 +728,12 @@ def _resolve_workspace_path(base: Path, raw: str) -> tuple[Path | None, str]:
     Rejects absolute paths, `..` traversal, and symlink/junction escapes
     where the final resolved target is outside base.
     """
-    if not _is_safe_relative_path(raw):
-        return None, f"path must be relative and stay inside workspace: {raw!r}"
+    canonical, detail = _portable_relative_path(raw)
+    if canonical is None:
+        return None, f"invalid portable workspace path {raw!r}: {detail}"
     base_res = base.resolve()
     # Resolve against base; use strict=False so missing files can still be checked.
-    target = (base / raw).resolve()
+    target = base.joinpath(*canonical.split("/")).resolve()
     try:
         target.relative_to(base_res)
     except ValueError:
@@ -634,6 +753,9 @@ def _scaffold_workspace(base: Path) -> None:
     ledger = base / "evidence-ledger.csv"
     if not ledger.exists():
         ledger.write_text(EVIDENCE_LEDGER_HEADER, encoding="utf-8")
+    checklist = base / "reproducibility-checklist.md"
+    if not checklist.exists() and CHECKLIST_TEMPLATE_PATH.is_file():
+        shutil.copyfile(CHECKLIST_TEMPLATE_PATH, checklist)
 
 
 def _schema_version(plan: dict[str, Any]) -> str:
@@ -706,12 +828,33 @@ def _apply_v1_compat(plan: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
+def _reject_duplicate_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json(value: str) -> Any:
+    raise ValueError(f"non-finite JSON number is not allowed: {value}")
+
+
+def _load_strict_json(plan_path: Path) -> Any:
+    with plan_path.open("r", encoding="utf-8") as fh:
+        return json.load(
+            fh,
+            object_pairs_hook=_reject_duplicate_object,
+            parse_constant=_reject_nonfinite_json,
+        )
+
+
 def load(plan_path: Path) -> dict[str, Any]:
-    """Load and lightly normalise a plan from disk."""
+    """Load, strictly parse, and lightly normalise a plan from disk."""
     if not plan_path.exists():
         raise FileNotFoundError(f"plan file not found: {plan_path}")
-    with plan_path.open("r", encoding="utf-8") as fh:
-        plan = json.load(fh)
+    plan = _load_strict_json(plan_path)
     if not isinstance(plan, dict):
         raise ValueError(f"plan must be a JSON object, got {type(plan).__name__}")
     return _apply_v1_compat(plan)
@@ -754,11 +897,56 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
     if version not in SUPPORTED_SCHEMA_VERSIONS and version != "2.0":
         errors.append(f"unsupported schema_version: {version!r}")
 
+    if "schema_version" in plan and (
+        not isinstance(plan.get("schema_version"), (str, int))
+        or isinstance(plan.get("schema_version"), bool)
+    ):
+        errors.append("`schema_version` must be a string (or legacy integer 1)")
+    for key in ("plan_id", "title", "scope", "stopping_criteria"):
+        if key in plan and not isinstance(plan.get(key), str):
+            errors.append(f"`{key}` must be a string")
+    if "notes" in plan and not isinstance(plan.get("notes"), str):
+        errors.append("`notes` must be a string when present")
+    if "stopping_criteria_satisfied" in plan and not isinstance(
+        plan.get("stopping_criteria_satisfied"), bool
+    ):
+        errors.append("`stopping_criteria_satisfied` must be a boolean when present")
+
+    sub_questions = plan.get("sub_questions")
+    if not isinstance(sub_questions, list):
+        errors.append("`sub_questions` must be a list")
+    else:
+        seen_question_ids: set[str] = set()
+        for index, question in enumerate(sub_questions):
+            if not isinstance(question, dict):
+                errors.append(f"sub_questions[{index}] must be an object")
+                continue
+            question_id = question.get("id")
+            question_text = question.get("text")
+            if not isinstance(question_id, str) or not question_id:
+                errors.append(f"sub_questions[{index}].id must be a non-empty string")
+            elif question_id in seen_question_ids:
+                errors.append(f"duplicate sub-question id: {question_id!r}")
+            else:
+                seen_question_ids.add(question_id)
+            if not isinstance(question_text, str) or not question_text:
+                errors.append(f"sub_questions[{index}].text must be a non-empty string")
+
+    source_classes = plan.get("source_classes", [])
+    if not isinstance(source_classes, list):
+        errors.append("`source_classes` must be a list when present")
+    else:
+        for index, source_class in enumerate(source_classes):
+            if not isinstance(source_class, str) or not source_class:
+                errors.append(f"source_classes[{index}] must be a non-empty string")
+
     workspace_dir = plan.get("workspace_dir")
     if not isinstance(workspace_dir, str) or not workspace_dir:
         errors.append("`workspace_dir` must be a non-empty string")
-    elif not _is_safe_relative_path(workspace_dir):
-        errors.append("`workspace_dir` must be a relative path inside the workspace")
+    elif not _is_safe_relative_path(workspace_dir, allow_current_dir=True):
+        errors.append(
+            "`workspace_dir` must be `.` or a portable relative path inside the workspace"
+        )
 
     plan_render_path = plan.get("plan_render_path")
     if not isinstance(plan_render_path, str) or not plan_render_path:
@@ -776,12 +964,15 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
         approved_by = approval.get("approved_by", "")
         approved_at = approval.get("approved_at", "")
         notes = approval.get("notes", "")
+        plan_sha256 = approval.get(APPROVAL_DIGEST_KEY, "")
         if not isinstance(approved_by, str):
             errors.append("approval.approved_by must be a string")
         if not isinstance(approved_at, str):
             errors.append("approval.approved_at must be a string")
         if not isinstance(notes, str):
             errors.append("approval.notes must be a string")
+        if not isinstance(plan_sha256, str):
+            errors.append("approval.plan_sha256 must be a string when present")
         if isinstance(approved_by, str) and isinstance(approved_at, str):
             if bool(approved_by) != bool(approved_at):
                 errors.append(
@@ -792,6 +983,27 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
                     _parse_iso_utc(approved_at)
                 except ValueError:
                     errors.append("approval.approved_at must be ISO 8601 UTC")
+            if approved_by:
+                if not isinstance(plan_sha256, str) or not _SHA256_VALUE_RE.fullmatch(
+                    plan_sha256
+                ):
+                    errors.append(
+                        "approval.plan_sha256 must bind the approved plan as "
+                        "sha256:<64 lowercase hex>"
+                    )
+                else:
+                    try:
+                        current_plan_sha256 = _plan_approval_sha256(plan)
+                    except (TypeError, ValueError) as exc:
+                        errors.append(f"approved plan cannot be canonicalized: {exc}")
+                    else:
+                        if plan_sha256 != current_plan_sha256:
+                            errors.append(
+                                "approval.plan_sha256 does not match the current immutable "
+                                "plan; revoke, render, and re-approve"
+                            )
+            elif isinstance(plan_sha256, str) and plan_sha256:
+                errors.append("approval.plan_sha256 must be empty when approval is empty")
 
     execution_profile = plan.get("execution_profile")
     slot_ids: set[str] = set()
@@ -817,9 +1029,19 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
                     errors.append(f"duplicate subagent slot id: {slot_id!r}")
                 slot_ids.add(slot_id)
                 slot_max_parallel[slot_id] = slot.get("max_parallel")
+                agent_name = slot.get("agent")
+                if agent_name is not None and (
+                    not isinstance(agent_name, str) or not agent_name.strip()
+                ):
+                    errors.append(
+                        f"execution_profile.subagent_slots[{slot_id}].agent "
+                        "must be null or a non-empty string"
+                    )
                 for key in ("context_length", "max_parallel"):
                     value = slot.get(key)
-                    if value is not None and (not isinstance(value, int) or value <= 0):
+                    if value is not None and (
+                        not isinstance(value, int) or isinstance(value, bool) or value <= 0
+                    ):
                         errors.append(
                             f"execution_profile.subagent_slots[{slot_id}].{key} must be null or positive integer"
                         )
@@ -831,15 +1053,24 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
                         f"execution_profile.subagent_slots[{slot_id}] with an agent must set context_length and max_parallel"
                     )
         main_len = execution_profile.get("main_context_length")
-        if main_len is not None and (not isinstance(main_len, int) or main_len <= 0):
+        if main_len is not None and (
+            not isinstance(main_len, int) or isinstance(main_len, bool) or main_len <= 0
+        ):
             errors.append(
                 "execution_profile.main_context_length must be null or positive integer"
             )
         ratio = execution_profile.get("task_budget_ratio")
-        if not isinstance(ratio, (int, float)) or not (0.1 <= float(ratio) <= 0.9):
+        if (
+            not isinstance(ratio, (int, float))
+            or isinstance(ratio, bool)
+            or not (0.1 <= float(ratio) <= 0.9)
+        ):
             errors.append(
                 "execution_profile.task_budget_ratio must be between 0.1 and 0.9"
             )
+        checkpoint_policy = execution_profile.get("checkpoint_policy")
+        if not isinstance(checkpoint_policy, str) or not checkpoint_policy:
+            errors.append("execution_profile.checkpoint_policy must be a non-empty string")
 
     tasks = plan.get("tasks", [])
     if not isinstance(tasks, list):
@@ -847,6 +1078,8 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
         return errors
 
     seen_ids: set[str] = set()
+    declared_outputs: list[tuple[str, str, tuple[str, ...]]] = []
+    validated_dependencies: list[tuple[str, list[str]]] = []
     for i, task in enumerate(tasks):
         if not isinstance(task, dict):
             errors.append(f"tasks[{i}] is not an object")
@@ -863,9 +1096,13 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
             errors.append(f"duplicate task id: {tid!r}")
             continue
         seen_ids.add(tid)
-        if task["status"] not in VALID_STATUS:
+        description = task.get("description")
+        if not isinstance(description, str) or not description:
+            errors.append(f"tasks[{tid}].description must be a non-empty string")
+        status = task.get("status")
+        if not isinstance(status, str) or status not in VALID_STATUS:
             errors.append(
-                f"tasks[{tid}].status={task['status']!r} not in {sorted(VALID_STATUS)}"
+                f"tasks[{tid}].status={status!r} not in {sorted(VALID_STATUS)}"
             )
         phase = task.get("phase")
         schema_ver = _schema_version(plan)
@@ -873,7 +1110,7 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
             # Schema 2.0 requires explicit phase; no inference.
             if phase is None or phase == "":
                 errors.append(f"tasks[{tid}].phase is required for schema 2.0")
-            elif phase not in VALID_PHASE:
+            elif not isinstance(phase, str) or phase not in VALID_PHASE:
                 errors.append(
                     f"tasks[{tid}].phase={phase!r} not in {sorted(VALID_PHASE)}"
                 )
@@ -881,29 +1118,69 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
             if phase is None:
                 phase = _infer_phase(task)
                 task["phase"] = phase
-            if phase not in VALID_PHASE:
+            if not isinstance(phase, str) or phase not in VALID_PHASE:
                 errors.append(
                     f"tasks[{tid}].phase={phase!r} not in {sorted(VALID_PHASE)}"
                 )
-        if not isinstance(task["depends_on"], list):
+        depends_on = task.get("depends_on")
+        if not isinstance(depends_on, list):
             errors.append(f"tasks[{tid}].depends_on must be a list")
+        else:
+            valid_dependencies: list[str] = []
+            seen_dependencies: set[str] = set()
+            for dep_index, dep in enumerate(depends_on):
+                if not isinstance(dep, str) or not dep:
+                    errors.append(
+                        f"tasks[{tid}].depends_on[{dep_index}] must be a non-empty string"
+                    )
+                    continue
+                if dep in seen_dependencies:
+                    errors.append(f"tasks[{tid}].depends_on contains duplicate {dep!r}")
+                    continue
+                seen_dependencies.add(dep)
+                valid_dependencies.append(dep)
+            validated_dependencies.append((tid, valid_dependencies))
         if not isinstance(task["outputs"], list) or not task["outputs"]:
             errors.append(f"tasks[{tid}].outputs must be a non-empty list of paths")
         else:
             for op in task["outputs"]:
-                if not isinstance(op, str) or not _is_safe_relative_path(op):
-                    errors.append(f"tasks[{tid}].outputs contains unsafe path {op!r}")
-                elif not op.replace("\\", "/").startswith("research-output/"):
+                canonical, detail = _portable_relative_path(op)
+                if canonical is None:
+                    errors.append(
+                        f"tasks[{tid}].outputs contains unsafe portable path "
+                        f"{op!r}: {detail}"
+                    )
+                elif not canonical.startswith("research-output/"):
                     errors.append(
                         f"tasks[{tid}].outputs must live under research-output/: {op!r}"
                     )
+                else:
+                    key = _portable_path_key(op)
+                    if key is None:  # Defensive; canonical validation already passed.
+                        errors.append(
+                            f"tasks[{tid}].outputs contains unsafe portable path {op!r}"
+                        )
+                        continue
+                    for previous_task, previous_path, previous_key in declared_outputs:
+                        if _portable_paths_overlap(key, previous_key):
+                            errors.append(
+                                f"tasks[{tid}].outputs path {op!r} overlaps output tree "
+                                f"{previous_path!r} owned by task {previous_task!r}; "
+                                "output ownership is case-insensitive and includes "
+                                "ancestor/descendant paths"
+                            )
+                    declared_outputs.append((tid, op, key))
         inputs = task.get("inputs", [])
         if not isinstance(inputs, list):
             errors.append(f"tasks[{tid}].inputs must be a list when present")
         else:
             for ip in inputs:
-                if not isinstance(ip, str) or not _is_safe_relative_path(ip):
-                    errors.append(f"tasks[{tid}].inputs contains unsafe path {ip!r}")
+                canonical, detail = _portable_relative_path(ip)
+                if canonical is None:
+                    errors.append(
+                        f"tasks[{tid}].inputs contains unsafe portable path "
+                        f"{ip!r}: {detail}"
+                    )
         if not isinstance(task["parallel_safe"], bool):
             errors.append(f"tasks[{tid}].parallel_safe must be a boolean")
         execution = task.get("execution")
@@ -916,7 +1193,7 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
                     f"tasks[{tid}].execution missing keys: {sorted(missing_e)}"
                 )
             agent = execution.get("agent")
-            if agent not in {"main", "subagent"}:
+            if not isinstance(agent, str) or agent not in {"main", "subagent"}:
                 errors.append(
                     f"tasks[{tid}].execution.agent must be 'main' or 'subagent'"
                 )
@@ -941,7 +1218,7 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
                 )
             for key in ("parallel_threads", "max_parallel_threads"):
                 value = execution.get(key)
-                if not isinstance(value, int) or value < 0:
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                     errors.append(
                         f"tasks[{tid}].execution.{key} must be a non-negative integer"
                     )
@@ -973,7 +1250,9 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
                 )
             for key in ("context_length", "context_budget"):
                 value = execution.get(key)
-                if value is not None and (not isinstance(value, int) or value <= 0):
+                if value is not None and (
+                    not isinstance(value, int) or isinstance(value, bool) or value <= 0
+                ):
                     errors.append(
                         f"tasks[{tid}].execution.{key} must be null or positive integer"
                     )
@@ -988,15 +1267,17 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
             owner == "main" or owner.startswith("sub-")
         ):
             errors.append(f"tasks[{tid}].owner={owner!r} must be 'main' or 'sub-<n>'")
+        blocker_reason = task.get("blocker_reason", "")
+        if not isinstance(blocker_reason, str):
+            errors.append(f"tasks[{tid}].blocker_reason must be a string when present")
 
     # Dependency closure.
-    if not errors:
-        for task in tasks:
-            for dep in task["depends_on"]:
-                if dep not in seen_ids:
-                    errors.append(
-                        f"tasks[{task['id']}].depends_on references unknown id {dep!r}"
-                    )
+    for task_id, dependencies in validated_dependencies:
+        for dep in dependencies:
+            if dep not in seen_ids:
+                errors.append(
+                    f"tasks[{task_id}].depends_on references unknown id {dep!r}"
+                )
 
     # Standard gate invariants cannot be removed or emptied.
     errors.extend(_validate_standard_gates(plan))
@@ -1052,16 +1333,25 @@ def _validate_standard_gates(plan: dict[str, Any]) -> list[str]:
                 f"(canonical safety/release invariants cannot be removed)"
             )
             continue
-        present = set(assertions)
+        valid_assertions: list[str] = []
+        for assertion_index, assertion in enumerate(assertions):
+            if not isinstance(assertion, str) or not assertion:
+                errors.append(
+                    f"gates.{gname_check}.assertions[{assertion_index}] "
+                    "must be a non-empty string"
+                )
+                continue
+            valid_assertions.append(assertion)
+        present = set(valid_assertions)
+        if len(valid_assertions) != len(present):
+            errors.append(f"gates.{gname_check}.assertions must not contain duplicates")
         missing = [a for a in required if a not in present]
         if missing:
             errors.append(
                 f"gates.{gname_check} missing required assertions: {missing}"
             )
         # Reject unknown assertion names on standard gates (nested gate names OK).
-        for a in assertions:
-            if not isinstance(a, str) or not a:
-                continue
+        for a in valid_assertions:
             if a in required:
                 continue
             if a in gates:  # nested gate reference
@@ -1072,10 +1362,8 @@ def _validate_standard_gates(plan: dict[str, Any]) -> list[str]:
             errors.append(
                 f"gates.{gname_check} has unknown assertion {a!r}"
             )
-        for a in assertions:
-            if not isinstance(a, str) or not a:
-                errors.append(f"gates.{gname_check} has invalid assertion entry")
-            elif a not in ASSERTIONS and a not in gates:
+        for a in valid_assertions:
+            if a not in ASSERTIONS and a not in gates:
                 # nested gate names allowed; unknown atomic assertions fail
                 if a not in present:  # unreachable
                     pass
@@ -1089,7 +1377,22 @@ def _validate_standard_gates(plan: dict[str, Any]) -> list[str]:
 
 def detect_cycles(plan: dict[str, Any]) -> list[list[str]]:
     """Return a list of dependency cycles. Empty list = acyclic."""
-    tasks = {t["id"]: t for t in plan.get("tasks", [])}
+    raw_tasks = plan.get("tasks", [])
+    if not isinstance(raw_tasks, list):
+        return []
+    tasks: dict[str, dict[str, Any]] = {}
+    for task in raw_tasks:
+        if not isinstance(task, dict):
+            continue
+        task_id = task.get("id")
+        dependencies = task.get("depends_on")
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        if not isinstance(dependencies, list) or not all(
+            isinstance(dep, str) and dep for dep in dependencies
+        ):
+            continue
+        tasks[task_id] = task
     cycles: list[list[str]] = []
     WHITE, GRAY, BLACK = 0, 1, 2
     color = {tid: WHITE for tid in tasks}
@@ -1130,38 +1433,69 @@ def parallelizable_tasks(plan: dict[str, Any]) -> list[str]:
       * `parallel_safe` is true
       * no output path overlaps with another currently-running task
     """
-    tasks = {t["id"]: t for t in plan.get("tasks", [])}
-    done_ids = {tid for tid, t in tasks.items() if t["status"] == "done"}
-    running_outputs: set[str] = set()
+    raw_tasks = plan.get("tasks", [])
+    if not isinstance(raw_tasks, list):
+        return []
+    tasks: dict[str, dict[str, Any]] = {}
+    for task in raw_tasks:
+        if not isinstance(task, dict):
+            continue
+        task_id = task.get("id")
+        if isinstance(task_id, str) and task_id:
+            tasks[task_id] = task
+    done_ids = {tid for tid, t in tasks.items() if t.get("status") == "done"}
+    running_output_keys: list[tuple[str, ...]] = []
     running_slot_threads: dict[str, int] = {}
     for t in tasks.values():
-        if t["status"] == "running":
-            running_outputs.update(t.get("outputs", []))
+        if t.get("status") == "running":
+            output_keys = _portable_output_keys(t.get("outputs"))
+            if output_keys is None:
+                return []
+            if any(
+                _portable_paths_overlap(key, running_key)
+                for key in output_keys
+                for running_key in running_output_keys
+            ):
+                return []
+            running_output_keys.extend(output_keys)
             execution = (
                 t.get("execution") if isinstance(t.get("execution"), dict) else {}
             )
             if execution.get("agent") == "subagent" and execution.get("subagent_slot"):
                 slot = str(execution.get("subagent_slot"))
-                running_slot_threads[slot] = running_slot_threads.get(slot, 0) + int(
-                    execution.get("parallel_threads") or 1
-                )
+                running_slot_threads[slot] = running_slot_threads.get(
+                    slot, 0
+                ) + (_positive_int_or_none(execution.get("parallel_threads")) or 1)
 
     ready: list[str] = []
+    reserved_output_keys: list[tuple[str, ...]] = []
     reserved_slot_threads: dict[str, int] = {}
     for tid, t in tasks.items():
-        if t["status"] != "todo":
+        if t.get("status") != "todo":
             continue
         if not t.get("parallel_safe", False):
             continue
-        if not all(dep in done_ids for dep in t["depends_on"]):
+        dependencies = t.get("depends_on")
+        if not isinstance(dependencies, list) or not all(
+            isinstance(dep, str) and dep in done_ids for dep in dependencies
+        ):
             continue
-        if set(t.get("outputs", [])) & running_outputs:
+        output_keys = _portable_output_keys(t.get("outputs"))
+        if output_keys is None:
+            continue
+        if any(
+            _portable_paths_overlap(key, unavailable_key)
+            for key in output_keys
+            for unavailable_key in running_output_keys + reserved_output_keys
+        ):
             continue
         execution = t.get("execution") if isinstance(t.get("execution"), dict) else {}
         if execution.get("agent") == "subagent" and execution.get("subagent_slot"):
             slot = str(execution.get("subagent_slot"))
-            max_threads = int(execution.get("max_parallel_threads") or 1)
-            need_threads = int(execution.get("parallel_threads") or 1)
+            max_threads = _positive_int_or_none(
+                execution.get("max_parallel_threads")
+            ) or 1
+            need_threads = _positive_int_or_none(execution.get("parallel_threads")) or 1
             used = running_slot_threads.get(slot, 0) + reserved_slot_threads.get(
                 slot, 0
             )
@@ -1171,6 +1505,7 @@ def parallelizable_tasks(plan: dict[str, Any]) -> list[str]:
                 reserved_slot_threads.get(slot, 0) + need_threads
             )
         ready.append(tid)
+        reserved_output_keys.extend(output_keys)
     return ready
 
 
@@ -1319,10 +1654,46 @@ def _ledger_signed(plan_path: Path) -> tuple[bool, str]:
     return _ledger_hmac_verified(plan_path)
 
 
-def _reproducibility_checklist_complete(plan_path: Path) -> tuple[bool, str]:
-    """Checklist must exist and have no unchecked `- [ ]` items.
+def _canonical_checklist_ids() -> tuple[list[str] | None, str]:
+    """Load the shipped, versioned checklist contract fail-closed."""
 
-    Non-applicable items must be marked `- [x] N/A — reason`.
+    try:
+        text = CHECKLIST_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        return None, f"cannot read canonical checklist template: {exc}"
+    versions = _CHECKLIST_VERSION_RE.findall(text)
+    if versions != [CHECKLIST_CONTRACT_VERSION]:
+        return None, (
+            "canonical checklist must declare exactly "
+            f"d-research-checklist:{CHECKLIST_CONTRACT_VERSION}"
+        )
+    item_ids: list[str] = []
+    malformed = 0
+    for line in text.splitlines():
+        if not _CHECKBOX_LINE_RE.fullmatch(line):
+            continue
+        match = _CHECKLIST_ITEM_RE.fullmatch(line)
+        if match is None:
+            malformed += 1
+        else:
+            item_ids.append(match.group("id"))
+    if malformed:
+        return None, f"canonical checklist has {malformed} item(s) without an ID"
+    if not item_ids:
+        return None, "canonical checklist has no contract items"
+    duplicates = sorted(
+        item_id for item_id in set(item_ids) if item_ids.count(item_id) > 1
+    )
+    if duplicates:
+        return None, f"canonical checklist has duplicate IDs: {duplicates}"
+    return item_ids, "OK"
+
+
+def _reproducibility_checklist_complete(plan_path: Path) -> tuple[bool, str]:
+    """Require every canonical versioned checklist ID exactly once and complete.
+
+    Non-applicable items must be marked ``[x] ... N/A - reason``. Arbitrary
+    checked boxes, missing IDs, duplicate IDs, and unknown IDs fail closed.
     """
     base = _plan_dir(plan_path)
     candidates = [
@@ -1332,30 +1703,72 @@ def _reproducibility_checklist_complete(plan_path: Path) -> tuple[bool, str]:
     path = next((c for c in candidates if c.exists()), None)
     if path is None:
         return False, "reproducibility-checklist.md not found"
-    text = path.read_text(encoding="utf-8")
-    unchecked = re.findall(
-        r"^\s*[-*+]\s*\[\s*\](?:\s.*)?$", text, flags=re.MULTILINE
+    canonical_ids, contract_detail = _canonical_checklist_ids()
+    if canonical_ids is None:
+        return False, contract_detail
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return False, f"cannot read reproducibility checklist: {exc}"
+    versions = _CHECKLIST_VERSION_RE.findall(text)
+    if versions != [CHECKLIST_CONTRACT_VERSION]:
+        return False, (
+            "checklist must declare exactly "
+            f"d-research-checklist:{CHECKLIST_CONTRACT_VERSION}"
+        )
+
+    parsed: list[re.Match[str]] = []
+    malformed = 0
+    for line in text.splitlines():
+        if not _CHECKBOX_LINE_RE.fullmatch(line):
+            continue
+        match = _CHECKLIST_ITEM_RE.fullmatch(line)
+        if match is None:
+            malformed += 1
+        else:
+            parsed.append(match)
+    if malformed:
+        return False, f"{malformed} checklist item(s) have no canonical ID"
+
+    observed_ids = [match.group("id") for match in parsed]
+    duplicate_ids = sorted(
+        item_id for item_id in set(observed_ids) if observed_ids.count(item_id) > 1
     )
+    if duplicate_ids:
+        return False, f"duplicate checklist IDs: {duplicate_ids}"
+    expected = set(canonical_ids)
+    observed = set(observed_ids)
+    missing = sorted(expected - observed)
+    unknown = sorted(observed - expected)
+    if missing or unknown:
+        return False, f"checklist ID mismatch; missing={missing}, unknown={unknown}"
+
+    unchecked = [
+        match.group("id")
+        for match in parsed
+        if match.group("state").lower() != "x"
+    ]
     if unchecked:
-        return False, f"{len(unchecked)} unchecked checklist item(s); mark done or N/A"
-    checked = re.findall(
-        r"^\s*[-*+]\s*\[x\]\s*.*$", text, flags=re.IGNORECASE | re.MULTILINE
-    )
-    if not checked:
-        return False, "checklist has no completed items"
+        return False, (
+            f"{len(unchecked)} unchecked checklist item(s): {unchecked}; "
+            "mark done or N/A with a reason"
+        )
     invalid_na = [
-        line
-        for line in checked
-        if re.search(r"\bN/?A\b", line, flags=re.IGNORECASE)
+        match.group("id")
+        for match in parsed
+        if re.search(r"\bN/?A\b", match.group("label"), flags=re.IGNORECASE)
         and not re.search(
             r"\bN/?A\b\s*(?:\u2014|\u2013|-|:)\s*\S+",
-            line,
+            match.group("label"),
             flags=re.IGNORECASE,
         )
     ]
     if invalid_na:
-        return False, f"{len(invalid_na)} N/A item(s) missing a reason"
-    return True, f"checklist complete at {path}"
+        return False, f"N/A checklist item(s) missing a reason: {invalid_na}"
+    return True, (
+        f"checklist {CHECKLIST_CONTRACT_VERSION} complete at {path} "
+        f"({len(canonical_ids)} canonical items)"
+    )
 
 
 def _reproducibility_checklist_exists(plan_path: Path) -> tuple[bool, str]:
@@ -1381,12 +1794,15 @@ def _workspace_layout_valid(plan: dict[str, Any], plan_path: Path) -> tuple[bool
                 _target, detail = _resolve_workspace_path(base, rel)
                 if _target is None:
                     errors.append(f"tasks[{task.get('id')}].{field}: {detail}")
-                elif field == "outputs" and not rel.replace("\\", "/").startswith(
-                    "research-output/"
-                ):
-                    errors.append(
-                        f"tasks[{task.get('id')}].outputs must live under research-output/: {rel!r}"
-                    )
+                elif field == "outputs":
+                    canonical, _portable_detail = _portable_relative_path(rel)
+                    if canonical is None or not canonical.startswith(
+                        "research-output/"
+                    ):
+                        errors.append(
+                            f"tasks[{task.get('id')}].outputs must live under "
+                            f"research-output/: {rel!r}"
+                        )
     return (not errors), "; ".join(errors) if errors else "OK"
 
 
@@ -1403,6 +1819,53 @@ def _plan_rendered_exists(plan: dict[str, Any], plan_path: Path) -> tuple[bool, 
     if actual != expected:
         return False, f"rendered plan is stale; re-run render for {target}"
     return True, f"rendered plan is current at {target}"
+
+
+def _approval_contract_payload(plan: dict[str, Any]) -> dict[str, Any]:
+    """Return immutable plan semantics covered by an approval digest.
+
+    Execution progress is deliberately excluded so normal status/blocker updates
+    do not invalidate later synthesis gates. The rendered plan still displays
+    those mutable fields, so changing them before dispatch makes PLAN.md stale.
+    """
+
+    payload: dict[str, Any] = {}
+    for key, value in plan.items():
+        if key in {
+            "approval",
+            "notes",
+            "stopping_criteria_satisfied",
+            "_compat_warned",
+        }:
+            continue
+        if key == "tasks" and isinstance(value, list):
+            payload[key] = [
+                {
+                    task_key: task_value
+                    for task_key, task_value in task.items()
+                    if task_key not in {"status", "blocker_reason"}
+                }
+                if isinstance(task, dict)
+                else task
+                for task in value
+            ]
+        else:
+            payload[key] = value
+    return payload
+
+
+def _plan_approval_sha256(plan: dict[str, Any]) -> str:
+    """Return a deterministic, domain-separated digest for plan approval."""
+
+    canonical = json.dumps(
+        _approval_contract_payload(plan),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    digest = hashlib.sha256(b"d-research-plan-approval-v1\n" + canonical).hexdigest()
+    return f"sha256:{digest}"
 
 
 def _find_final_report(plan: dict[str, Any], plan_path: Path) -> Path | None:
@@ -1622,7 +2085,22 @@ def _assert_plan_approved(plan, plan_path):
         _parse_iso_utc(approved_at)
     except ValueError:
         return False, "approval.approved_at must be ISO 8601 UTC"
-    return True, f"approved by {approved_by} at {approved_at}"
+    approved_digest = approval.get(APPROVAL_DIGEST_KEY)
+    if not isinstance(approved_digest, str) or not _SHA256_VALUE_RE.fullmatch(
+        approved_digest
+    ):
+        return False, "approval.plan_sha256 is missing or malformed; re-approve the plan"
+    try:
+        current_digest = _plan_approval_sha256(plan)
+    except (TypeError, ValueError) as exc:
+        return False, f"approved plan cannot be canonicalized: {exc}"
+    if approved_digest != current_digest:
+        return (
+            False,
+            "approval.plan_sha256 does not match the current immutable plan; "
+            "revoke, render, and re-approve",
+        )
+    return True, f"approved by {approved_by} at {approved_at}; digest {approved_digest}"
 
 
 def _assert_all_tasks_terminal(plan, plan_path):
@@ -1708,7 +2186,7 @@ def _assert_rendered_citations_exist(plan, plan_path):
 
 
 def _assert_stopping_criteria_satisfied(plan, plan_path):
-    val = bool(plan.get("stopping_criteria_satisfied"))
+    val = plan.get("stopping_criteria_satisfied") is True
     return val, "OK" if val else "stopping_criteria_satisfied is false"
 
 
@@ -1826,9 +2304,17 @@ def run_gate(
     gate_name: str,
     seen: set[str] | None = None,
 ) -> tuple[bool, list[tuple[str, bool, str]]]:
-    gate = plan.get("gates", {}).get(gate_name)
+    schema_errors = validate_schema(plan)
+    if schema_errors:
+        return False, [("schema_valid", False, "; ".join(schema_errors))]
+    gates = plan.get("gates")
+    if not isinstance(gates, dict):
+        return False, [("schema_valid", False, "`gates` must be an object")]
+    gate = gates.get(gate_name)
     if gate is None:
         raise KeyError(f"gate not found: {gate_name!r}")
+    if not isinstance(gate, dict):
+        return False, [("gate_shape", False, f"gates.{gate_name} must be an object")]
     seen = set(seen or set())
     if gate_name in seen:
         raise KeyError(f"recursive gate reference: {gate_name!r}")
@@ -1919,7 +2405,12 @@ def _generic_draft_plan(slug: str, title: str | None) -> dict[str, Any]:
             },
             "sub_questions": [],
             "source_classes": [],
-            "approval": {"approved_by": "", "approved_at": "", "notes": ""},
+            "approval": {
+                "approved_by": "",
+                "approved_at": "",
+                "notes": "",
+                APPROVAL_DIGEST_KEY: "",
+            },
             "stopping_criteria": "",
             "stopping_criteria_satisfied": False,
             "tasks": [],
@@ -1936,7 +2427,12 @@ def _generic_draft_plan(slug: str, title: str | None) -> dict[str, Any]:
     plan["sub_questions"] = []
     plan["tasks"] = []
     plan["stopping_criteria_satisfied"] = False
-    plan["approval"] = {"approved_by": "", "approved_at": "", "notes": ""}
+    plan["approval"] = {
+        "approved_by": "",
+        "approved_at": "",
+        "notes": "",
+        APPROVAL_DIGEST_KEY: "",
+    }
     # Ensure modern gate set is present even if template is stale.
     plan["gates"] = _canonical_gate_defs()
     return plan
@@ -2047,6 +2543,7 @@ def migrate_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "approved_by": "",
         "approved_at": "",
         "notes": "revoked by migrate to schema 2.0; re-render and re-approve",
+        APPROVAL_DIGEST_KEY: "",
     }
     return plan
 
@@ -2057,9 +2554,8 @@ def cmd_migrate(args: argparse.Namespace) -> int:
         print(f"FAIL: plan not found: {src}", file=sys.stderr)
         return 1
     try:
-        with src.open("r", encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
+        raw = _load_strict_json(src)
+    except (OSError, json.JSONDecodeError, UnicodeError, ValueError) as exc:
         print(f"FAIL: cannot read source plan: {exc}", file=sys.stderr)
         return 1
     if not isinstance(raw, dict) or not raw:
@@ -2126,6 +2622,12 @@ def cmd_check(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     plan_path = Path(args.file).resolve()
     plan = load(plan_path)
+    errors = validate_schema(plan)
+    if errors:
+        for error in errors:
+            print(f"  {error}", file=sys.stderr)
+        print("FAIL: invalid research plan", file=sys.stderr)
+        return 1
     print(format_status(plan))
     return 0
 
@@ -2133,6 +2635,12 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_parallelizable(args: argparse.Namespace) -> int:
     plan_path = Path(args.file).resolve()
     plan = load(plan_path)
+    errors = validate_schema(plan)
+    if errors:
+        for error in errors:
+            print(f"  {error}", file=sys.stderr)
+        print("FAIL: invalid research plan", file=sys.stderr)
+        return 1
     ids = parallelizable_tasks(plan)
     if not ids:
         print("(none ready)")
@@ -2143,8 +2651,11 @@ def cmd_parallelizable(args: argparse.Namespace) -> int:
 
 
 def _find_task(plan: dict[str, Any], task_id: str) -> dict[str, Any] | None:
-    for t in plan.get("tasks", []):
-        if t["id"] == task_id:
+    tasks = plan.get("tasks", [])
+    if not isinstance(tasks, list):
+        return None
+    for t in tasks:
+        if isinstance(t, dict) and t.get("id") == task_id:
             return t
     return None
 
@@ -2155,7 +2666,12 @@ def _approval_is_set(plan: dict[str, Any]) -> bool:
 
 
 def _clear_approval(plan: dict[str, Any], notes: str = "") -> None:
-    plan["approval"] = {"approved_by": "", "approved_at": "", "notes": notes}
+    plan["approval"] = {
+        "approved_by": "",
+        "approved_at": "",
+        "notes": notes,
+        APPROVAL_DIGEST_KEY: "",
+    }
 
 
 def _remove_rendered_plan(plan: dict[str, Any], plan_path: Path) -> None:
@@ -2263,6 +2779,7 @@ def render_plan_markdown(plan: dict[str, Any], plan_path: Path) -> str:
     lines.append(f"- Plan ID: `{plan.get('plan_id', '')}`")
     lines.append(f"- Plan file: `{plan_path.name}`")
     lines.append(f"- Workspace: `{_plan_dir(plan_path)}`")
+    lines.append(f"- Approval contract: `{_plan_approval_sha256(plan)}`")
     lines.append("- Approval: recorded in `research-plan.json` after review")
     profile = plan.get("execution_profile", {})
     if isinstance(profile, dict):
@@ -2310,11 +2827,12 @@ def render_plan_markdown(plan: dict[str, Any], plan_path: Path) -> str:
     lines.append("")
     lines.append("## Tasks")
     lines.append(
-        "| ID | Status | Owner | Execution | Threads | Context length | Context budget | Depends on | Outputs | Description |"
+        "| ID | Phase | Status | Parallel safe | Owner | Execution | Threads | Context length | Context budget | Depends on | Inputs | Outputs | Blocker | Description |"
     )
-    lines.append("|---|---|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for task in plan.get("tasks", []):
         depends = ", ".join(task.get("depends_on", [])) or "-"
+        inputs = "<br>".join(task.get("inputs", [])) or "-"
         outputs = "<br>".join(task.get("outputs", [])) or "-"
         execution = (
             task.get("execution", {}) if isinstance(task.get("execution"), dict) else {}
@@ -2327,16 +2845,20 @@ def render_plan_markdown(plan: dict[str, Any], plan_path: Path) -> str:
             execution.get("max_parallel_threads", ""),
         )
         lines.append(
-            "| {id} | {status} | {owner} | {execution} | {threads} | {context} | {budget} | {depends} | {outputs} | {description} |".format(
+            "| {id} | {phase} | {status} | {parallel} | {owner} | {execution} | {threads} | {context} | {budget} | {depends} | {inputs} | {outputs} | {blocker} | {description} |".format(
                 id=_md_cell(task.get("id", "")),
+                phase=_md_cell(task.get("phase", "")),
                 status=_md_cell(task.get("status", "")),
+                parallel="yes" if task.get("parallel_safe") else "no",
                 owner=_md_cell(task.get("owner", "")),
                 execution=_md_cell(execution_label),
                 threads=_md_cell(thread_label),
                 context=_md_cell(execution.get("context_length", "agent-resolved")),
                 budget=_md_cell(execution.get("context_budget", "agent-resolved")),
                 depends=_md_cell(depends),
+                inputs=_md_cell(inputs),
                 outputs=_md_cell(outputs),
+                blocker=_md_cell(task.get("blocker_reason", "") or "-"),
                 description=_md_cell(task.get("description", "")),
             )
         )
@@ -2402,6 +2924,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         "approved_by": by,
         "approved_at": _utc_now_iso(),
         "notes": notes,
+        APPROVAL_DIGEST_KEY: _plan_approval_sha256(plan),
     }
     save(plan, plan_path)
     print(f"approved by {by}")
@@ -2568,7 +3091,12 @@ def _make_minimal_plan() -> dict[str, Any]:
         "plan_render_path": "PLAN.md",
         "scope": "scope",
         "sub_questions": [{"id": "SQ1", "text": "x"}],
-        "approval": {"approved_by": "", "approved_at": "", "notes": ""},
+        "approval": {
+            "approved_by": "",
+            "approved_at": "",
+            "notes": "",
+            APPROVAL_DIGEST_KEY: "",
+        },
         "stopping_criteria": "done when done",
         "stopping_criteria_satisfied": False,
         "tasks": [
@@ -2811,6 +3339,7 @@ def _self_test() -> int:
             "approved_by": "unit-test",
             "approved_at": _utc_now_iso(),
             "notes": "",
+            APPROVAL_DIGEST_KEY: _plan_approval_sha256(plan),
         }
         save(plan, path)
         ok, _results = run_gate(load(path), path, "execute_ready")
@@ -3558,19 +4087,56 @@ def _self_test() -> int:
         if not populated_ok:
             failures.append("non-empty output directory should satisfy research_outputs_exist")
 
-    # Sub-test 41: checklist syntax is strict, including N/A reasons.
+    # Sub-test 41: checklist contract IDs are complete, unique, and versioned.
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
         path = td_path / "plan.json"
         path.write_text("{}\n", encoding="utf-8")
         checklist = td_path / "reproducibility-checklist.md"
-        checklist.write_text("- [ ]\n", encoding="utf-8")
+        template_text = CHECKLIST_TEMPLATE_PATH.read_text(encoding="utf-8")
+        checklist.write_text("- [x] anything\n", encoding="utf-8")
         if _reproducibility_checklist_complete(path)[0]:
-            failures.append("empty unchecked checklist item must fail")
-        checklist.write_text("- [x] N/A\n", encoding="utf-8")
+            failures.append("arbitrary checked item must not satisfy checklist gate")
+        checklist.write_text(template_text, encoding="utf-8")
+        if _reproducibility_checklist_complete(path)[0]:
+            failures.append("canonical but unchecked checklist must fail")
+        complete_text = template_text.replace("- [ ]", "- [x]")
+        checklist.write_text(complete_text, encoding="utf-8")
+        if not _reproducibility_checklist_complete(path)[0]:
+            failures.append("complete canonical checklist should pass")
+        missing_text = "\n".join(
+            line for line in complete_text.splitlines() if "DRC-037" not in line
+        )
+        checklist.write_text(missing_text + "\n", encoding="utf-8")
+        if _reproducibility_checklist_complete(path)[0]:
+            failures.append("checklist missing a canonical ID must fail")
+        checklist.write_text(
+            complete_text.replace("DRC-037", "DRC-999"),
+            encoding="utf-8",
+        )
+        if _reproducibility_checklist_complete(path)[0]:
+            failures.append("checklist with unknown ID must fail")
+        checklist.write_text(
+            complete_text.replace("DRC-037", "DRC-036"),
+            encoding="utf-8",
+        )
+        if _reproducibility_checklist_complete(path)[0]:
+            failures.append("checklist with duplicate ID must fail")
+        no_reason = re.sub(
+            r"(<!-- DRC-001 -->).*",
+            r"\1 N/A",
+            complete_text,
+            count=1,
+        )
+        checklist.write_text(no_reason, encoding="utf-8")
         if _reproducibility_checklist_complete(path)[0]:
             failures.append("N/A checklist item without a reason must fail")
-        checklist.write_text("- [x] N/A — no dataset was produced\n", encoding="utf-8")
+        with_reason = no_reason.replace(
+            "<!-- DRC-001 --> N/A",
+            "<!-- DRC-001 --> N/A — no authored claims",
+            1,
+        )
+        checklist.write_text(with_reason, encoding="utf-8")
         if not _reproducibility_checklist_complete(path)[0]:
             failures.append("N/A checklist item with a reason should pass")
 
@@ -3623,11 +4189,244 @@ def _self_test() -> int:
         if _infer_phase(task) != "synthesis":
             failures.append(f"citation output should infer synthesis phase: {output}")
 
+    # Sub-test 45: approval binds every immutable execution-plan field.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        path = td_path / "research-plan.json"
+        plan = _make_minimal_plan()
+        _scaffold_workspace(td_path)
+        save(plan, path)
+        call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+        approve_rc = call_silent(
+            cmd_approve,
+            argparse.Namespace(
+                file=str(path), by="unit-test", notes="digest", allow_unattended=False
+            ),
+        )
+        approved = load(path)
+        if approve_rc != 0 or not _assert_plan_approved(approved, path)[0]:
+            failures.append("approved plan must contain a valid immutable-plan digest")
+        immutable_mutations = {
+            "phase": lambda p: p["tasks"][0].__setitem__("phase", "synthesis"),
+            "inputs": lambda p: p["tasks"][0]["inputs"].append(
+                "research-output/notes/prior.md"
+            ),
+            "parallel_safe": lambda p: p["tasks"][0].__setitem__(
+                "parallel_safe", False
+            ),
+            "execution": lambda p: p["tasks"][0]["execution"].__setitem__(
+                "context_budget", 1
+            ),
+            "gate": lambda p: p["gates"]["execute_ready"].__setitem__(
+                "description", "tampered"
+            ),
+        }
+        for label, mutate in immutable_mutations.items():
+            changed = json.loads(json.dumps(approved))
+            mutate(changed)
+            if _assert_plan_approved(changed, path)[0]:
+                failures.append(f"approval digest accepted immutable {label} mutation")
+
+        # Sub-test 46: old approved plans without a digest fail closed.
+        legacy_approved = json.loads(json.dumps(approved))
+        legacy_approved["approval"].pop(APPROVAL_DIGEST_KEY, None)
+        if _assert_plan_approved(legacy_approved, path)[0] or not any(
+            "plan_sha256" in error for error in validate_schema(legacy_approved)
+        ):
+            failures.append("approved schema-2.0 plan without plan_sha256 must fail closed")
+
+        # Re-rendering a changed intent must not refresh the prior approval.
+        rerendered_change = json.loads(json.dumps(approved))
+        rerendered_change["scope"] = "changed and re-rendered after approval"
+        save(rerendered_change, path)
+        call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+        execute_ok, execute_results = run_gate(load(path), path, "execute_ready")
+        if execute_ok or not any(
+            not passed and "plan_sha256" in detail
+            for _name, passed, detail in execute_results
+        ):
+            failures.append("re-rendering changed scope must not preserve execute_ready")
+        save(approved, path)
+        call_silent(cmd_render, argparse.Namespace(file=str(path), out=None))
+
+        # Sub-test 47: runtime progress does not invalidate the immutable digest.
+        progress = json.loads(json.dumps(approved))
+        progress["tasks"][0]["status"] = "blocked"
+        progress["tasks"][0]["blocker_reason"] = "source temporarily unavailable"
+        progress["stopping_criteria_satisfied"] = True
+        progress["notes"] = "runtime note"
+        if not _assert_plan_approved(progress, path)[0]:
+            failures.append(
+                "runtime status/blocker/note changes must preserve plan approval digest"
+            )
+
+        # Sub-test 48: rendered review exposes mutable task state and becomes stale.
+        rendered = (Path(path).parent / "PLAN.md").read_text(encoding="utf-8")
+        for marker in (
+            "Approval contract:",
+            "| ID | Phase | Status | Parallel safe |",
+            "| Depends on | Inputs | Outputs | Blocker |",
+        ):
+            if marker not in rendered:
+                failures.append(f"rendered plan missing approval-review marker {marker!r}")
+        if _plan_rendered_exists(progress, path)[0]:
+            failures.append("runtime blocker mutation before dispatch must stale PLAN.md")
+
+    # Sub-test 49: hostile JSON value types produce diagnostics, never tracebacks.
+    malformed_mutations = {
+        "status-list": lambda p: p["tasks"][0].__setitem__("status", []),
+        "phase-list": lambda p: p["tasks"][0].__setitem__("phase", []),
+        "dependency-object": lambda p: p["tasks"][0].__setitem__(
+            "depends_on", [{}]
+        ),
+        "agent-list": lambda p: p["tasks"][0]["execution"].__setitem__("agent", []),
+        "assertion-object": lambda p: p["gates"]["plan_ready"].__setitem__(
+            "assertions", [{}]
+        ),
+        "sub-question-scalar": lambda p: p.__setitem__("sub_questions", [1]),
+    }
+    for label, mutate in malformed_mutations.items():
+        malformed = _make_minimal_plan()
+        mutate(malformed)
+        try:
+            malformed_errors = validate_schema(malformed)
+            malformed_cycles = detect_cycles(malformed)
+            gate_ok, _gate_results = run_gate(
+                malformed, Path("malformed-plan.json"), "plan_ready"
+            )
+        except Exception as exc:  # pragma: no cover - converted to an explicit failure
+            failures.append(f"malformed {label} raised {type(exc).__name__}: {exc}")
+            continue
+        if not malformed_errors or gate_ok or not isinstance(malformed_cycles, list):
+            failures.append(f"malformed {label} did not fail closed")
+
+    # Sub-test 50: check command rejects malformed graph shapes without crashing.
+    with tempfile.TemporaryDirectory() as td:
+        malformed_path = Path(td) / "malformed.json"
+        malformed = _make_minimal_plan()
+        malformed["tasks"][0]["depends_on"] = [{}]
+        save(malformed, malformed_path)
+        if call_silent(main, ["check", "--file", str(malformed_path)]) == 0:
+            failures.append("check accepted a malformed dependency object")
+
+    # Sub-test 51: duplicate keys and non-finite numbers are rejected by strict JSON.
+    with tempfile.TemporaryDirectory() as td:
+        duplicate_path = Path(td) / "duplicate.json"
+        duplicate_path.write_text(
+            '{"plan_id":"first","plan_id":"second"}\n', encoding="utf-8"
+        )
+        nonfinite_path = Path(td) / "nonfinite.json"
+        nonfinite_path.write_text('{"schema_version":NaN}\n', encoding="utf-8")
+        for label, hostile_path in (
+            ("duplicate key", duplicate_path),
+            ("non-finite number", nonfinite_path),
+        ):
+            if call_silent(main, ["check", "--file", str(hostile_path)]) == 0:
+                failures.append(f"strict plan loader accepted {label}")
+
+    # Sub-test 52: portable path rules are host-independent and comprehensive.
+    valid_portable_paths = {
+        "research-output/notes/a.md": "research-output/notes/a.md",
+        "research-output\\notes\\b.md": "research-output/notes/b.md",
+        "research-output/ghi-chú/đề-cương.md": "research-output/ghi-chú/đề-cương.md",
+    }
+    for raw, expected in valid_portable_paths.items():
+        canonical, detail = _portable_relative_path(raw)
+        if canonical != expected:
+            failures.append(
+                f"portable path {raw!r} should normalize to {expected!r}: {detail}"
+            )
+    invalid_portable_paths = {
+        "": "empty",
+        "/absolute/path": "POSIX absolute",
+        "\\rooted\\path": "Windows root-relative",
+        "\\\\server\\share\\file.md": "UNC",
+        "C:\\absolute\\file.md": "Windows drive absolute",
+        "C:drive-relative.md": "Windows drive relative",
+        "~user/file.md": "home-relative",
+        "research-output/../escape.md": "parent traversal",
+        "research-output/./notes.md": "current-directory segment",
+        "research-output//notes.md": "empty segment",
+        "research-output/notes/file.md:stream": "alternate data stream",
+        "research-output/notes/file?.md": "reserved character",
+        "research-output/notes/file.": "trailing dot",
+        "research-output/notes/file ": "trailing space",
+        "research-output/notes/CON": "reserved device",
+        "research-output/notes/con.txt": "reserved device with extension",
+        "research-output/notes/COM¹.log": "reserved superscript device",
+        "research-output/notes/" + chr(31) + "file.md": "control character",
+    }
+    for raw, label in invalid_portable_paths.items():
+        canonical, _detail = _portable_relative_path(raw)
+        if canonical is not None:
+            failures.append(f"portable path validator accepted {label}: {raw!r}")
+    if not _is_safe_relative_path(
+        ".", allow_current_dir=True
+    ) or _is_safe_relative_path("."):
+        failures.append("only workspace_dir may use the current-directory sentinel")
+
+    # Sub-test 53: every output tree has one portable, case-insensitive owner.
+    output_collision_cases: dict[str, Any] = {
+        "case-insensitive alias": lambda p: p["tasks"][1].__setitem__(
+            "outputs", ["research-output\\NOTES\\A.MD"]
+        ),
+        "ancestor/descendant across tasks": lambda p: p["tasks"][0].__setitem__(
+            "outputs", ["research-output/notes"]
+        ),
+        "ancestor/descendant within one task": lambda p: p["tasks"][0][
+            "outputs"
+        ].append("research-output/notes/a.md/child.md"),
+    }
+    for label, mutate in output_collision_cases.items():
+        colliding = _make_minimal_plan()
+        mutate(colliding)
+        collision_errors = validate_schema(colliding)
+        if not any(
+            "overlaps output tree" in error and "output ownership" in error
+            for error in collision_errors
+        ):
+            failures.append(f"schema accepted {label} output ownership collision")
+
+    # Sub-test 54: parallel dispatch blocks portable aliases and nested trees.
+    running_collision_cases = (
+        (
+            "research-output/notes/A.md",
+            "research-output/NOTES/a.MD",
+            "case-insensitive alias",
+        ),
+        (
+            "research-output/notes/bundle",
+            "research-output/NOTES/bundle/child.md",
+            "running ancestor",
+        ),
+        (
+            "research-output/notes/bundle/child.md",
+            "research-output/NOTES/BUNDLE",
+            "running descendant",
+        ),
+    )
+    for running_output, candidate_output, label in running_collision_cases:
+        colliding = _make_minimal_plan()
+        colliding["tasks"][0]["status"] = "running"
+        colliding["tasks"][0]["outputs"] = [running_output]
+        colliding["tasks"][1]["outputs"] = [candidate_output]
+        if "B" in parallelizable_tasks(colliding):
+            failures.append(f"parallel dispatch accepted {label} output collision")
+    colliding = _make_minimal_plan()
+    colliding["tasks"][0]["outputs"] = ["research-output/notes/bundle"]
+    colliding["tasks"][1]["outputs"] = [
+        "research-output/NOTES/bundle/child.md"
+    ]
+    if parallelizable_tasks(colliding) != ["A"]:
+        failures.append(
+            "parallel dispatch must reserve selected output trees against later tasks"
+        )
+
     if failures:
         for f in failures:
             print(f"FAIL: {f}", file=sys.stderr)
         return 1
-    print("OK: research_plan self-test passed (44 sub-tests).")
+    print("OK: research_plan self-test passed (54 sub-tests).")
     return 0
 
 
@@ -3784,7 +4583,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

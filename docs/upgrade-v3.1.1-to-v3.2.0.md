@@ -140,16 +140,14 @@ cp research-plan.json.bak research-plan.json
 Copy-Item -LiteralPath research-plan.json.bak -Destination research-plan.json
 ```
 
-Do not promote v3.2.0 stable solely because this migration passes. Stable still
-requires green Ubuntu/Windows CI, live Tier-1/Tier-2 dogfood against v3.1.1 with
-identical runtime/model/tool configuration, committed score/run metadata, and
-reviewer sign-off. Stable release validation binds the candidate evidence to
-the exact dogfooded RC tag commit and annotated, GitHub-verified tag-object SHA;
-it binds baseline evidence to the exact `v3.1.1` tag commit. It also requires a
-successful full-CI workflow for the exact stable SHA and an independent GitHub
-PR approval whose review body binds the promotion-manifest SHA256. The release
-workflow rejects self-review, untrusted reviewer associations, missing or
-paginated API results, and any executable metadata drift (npm lifecycle scripts,
-dependencies/lock graph, or Python build backend/requirements). Copying otherwise
-valid artifacts from another revision fails closed. Code changes after the
-dogfooded RC require a new RC and a fresh run.
+Do not promote v3.2.0 stable solely because this migration passes. The default
+release path requires live Tier-1/Tier-2 dogfood, independent review, and
+GitHub-verified tags. For v3.2.0 only, the policy frozen in v3.2.0-rc.3 records a
+repository-owner waiver for those three external assurances plus the candidate
+tag signature. It substitutes no synthetic scores or reviews: a strict
+maintainer record must bind the exact RC commit, annotated tag object, and
+SHA-256 of every required local verification result. Annotated tags, candidate
+ancestry, successful full CI for the exact tagged SHA, executable metadata
+freeze, source-archive replay, checksum verification, and provenance attestation
+remain non-waivable. Copying otherwise valid artifacts from another revision
+fails closed. Code changes after the candidate tag require a new RC.

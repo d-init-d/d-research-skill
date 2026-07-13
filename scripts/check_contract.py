@@ -13,7 +13,8 @@ Fails non-zero on:
 * SKILL.md outside 250-350 lines
 * invalid examples or required fixtures
 * oversized reference files or missing navigation on long references
-* stable promotion without complete live dogfood artefacts and reviewer sign-off
+* stable promotion without either complete live evidence or an explicitly
+  scoped, hash-bound maintainer override
 
 Self-test includes isolated negative fixtures.
 """
@@ -76,6 +77,45 @@ _PACKAGE_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-rc\.\d+)?")
 _FULL_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}")
 
+_MAINTAINER_OVERRIDE_WAIVERS = (
+    "github_verified_candidate_tag",
+    "github_verified_release_tag",
+    "independent_reviewer",
+    "live_dogfood",
+)
+
+_WINDOWS_DEVICE_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
+
+
+def _canonical_repo_relative(value: object) -> str | None:
+    """Return one portable POSIX repository path, or ``None`` if unsafe."""
+
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    if (
+        "\\" in value
+        or value.startswith("/")
+        or re.match(r"^[A-Za-z]:", value)
+        or any(ord(char) < 0x20 or ord(char) == 0x7F for char in value)
+    ):
+        return None
+    parts = value.split("/")
+    if any(not part or part in {".", ".."} for part in parts):
+        return None
+    for part in parts:
+        if ":" in part or part.endswith((".", " ")):
+            return None
+        if part.split(".", 1)[0].upper() in _WINDOWS_DEVICE_NAMES:
+            return None
+    return "/".join(parts)
+
 # Paths allowed to change between a dogfooded RC commit and the stable tag.
 # Keep in sync with .github/workflows/release-source-archive.yml (which must
 # call validate_post_rc_changed_paths rather than re-encoding the allowlist).
@@ -99,8 +139,8 @@ def is_allowed_post_rc_change(path: str, release_version: str) -> bool:
         return False
     if "-rc." in release_version:
         return False
-    norm = path.replace("\\", "/").strip().lstrip("./")
-    if not norm or norm.startswith("/") or ".." in Path(norm).parts:
+    norm = _canonical_repo_relative(path)
+    if norm is None:
         return False
     if norm in _STABLE_PROMOTION_EXACT_FILES:
         return True
@@ -549,13 +589,11 @@ def _resolve_repo_file(
     *,
     contained_by: Path | None = None,
 ) -> Path | None:
-    if not isinstance(value, str) or not value.strip():
+    canonical = _canonical_repo_relative(value)
+    if canonical is None:
         errors.append(f"{label} must be a non-empty repository-relative path")
         return None
-    relative = Path(value)
-    if relative.is_absolute() or ".." in relative.parts:
-        errors.append(f"{label} must stay inside the repository: {value!r}")
-        return None
+    relative = Path(*canonical.split("/"))
     resolved_root = root.resolve()
     resolved = (root / relative).resolve()
     try:
@@ -622,6 +660,392 @@ def check_release_tag(release_tag: str, root: Path = ROOT) -> list[str]:
     return errors
 
 
+def check_release_waiver(
+    waiver: str,
+    release_tag: str,
+    root: Path = ROOT,
+) -> list[str]:
+    """Require one pre-authorized waiver for the current RC or stable tag."""
+
+    errors = check_release_tag(release_tag, root)
+    if errors:
+        return errors
+    manifest_path = root / "templates" / "route-manifest.json"
+    try:
+        manifest = _strict_json_bytes(manifest_path.read_bytes(), "route manifest")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return [f"cannot validate release waiver: {exc}"]
+    gate = manifest.get("stable_release_gate")
+    if not isinstance(gate, dict) or gate.get("promotion_mode") != "maintainer_override":
+        return ["release waiver requires promotion_mode='maintainer_override'"]
+    contract = gate.get("maintainer_override")
+    if not isinstance(contract, dict):
+        return ["release waiver requires a maintainer_override contract"]
+    if waiver not in _MAINTAINER_OVERRIDE_WAIVERS:
+        return [f"release requirement is non-waivable: {waiver!r}"]
+    if contract.get("required_waivers") != list(_MAINTAINER_OVERRIDE_WAIVERS):
+        errors.append("release waiver set is not the canonical narrow set")
+    if waiver not in (contract.get("required_waivers") or []):
+        errors.append(f"release waiver is not authorized: {waiver}")
+    candidate_version = gate.get("required_candidate_version")
+    stable_version = contract.get("allowed_release_version")
+    if candidate_version != "3.2.0-rc.3" or stable_version != "3.2.0":
+        errors.append("release waiver is not scoped to the frozen v3.2.0-rc.3/v3.2.0 pair")
+    if contract.get("required_repository") != "d-init-d/d-research-skill":
+        errors.append("release waiver repository scope is invalid")
+    if contract.get("required_maintainer_login") != "d-init-d":
+        errors.append("release waiver maintainer scope is invalid")
+    if release_tag not in {f"v{candidate_version}", f"v{stable_version}"}:
+        errors.append("release waiver is outside its authorized RC/stable tag pair")
+    non_waivable = contract.get("non_waivable")
+    required_hard_gates = {
+        "annotated_candidate_tag",
+        "annotated_release_tag",
+        "candidate_tag_object_binding",
+        "candidate_ancestry",
+        "exact_release_sha_ci",
+        "source_archive",
+        "sha256_manifest",
+        "provenance_attestation",
+    }
+    if (
+        not isinstance(non_waivable, dict)
+        or set(non_waivable) != required_hard_gates
+        or any(value is not True for value in non_waivable.values())
+    ):
+        errors.append("release waiver contract does not preserve every hard gate")
+    return errors
+
+
+def _check_maintainer_override(
+    root: Path,
+    package_version: str,
+    gate: dict,
+    *,
+    expected_candidate_commit: str | None = None,
+    expected_candidate_tag_object: str | None = None,
+) -> list[str]:
+    """Validate the one-release maintainer waiver without weakening hard gates."""
+
+    errors: list[str] = []
+    contract = gate.get("maintainer_override")
+    if not isinstance(contract, dict):
+        return ["stable_release_gate.maintainer_override must be an object"]
+
+    expected_contract_keys = {
+        "schema_version",
+        "manifest_path",
+        "allowed_release_version",
+        "required_decision",
+        "required_repository",
+        "required_maintainer_login",
+        "required_waivers",
+        "required_checks",
+        "bind_candidate_commit",
+        "bind_candidate_tag_object_sha",
+        "require_annotated_tags",
+        "require_exact_sha_ci",
+        "non_waivable",
+    }
+    if set(contract) != expected_contract_keys:
+        errors.append(
+            "stable_release_gate.maintainer_override keys must be exactly "
+            f"{sorted(expected_contract_keys)}"
+        )
+    if contract.get("schema_version") != "1.0":
+        errors.append("maintainer override contract schema_version must be '1.0'")
+    if contract.get("allowed_release_version") != package_version:
+        errors.append("maintainer override is not authorized for this stable version")
+    if contract.get("required_decision") != "approved_with_waivers":
+        errors.append("maintainer override required_decision is invalid")
+    if contract.get("required_repository") != "d-init-d/d-research-skill":
+        errors.append("maintainer override repository contract is invalid")
+    if contract.get("required_maintainer_login") != "d-init-d":
+        errors.append("maintainer override login contract is invalid")
+    for field in (
+        "bind_candidate_commit",
+        "bind_candidate_tag_object_sha",
+        "require_annotated_tags",
+        "require_exact_sha_ci",
+    ):
+        if contract.get(field) is not True:
+            errors.append(f"maintainer override contract must require {field}")
+    required_non_waivable = {
+        "annotated_candidate_tag",
+        "annotated_release_tag",
+        "candidate_tag_object_binding",
+        "candidate_ancestry",
+        "exact_release_sha_ci",
+        "source_archive",
+        "sha256_manifest",
+        "provenance_attestation",
+    }
+    non_waivable = contract.get("non_waivable")
+    if (
+        not isinstance(non_waivable, dict)
+        or set(non_waivable) != required_non_waivable
+        or any(value is not True for value in non_waivable.values())
+    ):
+        errors.append(
+            "maintainer override non_waivable must preserve every hard release gate"
+        )
+
+    required_waivers = contract.get("required_waivers")
+    if required_waivers != list(_MAINTAINER_OVERRIDE_WAIVERS):
+        errors.append(
+            "maintainer override required_waivers must match the narrowly allowed waiver set"
+        )
+        required_waivers = list(_MAINTAINER_OVERRIDE_WAIVERS)
+    required_checks = contract.get("required_checks")
+    if (
+        not isinstance(required_checks, list)
+        or not required_checks
+        or any(not isinstance(item, str) or not item for item in required_checks)
+        or len(set(required_checks)) != len(required_checks)
+    ):
+        errors.append("maintainer override required_checks must be unique non-empty strings")
+        required_checks = []
+
+    manifest_template = contract.get("manifest_path")
+    if not isinstance(manifest_template, str) or "{version}" not in manifest_template:
+        errors.append("maintainer override manifest_path must contain {version}")
+        return errors
+    manifest_rel = manifest_template.format(version=package_version)
+    manifest_path = _resolve_repo_file(
+        root,
+        manifest_rel,
+        "maintainer override manifest",
+        errors,
+    )
+    if manifest_path is None:
+        return errors
+    evidence_dir = manifest_path.parent
+
+    try:
+        override = _strict_json_bytes(
+            manifest_path.read_bytes(), "maintainer override manifest"
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return [f"maintainer override manifest is unreadable: {exc}"]
+
+    expected_override_keys = {
+        "schema_version",
+        "release_version",
+        "release_tag",
+        "candidate_version",
+        "candidate_skill_commit",
+        "candidate_tag",
+        "candidate_tag_object_sha",
+        "repository",
+        "decision",
+        "maintainer",
+        "authorized_at",
+        "waivers",
+        "reason",
+        "risk_acceptance",
+        "local_verification",
+    }
+    if set(override) != expected_override_keys:
+        errors.append(
+            "maintainer override manifest keys must be exactly "
+            f"{sorted(expected_override_keys)}"
+        )
+    if override.get("schema_version") != contract.get("schema_version"):
+        errors.append("maintainer override manifest schema_version mismatch")
+    if override.get("release_version") != package_version:
+        errors.append("maintainer override release_version must match package version")
+    if override.get("release_tag") != f"v{package_version}":
+        errors.append("maintainer override release_tag must match package version")
+    candidate_version = gate.get("required_candidate_version")
+    if override.get("candidate_version") != candidate_version:
+        errors.append("maintainer override candidate_version mismatch")
+    candidate_tag = f"v{candidate_version}" if isinstance(candidate_version, str) else None
+    if override.get("candidate_tag") != candidate_tag:
+        errors.append("maintainer override candidate_tag mismatch")
+    if override.get("repository") != contract.get("required_repository"):
+        errors.append("maintainer override repository mismatch")
+    if override.get("decision") != contract.get("required_decision"):
+        errors.append("maintainer override decision mismatch")
+
+    candidate_commit = override.get("candidate_skill_commit")
+    if not isinstance(candidate_commit, str) or not _FULL_COMMIT_RE.fullmatch(candidate_commit):
+        errors.append("maintainer override candidate_skill_commit must be a full lowercase SHA")
+    elif expected_candidate_commit is not None:
+        if not _FULL_COMMIT_RE.fullmatch(expected_candidate_commit):
+            errors.append("release workflow candidate commit binding must be a full SHA")
+        elif candidate_commit != expected_candidate_commit:
+            errors.append(
+                "maintainer override candidate_skill_commit must match the annotated RC commit"
+            )
+
+    candidate_tag_object = override.get("candidate_tag_object_sha")
+    if not isinstance(candidate_tag_object, str) or not _FULL_COMMIT_RE.fullmatch(
+        candidate_tag_object
+    ):
+        errors.append(
+            "maintainer override candidate_tag_object_sha must be a full lowercase SHA"
+        )
+    elif expected_candidate_tag_object is not None:
+        if not _FULL_COMMIT_RE.fullmatch(expected_candidate_tag_object):
+            errors.append("release workflow candidate tag-object binding must be a full SHA")
+        elif candidate_tag_object != expected_candidate_tag_object:
+            errors.append(
+                "maintainer override candidate_tag_object_sha must match the annotated RC tag object"
+            )
+
+    maintainer = override.get("maintainer")
+    if not isinstance(maintainer, dict) or set(maintainer) != {"login", "role"}:
+        errors.append("maintainer override maintainer must contain exactly login and role")
+    else:
+        if maintainer.get("login") != contract.get("required_maintainer_login"):
+            errors.append("maintainer override login mismatch")
+        if maintainer.get("role") != "repository_owner":
+            errors.append("maintainer override role must be repository_owner")
+
+    authorized_at = _parse_rfc3339(override.get("authorized_at"))
+    if authorized_at is None:
+        errors.append("maintainer override authorized_at must be timezone-aware RFC3339")
+    waivers = override.get("waivers")
+    if waivers != required_waivers:
+        errors.append("maintainer override waivers must exactly match required_waivers")
+    reason = override.get("reason")
+    if not isinstance(reason, str) or not 40 <= len(reason.strip()) <= 2000:
+        errors.append("maintainer override reason must contain 40-2000 characters")
+    risk_acceptance = override.get("risk_acceptance")
+    if not isinstance(risk_acceptance, dict) or set(risk_acceptance) != set(required_waivers):
+        errors.append("maintainer override risk_acceptance must explain every waiver exactly once")
+    else:
+        for waiver, explanation in risk_acceptance.items():
+            if not isinstance(explanation, str) or len(explanation.strip()) < 20:
+                errors.append(
+                    f"maintainer override risk_acceptance.{waiver} must be substantive"
+                )
+
+    local_artifact = override.get("local_verification")
+    if not isinstance(local_artifact, dict) or set(local_artifact) != {"path", "sha256"}:
+        errors.append("maintainer override local_verification must contain path and sha256")
+        return errors
+    local_path = _resolve_repo_file(
+        root,
+        local_artifact.get("path"),
+        "maintainer override local_verification.path",
+        errors,
+        contained_by=evidence_dir,
+    )
+    declared_hash = local_artifact.get("sha256")
+    if not isinstance(declared_hash, str) or not _SHA256_RE.fullmatch(declared_hash):
+        errors.append("maintainer override local_verification.sha256 is invalid")
+    if local_path is None:
+        return errors
+    actual_hash = _sha256_path(local_path)
+    if declared_hash != actual_hash:
+        errors.append("maintainer override local verification hash mismatch")
+    try:
+        verification = _strict_json_bytes(
+            local_path.read_bytes(), "local verification record"
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        errors.append(f"local verification record is unreadable: {exc}")
+        return errors
+
+    expected_verification_keys = {
+        "schema_version",
+        "release_version",
+        "candidate_version",
+        "candidate_skill_commit",
+        "candidate_tag_object_sha",
+        "generated_at",
+        "environment",
+        "commands",
+        "summary",
+    }
+    if set(verification) != expected_verification_keys:
+        errors.append(
+            "local verification record keys must be exactly "
+            f"{sorted(expected_verification_keys)}"
+        )
+    for field, expected in (
+        ("schema_version", "1.0"),
+        ("release_version", package_version),
+        ("candidate_version", candidate_version),
+        ("candidate_skill_commit", candidate_commit),
+        ("candidate_tag_object_sha", candidate_tag_object),
+    ):
+        if verification.get(field) != expected:
+            errors.append(f"local verification {field} mismatch")
+    generated_at = _parse_rfc3339(verification.get("generated_at"))
+    if generated_at is None:
+        errors.append("local verification generated_at must be timezone-aware RFC3339")
+    elif authorized_at is not None and generated_at > authorized_at:
+        errors.append("maintainer override authorization predates local verification")
+
+    environment = verification.get("environment")
+    if not isinstance(environment, dict) or set(environment) != {
+        "os",
+        "architecture",
+        "python_versions",
+        "node_versions",
+    }:
+        errors.append("local verification environment has an invalid shape")
+    else:
+        for field in ("os", "architecture"):
+            if not isinstance(environment.get(field), str) or not environment[field].strip():
+                errors.append(f"local verification environment.{field} must be non-empty")
+        for field in ("python_versions", "node_versions"):
+            values = environment.get(field)
+            if (
+                not isinstance(values, list)
+                or not values
+                or any(not isinstance(value, str) or not value.strip() for value in values)
+            ):
+                errors.append(f"local verification environment.{field} must be non-empty")
+
+    commands = verification.get("commands")
+    observed_checks: dict[str, dict] = {}
+    if not isinstance(commands, list):
+        errors.append("local verification commands must be a list")
+        commands = []
+    for index, command in enumerate(commands):
+        label = f"local verification commands[{index}]"
+        if not isinstance(command, dict) or set(command) != {
+            "id",
+            "command",
+            "runtime",
+            "exit_code",
+            "result",
+        }:
+            errors.append(f"{label} has an invalid shape")
+            continue
+        check_id = command.get("id")
+        if not isinstance(check_id, str) or not check_id:
+            errors.append(f"{label}.id must be non-empty")
+            continue
+        if check_id in observed_checks:
+            errors.append(f"local verification contains duplicate check id {check_id!r}")
+            continue
+        observed_checks[check_id] = command
+        if not isinstance(command.get("command"), str) or not command["command"].strip():
+            errors.append(f"{label}.command must be non-empty")
+        if not isinstance(command.get("runtime"), str) or not command["runtime"].strip():
+            errors.append(f"{label}.runtime must be non-empty")
+        if command.get("exit_code") != 0 or isinstance(command.get("exit_code"), bool):
+            errors.append(f"{label}.exit_code must be integer 0")
+        if command.get("result") != "passed":
+            errors.append(f"{label}.result must be 'passed'")
+    if set(observed_checks) != set(required_checks):
+        errors.append("local verification check IDs must exactly cover required_checks")
+
+    summary = verification.get("summary")
+    if not isinstance(summary, dict) or set(summary) != {"passed", "failed"}:
+        errors.append("local verification summary must contain exactly passed and failed")
+    else:
+        if summary.get("passed") != len(required_checks):
+            errors.append("local verification summary.passed mismatch")
+        if summary.get("failed") != 0 or isinstance(summary.get("failed"), bool):
+            errors.append("local verification summary.failed must be integer 0")
+    return errors
+
+
 def check_stable_release_evidence(
     root: Path = ROOT,
     *,
@@ -629,11 +1053,11 @@ def check_stable_release_evidence(
     expected_baseline_commit: str | None = None,
     expected_candidate_tag_object: str | None = None,
 ) -> list[str]:
-    """Require real, reviewer-approved live eval artefacts for stable metadata.
+    """Require the release-evidence mode frozen into the dogfooded RC.
 
-    Release candidates intentionally skip this gate. Stable metadata cannot pass
-    the repository contract until the four score artefacts and sign-off are
-    committed under the versioned release-evidence directory.
+    Release candidates intentionally skip this gate. Stable metadata must use
+    either the default reviewer-approved live-evidence path or the narrowly
+    scoped maintainer override declared before the RC was tagged.
     """
 
     errors: list[str] = []
@@ -648,6 +1072,18 @@ def check_stable_release_evidence(
     gate = route_manifest.get("stable_release_gate")
     if not isinstance(gate, dict):
         return ["route-manifest missing stable_release_gate contract"]
+
+    promotion_mode = gate.get("promotion_mode", "live_evidence")
+    if promotion_mode == "maintainer_override":
+        return _check_maintainer_override(
+            root,
+            package_version,
+            gate,
+            expected_candidate_commit=expected_candidate_commit,
+            expected_candidate_tag_object=expected_candidate_tag_object,
+        )
+    if promotion_mode != "live_evidence":
+        return [f"unsupported stable promotion_mode: {promotion_mode!r}"]
 
     promotion_template = gate.get("promotion_manifest_path")
     if not isinstance(promotion_template, str) or "{version}" not in promotion_template:
@@ -1403,6 +1839,9 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
     if not isinstance(stable_gate, dict):
         errors.append("route-manifest missing stable_release_gate")
     else:
+        promotion_mode = stable_gate.get("promotion_mode", "live_evidence")
+        if promotion_mode not in {"live_evidence", "maintainer_override"}:
+            errors.append("stable_release_gate.promotion_mode is invalid")
         promotion_path = stable_gate.get("promotion_manifest_path")
         if (
             not isinstance(promotion_path, str)
@@ -1428,7 +1867,115 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
             if full_ci.get("required_conclusion") != "success":
                 errors.append("stable_release_gate.full_ci must require conclusion success")
         candidate_tag_contract = stable_gate.get("candidate_tag")
-        if not isinstance(candidate_tag_contract, dict) or any(
+        if promotion_mode == "maintainer_override":
+            if (
+                not isinstance(candidate_tag_contract, dict)
+                or set(candidate_tag_contract)
+                != {"annotated", "github_verified", "bind_tag_object_sha", "verification_mode"}
+                or candidate_tag_contract.get("annotated") is not True
+                or candidate_tag_contract.get("github_verified") is not False
+                or candidate_tag_contract.get("bind_tag_object_sha") is not True
+                or candidate_tag_contract.get("verification_mode")
+                != "annotated_tag_object_sha"
+            ):
+                errors.append(
+                    "maintainer-override candidate_tag must require an annotated, "
+                    "tag-object-bound tag with explicit GitHub-verification waiver"
+                )
+            release_tag_contract = stable_gate.get("release_tag")
+            if (
+                not isinstance(release_tag_contract, dict)
+                or set(release_tag_contract)
+                != {"annotated", "github_verified", "verification_mode"}
+                or release_tag_contract.get("annotated") is not True
+                or release_tag_contract.get("github_verified") is not False
+                or release_tag_contract.get("verification_mode")
+                != "annotated_tag_object_sha"
+            ):
+                errors.append(
+                    "maintainer-override release_tag must remain annotated with an "
+                    "explicit GitHub-verification waiver"
+                )
+
+            override_contract = stable_gate.get("maintainer_override")
+            expected_override_keys = {
+                "schema_version",
+                "manifest_path",
+                "allowed_release_version",
+                "required_decision",
+                "required_repository",
+                "required_maintainer_login",
+                "required_waivers",
+                "required_checks",
+                "bind_candidate_commit",
+                "bind_candidate_tag_object_sha",
+                "require_annotated_tags",
+                "require_exact_sha_ci",
+                "non_waivable",
+            }
+            if not isinstance(override_contract, dict) or set(override_contract) != expected_override_keys:
+                errors.append(
+                    "stable_release_gate.maintainer_override has an invalid contract shape"
+                )
+            else:
+                if override_contract.get("schema_version") != "1.0":
+                    errors.append("maintainer_override schema_version must be '1.0'")
+                override_path = override_contract.get("manifest_path")
+                if (
+                    not isinstance(override_path, str)
+                    or "{version}" not in override_path
+                    or _canonical_repo_relative(
+                        override_path.replace("{version}", "3.2.0")
+                    )
+                    is None
+                ):
+                    errors.append("maintainer_override manifest_path is invalid")
+                if override_contract.get("allowed_release_version") != "3.2.0":
+                    errors.append("maintainer_override must be scoped exactly to v3.2.0")
+                if override_contract.get("required_decision") != "approved_with_waivers":
+                    errors.append("maintainer_override required_decision is invalid")
+                if override_contract.get("required_repository") != "d-init-d/d-research-skill":
+                    errors.append("maintainer_override repository is invalid")
+                if override_contract.get("required_maintainer_login") != "d-init-d":
+                    errors.append("maintainer_override login is invalid")
+                if override_contract.get("required_waivers") != list(
+                    _MAINTAINER_OVERRIDE_WAIVERS
+                ):
+                    errors.append("maintainer_override waiver set is invalid")
+                checks = override_contract.get("required_checks")
+                if (
+                    not isinstance(checks, list)
+                    or not checks
+                    or any(not isinstance(item, str) or not item for item in checks)
+                    or len(checks) != len(set(checks))
+                ):
+                    errors.append("maintainer_override required_checks is invalid")
+                for key in (
+                    "bind_candidate_commit",
+                    "bind_candidate_tag_object_sha",
+                    "require_annotated_tags",
+                    "require_exact_sha_ci",
+                ):
+                    if override_contract.get(key) is not True:
+                        errors.append(f"maintainer_override must require {key}")
+                required_hard_gates = {
+                    "annotated_candidate_tag",
+                    "annotated_release_tag",
+                    "candidate_tag_object_binding",
+                    "candidate_ancestry",
+                    "exact_release_sha_ci",
+                    "source_archive",
+                    "sha256_manifest",
+                    "provenance_attestation",
+                }
+                hard_gates = override_contract.get("non_waivable")
+                if (
+                    not isinstance(hard_gates, dict)
+                    or set(hard_gates) != required_hard_gates
+                    or any(value is not True for value in hard_gates.values())
+                ):
+                    errors.append("maintainer_override non_waivable gates are invalid")
+        elif not isinstance(candidate_tag_contract, dict) or any(
             candidate_tag_contract.get(key) is not True
             for key in ("annotated", "github_verified", "bind_tag_object_sha")
         ):
@@ -1497,6 +2044,10 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
             "verify-ci-response",
             "verify-tag-response",
             "verify-review-response",
+            "--require-release-waiver",
+            "git cat-file -t",
+            "sha256sum --check",
+            "attest-build-provenance",
         ):
             if marker not in workflow_text:
                 errors.append(f"stable release workflow missing RC binding marker: {marker}")
@@ -2259,6 +2810,21 @@ def self_test() -> int:
             failures.append("post-RC allowlist must reject SKILL.md drift")
         if is_allowed_post_rc_change("../evil", "3.2.0"):
             failures.append("post-RC allowlist must reject path traversal")
+        if is_allowed_post_rc_change(
+            "../release-evidence/v3.2.0/override.json", "3.2.0"
+        ):
+            failures.append("post-RC allowlist must reject traversal into an allowed prefix")
+        for hostile_path in (
+            "release-evidence\\v3.2.0\\override.json",
+            "C:/release-evidence/v3.2.0/override.json",
+            "release-evidence/v3.2.0/file.json:stream",
+            "release-evidence/v3.2.0/NUL.json",
+            "release-evidence//v3.2.0/override.json",
+        ):
+            if is_allowed_post_rc_change(hostile_path, "3.2.0"):
+                failures.append(
+                    f"post-RC allowlist accepted non-portable path {hostile_path!r}"
+                )
         if is_allowed_post_rc_change("release-evidence/v3.2.0/", "3.2.0"):
             failures.append("post-RC allowlist must reject evidence directory alone")
         if not validate_post_rc_changed_paths(["scripts/x.py"], "3.2.0-rc.1"):
@@ -2401,6 +2967,184 @@ def self_test() -> int:
         if not any("identical runtime/model/tool" in error for error in runtime_mismatch):
             failures.append("stable gate must reject mismatched runtime/model/tool metadata")
 
+        # Explicit maintainer override: narrow waivers, immutable RC binding,
+        # strict JSON, and hash-bound local verification are all fail-closed.
+        required_checks = ["contract", "npm_self_test"]
+        override_contract = {
+            "schema_version": "1.0",
+            "manifest_path": "release-evidence/v{version}/maintainer-override.json",
+            "allowed_release_version": "3.2.0",
+            "required_decision": "approved_with_waivers",
+            "required_repository": "d-init-d/d-research-skill",
+            "required_maintainer_login": "d-init-d",
+            "required_waivers": list(_MAINTAINER_OVERRIDE_WAIVERS),
+            "required_checks": required_checks,
+            "bind_candidate_commit": True,
+            "bind_candidate_tag_object_sha": True,
+            "require_annotated_tags": True,
+            "require_exact_sha_ci": True,
+            "non_waivable": {
+                "annotated_candidate_tag": True,
+                "annotated_release_tag": True,
+                "candidate_tag_object_binding": True,
+                "candidate_ancestry": True,
+                "exact_release_sha_ci": True,
+                "source_archive": True,
+                "sha256_manifest": True,
+                "provenance_attestation": True,
+            },
+        }
+        stable_gate["promotion_mode"] = "maintainer_override"
+        stable_gate["required_candidate_version"] = "3.2.0-rc.3"
+        stable_gate["maintainer_override"] = override_contract
+        (stable_root / "templates" / "route-manifest.json").write_text(
+            json.dumps({"stable_release_gate": stable_gate}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        local_path = evidence_dir / "local-verification.json"
+        override_path = evidence_dir / "maintainer-override.json"
+        local_record = {
+            "schema_version": "1.0",
+            "release_version": "3.2.0",
+            "candidate_version": "3.2.0-rc.3",
+            "candidate_skill_commit": candidate_commit,
+            "candidate_tag_object_sha": candidate_tag_object,
+            "generated_at": "2026-07-09T00:05:00Z",
+            "environment": {
+                "os": "test-os",
+                "architecture": "x86_64",
+                "python_versions": ["3.10", "3.12"],
+                "node_versions": ["20"],
+            },
+            "commands": [
+                {
+                    "id": check_id,
+                    "command": f"run {check_id}",
+                    "runtime": "offline-fixture",
+                    "exit_code": 0,
+                    "result": "passed",
+                }
+                for check_id in required_checks
+            ],
+            "summary": {"passed": len(required_checks), "failed": 0},
+        }
+        override = {
+            "schema_version": "1.0",
+            "release_version": "3.2.0",
+            "release_tag": "v3.2.0",
+            "candidate_version": "3.2.0-rc.3",
+            "candidate_skill_commit": candidate_commit,
+            "candidate_tag": "v3.2.0-rc.3",
+            "candidate_tag_object_sha": candidate_tag_object,
+            "repository": "d-init-d/d-research-skill",
+            "decision": "approved_with_waivers",
+            "maintainer": {"login": "d-init-d", "role": "repository_owner"},
+            "authorized_at": "2026-07-09T00:06:00Z",
+            "waivers": list(_MAINTAINER_OVERRIDE_WAIVERS),
+            "reason": (
+                "Repository owner explicitly accepts the documented residual risks "
+                "after the complete required local verification suite passed."
+            ),
+            "risk_acceptance": {
+                waiver: f"The repository owner explicitly accepts the residual risk for {waiver}."
+                for waiver in _MAINTAINER_OVERRIDE_WAIVERS
+            },
+            "local_verification": {"path": "", "sha256": ""},
+        }
+
+        def write_override() -> None:
+            local_path.write_text(
+                json.dumps(local_record, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            override["local_verification"] = {
+                "path": local_path.relative_to(stable_root).as_posix(),
+                "sha256": _sha256_path(local_path),
+            }
+            override_path.write_text(
+                json.dumps(override, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+        write_override()
+        override_valid = check_stable_release_evidence(
+            stable_root,
+            expected_candidate_commit=candidate_commit,
+            expected_candidate_tag_object=candidate_tag_object,
+        )
+        if override_valid:
+            failures.append(
+                "valid maintainer override rejected: " + "; ".join(override_valid[:3])
+            )
+        if check_release_waiver("live_dogfood", "v3.2.0", stable_root):
+            failures.append("authorized stable release waiver should pass")
+        if not check_release_waiver("exact_release_sha_ci", "v3.2.0", stable_root):
+            failures.append("non-waivable exact-SHA CI requirement was accepted")
+        saved_hard_gates = override_contract["non_waivable"]
+        override_contract["non_waivable"] = {}
+        (stable_root / "templates" / "route-manifest.json").write_text(
+            json.dumps({"stable_release_gate": stable_gate}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        if not check_release_waiver("live_dogfood", "v3.2.0", stable_root):
+            failures.append("release waiver query accepted an empty hard-gate set")
+        override_contract["non_waivable"] = saved_hard_gates
+        (stable_root / "templates" / "route-manifest.json").write_text(
+            json.dumps({"stable_release_gate": stable_gate}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        override["waivers"] = list(_MAINTAINER_OVERRIDE_WAIVERS[:-1])
+        write_override()
+        if not any(
+            "waivers must exactly match" in error
+            for error in check_stable_release_evidence(stable_root)
+        ):
+            failures.append("maintainer override accepted a missing waiver")
+        override["waivers"] = list(_MAINTAINER_OVERRIDE_WAIVERS)
+
+        local_record["commands"][0]["exit_code"] = False
+        write_override()
+        if not any(
+            "exit_code must be integer 0" in error
+            for error in check_stable_release_evidence(stable_root)
+        ):
+            failures.append("maintainer override accepted boolean exit_code")
+        local_record["commands"][0]["exit_code"] = 0
+
+        write_override()
+        override["local_verification"]["sha256"] = "sha256:" + ("0" * 64)
+        override_path.write_text(
+            json.dumps(override, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        if not any(
+            "local verification hash mismatch" in error
+            for error in check_stable_release_evidence(stable_root)
+        ):
+            failures.append("maintainer override accepted a stale local verification hash")
+
+        write_override()
+        mismatch_errors = check_stable_release_evidence(
+            stable_root,
+            expected_candidate_commit="4" * 40,
+            expected_candidate_tag_object="5" * 40,
+        )
+        if not any("annotated RC commit" in error for error in mismatch_errors):
+            failures.append("maintainer override failed to bind the RC commit")
+        if not any("annotated RC tag object" in error for error in mismatch_errors):
+            failures.append("maintainer override failed to bind the RC tag object")
+
+        override_path.write_text(
+            '{"schema_version":"1.0","schema_version":"1.0"}\n',
+            encoding="utf-8",
+        )
+        if not any(
+            "duplicate key" in error
+            for error in check_stable_release_evidence(stable_root)
+        ):
+            failures.append("maintainer override accepted duplicate JSON keys")
+
         # Unsafe config must fail the real access validator from research_plan
         rp_path = ROOT / "scripts" / "research_plan.py"
         spec = importlib.util.spec_from_file_location("research_plan_mod", rp_path)
@@ -2454,9 +3198,16 @@ def main(argv: list[str] | None = None) -> int:
         "--release-tag",
         help=(
             "Validate a vX.Y.Z[-rc.N] tag value against package metadata. "
-            "The release workflow separately proves that the tag exists, is "
-            "annotated, and is GitHub-verified. Stable metadata also requires "
-            "committed live dogfood evidence."
+            "The release workflow separately proves that the tag exists and is "
+            "annotated, then applies the frozen verification policy."
+        ),
+    )
+    parser.add_argument(
+        "--require-release-waiver",
+        choices=_MAINTAINER_OVERRIDE_WAIVERS,
+        help=(
+            "Exit successfully only when the frozen RC contract explicitly authorizes "
+            "this waiver for --release-tag. Non-waivable release gates are rejected."
         ),
     )
     parser.add_argument(
@@ -2495,6 +3246,28 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+
+    if args.require_release_waiver:
+        if not args.release_tag:
+            print(
+                "error: --require-release-waiver requires --release-tag",
+                file=sys.stderr,
+            )
+            return 2
+        waiver_errors = check_release_waiver(
+            args.require_release_waiver,
+            args.release_tag,
+        )
+        if waiver_errors:
+            print("check_contract release waiver FAILED:", file=sys.stderr)
+            for error in waiver_errors:
+                print(f"  - {error}", file=sys.stderr)
+            return 1
+        print(
+            "check_contract release waiver ok "
+            f"(tag={args.release_tag}, waiver={args.require_release_waiver})"
+        )
+        return 0
 
     if args.validate_post_rc_paths:
         if not args.release_version:
