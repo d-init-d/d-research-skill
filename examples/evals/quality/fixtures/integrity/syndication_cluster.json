@@ -1,0 +1,9 @@
+{
+  "origin": "https://wire.example/story-1",
+  "syndicates": [
+    "https://news1.example/copy",
+    "https://news2.example/copy",
+    "https://news3.example/copy"
+  ],
+  "content_fingerprint": "abc123synd"
+}

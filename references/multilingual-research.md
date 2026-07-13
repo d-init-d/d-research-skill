@@ -1,5 +1,14 @@
 # Multilingual Research
 
+## Contents
+
+- [When to Use Multilingual Research](#when-to-use-multilingual-research)
+- [Workflow](#workflow)
+- [Search Engines by Language](#search-engines-by-language)
+- [Translation Strategy](#translation-strategy)
+- [Academic Multilingual Resources](#academic-multilingual-resources)
+- [Documenting Language Coverage](#documenting-language-coverage)
+
 Multilingual research enables thorough investigation across languages, capturing perspectives, data, and publications that English-only searches miss. This skill is essential for global market analysis, comparative policy research, and accessing non-English academic literature.
 
 ## When to Use Multilingual Research

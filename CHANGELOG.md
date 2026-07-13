@@ -7,7 +7,345 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+## [3.2.0-rc.3] - 2026-07-13
+
+Final production-hardening candidate. This candidate closes the approval,
+workspace-concurrency, report-signature, evaluator-input, browser resource, and
+release-policy gaps found during the final adversarial review of rc.2.
+
+### Added
+
+- **Immutable plan approval:** approvals bind a domain-separated SHA-256 digest
+  of research intent; legacy or changed intent fails closed until re-approved.
+- **Canonical reproducibility checklist:** versioned `DRC-001` through
+  `DRC-037` assertions prevent arbitrary checked text from satisfying the
+  release gate and require reasons for every `N/A` item.
+- **Portable output locking:** task outputs reject absolute, traversal, ADS,
+  device-name, case-alias, and ancestor/descendant collisions across hosts.
+- **Browser-wide budgets:** request count, aggregate response bytes, and final
+  output bytes are enforced across probe, extract, crawl, navigation, and
+  subresources; browser-initiated mutation methods are blocked.
+- **Scoped maintainer release decision:** v3.2.0 records an exact, reviewable
+  waiver set for unavailable live dogfood, independent review, and
+  GitHub-verified tag signatures. It requires hash-bound local verification and
+  cannot waive annotated tags, exact-SHA CI, RC ancestry, archive/checksum, or
+  provenance gates.
+
+### Fixed
+
+- **Report signature preflight:** `--require-signature` now verifies the ledger,
+  sidecar, key, and HMAC before reading or creating any report output, then
+  verifies again after ledger validation.
+- **Generated-report injection:** generated plan/ledger metadata is redacted,
+  control-normalized, escaped, URL-filtered, and bounded without altering the
+  authored narrative.
+- **Citation style containment:** remote CSL identifiers and cache paths are
+  portable and containment-checked; local styles require explicit `.csl` paths.
+- **Evaluator totality:** malformed suites, manifests, score files, task IDs,
+  artifact paths, non-finite weights, and nested type confusion now return
+  structured validation errors instead of tracebacks.
+- **Post-RC allowlist traversal:** path normalization no longer strips leading
+  traversal characters; backslash, drive, UNC, ADS, empty segment, and Windows
+  device-name forms fail closed on every host.
+
+### Verified
+
+- Expanded research-plan, report, evaluation, browser, release-contract, and
+  hostile-input self-tests, including real local Chromium integration.
+- Release checks cover Python 3.10/3.12 locally, the locked Node toolchain,
+  archive replay without `.git`, npm package-boundary verification, dependency
+  audit, and exact-SHA CI before tag promotion.
+
+## [3.2.0-rc.2] - 2026-07-13
+
+Second production-hardening candidate. This candidate closes the independently
+reproduced crawler, promotion-gate, package/archive, workflow-contract, and
+installed-skill readiness gaps found after rc.1 preparation.
+
+### Added
+
+- **Quality eval suite:** held-out research-quality suite
+  (`examples/evals/quality-suite.json`, schema 1.0) and
+  `scripts/quality_eval.py` (validate, integrity, hostile, fuzz, mutation,
+  degraded, artifact-verified `promotion-report`, `promotion-anti-spoof`,
+  triple self-test). Does **not** auto-claim PROMOTION_READY without validated
+  raw run manifests, integrity hashes, exact candidate SHA, CI evidence, and
+  genuine dogfood/forward artifacts.
+- **`scripts/content_sanitize.py`:** production visible-text extraction, secret
+  redaction, hostile-source processing, and path containment (used by
+  `multi_extract` and quality hostile checks).
+- **`scripts/lib/browser_ssrf.mjs`:** fail-closed browser destination checks for
+  navigation and subresources.
+- **Machine-bound route taxonomy:** every intake shape label maps exactly once
+  through `templates/route-manifest.json`; the contract rejects missing,
+  duplicate, or unknown mappings and semantic drift in protocol/metadata docs.
+- **Progressive disclosure:** every routed reference of 100 lines or more has an
+  early H2 contents map; the contract enforces navigation on future additions.
+
+### Fixed
+
+- **F-01:** Promotion report is fail-closed and artifact-verified; CLI flags
+  (`--infra-green`, `--triple-ok`, `--held-out-live-ok`) never grant
+  `PROMOTION_READY_CANDIDATE`. Empty `agent-*` files/dirs, hash/SHA mismatch,
+  and null metrics block promotion.
+- **F-02:** Citation support no longer treats single token-overlap as entailment;
+  negation/contradiction pairs fail closed (`requires_review` / `unsupported` /
+  `contradicts`).
+- **F-03:** Year extraction captures full years (`(?:19|20)\d{2}`), not century
+  prefixes `19`/`20`.
+- **F-04:** Hostile checks call production `content_sanitize` (and multi_extract
+  HTML text path), not evaluator-local helpers as the sole SUT.
+- **F-05 / direct HTTP SSRF:** `api_fetch.mjs` uses connection-bound
+  `fetchPublicHttp` (validate DNS → connect to validated IP → peer re-check;
+  URL-derived Host + DNS SNI). Rebinding / mixed DNS / peer mismatch covered in
+  `ssrf_guards.mjs` self-test.
+- **Browser SSRF:** arbitrary browser URLs are fail-closed by default (not
+  accepted-risk). Local fixture loopback only via
+  the hidden `--allow-loopback-fixture` test hook (browser_smoke / acceptance
+  hermetic); production browser guards do not read a loopback environment flag.
+- **F-06 (portability):** Ruff clean; seed parser accepts decimal/`0x` hex with
+  structured errors; ASCII status tokens (`green->red->green`) for CP1252-safe
+  Windows consoles.
+- **F-06 (prior transport):** Social/pinned HTTPS transport streams response
+  bodies with size-aware `read(n)`; cache generation body lifecycle +
+  `body_file` containment remain as in rc.1 hard-fixes.
+- **F-07 lineage:** Clean branch `grok/v3.2.0-stable-clean` is rooted at
+  `661230a` and does **not** contain synthetic dogfood commits `8f61a7e` /
+  `a7d28a0` in ancestry.
+- **Package boundary:** npm packaging now uses an explicit runtime allowlist;
+  `npm run package:check` rejects untracked files, local MCP/browser artifacts,
+  release evidence, credential-like files, Python caches, and omitted tracked
+  runtime files before a tarball can pass CI.
+- **Promotion fail-closed:** every promotion evaluation now requires the full
+  seven-rate vector; held-out and dogfood runs require their kind-specific
+  metrics. Sparse scorecards, missing evaluations, malformed findings, and
+  unresolved Critical/High/Medium findings block promotion.
+- **Robots and crawl truthfulness:** RFC 9309 percent-encoded unreserved octets
+  cannot bypass path rules, and configured page/domain/depth ceilings produce
+  explicit incomplete summaries instead of `complete=true`.
+- **Credential redirects:** Brave, translation, and embedding helpers follow
+  redirects manually, retain credentials only on the original origin, reject
+  downgrade/cross-origin leakage before the destination request, and cap hops.
+- **Long-horizon contract:** all primary instructions now require
+  `execute_ready`/`dispatch_ready` before work, distinguish research from
+  synthesis terminal tasks, and enforce exact release outputs/claim coverage.
+- **Cache publish semantics:** Python cache writes no longer report a successful
+  key when atomic publication fails.
+- **Deterministic cross-runtime SSRF IPv6 policy:** Node and Python share an
+  explicit policy rather than runtime-dependent address tables. IPv4-mapped
+  destinations use the embedded IPv4 policy; IPv6 fails closed outside
+  `2000::/3`; translation prefixes and non-public GUA ranges (`2001::/23`,
+  `2001:db8::/32`, `2002::/16`, `3fff::/20`) are blocked. Hermetic matrices
+  cover compressed, expanded, mapped, malformed, and public control forms on
+  supported runtimes.
+- **Node HTTPS SNI and peer verification:** IP literals omit SNI while DNS
+  names preserve it; IPv6 `Host` headers retain brackets and non-default ports.
+  Connected peers are canonicalized across IPv4, mapped IPv4, and equivalent
+  IPv6 spellings, then checked against the DNS-validated set. Tests emit the
+  production `socket` event and execute the real peer gate instead of injecting
+  expected error text. Missing or malformed peers fail closed.
+- **URL-derived Host binding (Host rebinding blocker):** Node `fetchPublicHttp`
+  and Python `_pinned_https_open` strip every caller-provided case-insensitive
+  `Host` key and always set exactly one RFC-correct `Host` from the validated
+  current URL hop (IPv6 bracketed; non-default ports retained). Hostile
+  `Host`/`HOST` values cannot select an internal virtual host after a public
+  connect. Hermetic tests cover DNS, IPv4, IPv6±port, and multi-casing overrides.
+- **Explicit port fidelity (Python):** port `0` is no longer collapsed to the
+  default HTTPS port during pinned connect or redirect-origin comparison; the
+  transport and URL-derived `Host` now use the same explicit authority.
+- **Python preflight and seam cleanup:** malformed/out-of-range URL ports fail
+  before DNS, and rejected/wrong-arity injected transports close returned
+  response/connection resources instead of leaking test sockets.
+- **Shared production peer validation (Python test seam):** `_assert_connected_peer`
+  is the single fail-closed gate on both production connect and
+  `_TEST_PINNED_TRANSPORT`. The injectable transport must return
+  `(response, connection, peer_ip)`; wrong arity, missing, malformed, private,
+  or mismatched peers reject. Canonical IPv6 and IPv4-mapped equivalence is
+  covered through the production assertion path.
+- **Node delayed-connect coverage:** self-tests exercise
+  `socket.connecting === true` then the `connect` event so production
+  `assertConnectedPeer` runs on both immediate and delayed connect branches.
+- **Strict connected-peer syntax:** peer and DNS-set membership no longer
+  repairs whitespace, bracketed authorities, or IPv6 scope identifiers before
+  comparison. Malformed/scoped values fail closed; valid public IPv4, IPv6,
+  and IPv4-mapped equivalence remains supported.
+- **Abnormal HTTP status crash hardening:** nonstandard upstream statuses
+  (e.g. `600`) that throw inside Fetch `Response` construction now reject the
+  `fetchPublicHttp` promise, destroy/drain the message safely, and never escape
+  as an uncaught exception. Null-body 204/205/304 responses explicitly drain
+  their underlying message before resolution so sockets do not remain busy,
+  abort remains effective, and observable protocol-violating bodies still obey
+  byte caps. Because Node deliberately hides bytes after HEAD/204/304, all
+  HEAD/204/205/304 connections are retired instead of returned to the pool.
+  `HEAD`/`304` representation `Content-Length` metadata no longer triggers a
+  false body-cap rejection. Normal status behavior is retained.
+- **Abort listener lifecycle:** connection-bound fetches remove per-request
+  abort listeners on rejection, null-body completion, body end/error/close,
+  cancellation, and resource-limit termination, preventing retained request
+  and socket closures when a signal is reused.
+
+### Security
+
+- Node public-destination parsing now rejects IPv4-compatible private IPv6,
+  dummy/site-local/SRv6/reserved space, invalid zero-width `::` compression,
+  and non-canonical dotted tails with leading-zero octets. DNS pinning, peer
+  membership, TLS identity, URL-derived Host binding, and redirect gates remain
+  fail-closed.
+- Inventory `docs/ssrf-helper-inventory.md` updated: browser arbitrary seeds are
+  **Protected (fail-closed)**, not accepted-risk. Translation, embedding, and
+  search redirects now have explicit credential isolation; remaining fixed
+  archive/academic endpoints retain a documented accepted-risk rationale.
+- **L-02:** GitHub Actions pin comments aligned to exact release tags that contain
+  the immutable 40-character SHAs (`checkout@v7.0.0`, `setup-python@v6.3.0`,
+  `setup-node@v6.4.0`, `upload-artifact@v4.6.2`, `lychee-action@v2.9.0`,
+  `attest-build-provenance@v2.4.0`).
+- npm package dry-runs are tracked-only and fail closed on local, sensitive, or
+  evidence artifacts; explicit package exclusions keep generated Python bytecode
+  out even when npm's `files` allowlist overrides broad ignore globs.
+- Direct `npm pack` invokes the package gate automatically. A committed path
+  fingerprint lets the signed source archive run the same package/self-test
+  contract without `.git`, while Git worktrees retain tracked-only validation.
+- Manual release dispatch now has `contents: read` only; OIDC and attestation
+  permissions exist solely on signed tag-push archive jobs. Python 3.10–3.12 CI
+  now runs `content_sanitize.py` and `quality_eval.py` in every unit-matrix row.
+- The workspace testing sub-skill metadata now matches its directory name, and
+  its release checklist covers package/archive boundaries and generated caches.
+- The installation contract now documents and validates Grok Build's personal
+  `~/.grok/skills/d-research` discovery path.
+
+## [3.2.0-rc.1] - 2026-07-10
+
+Production-hardening **release candidate** (not Production/Stable). Implements
+remaining High/Medium plan items from the post-`570d30b` audit while preserving
+v3 compatibility via aliases and deprecation warnings (removed only in v4).
+
+**External / remaining blockers (truthful):**
+
+- Live Tier-1/Tier-2 dogfood vs v3.1.1 under identical runtime/model config is
+  not claimed complete in this package; run it before promoting to stable.
+- Optional system binaries (pandoc, poppler, tesseract) remain soft runtime
+  dependencies; required Ubuntu and Windows integration jobs install them so
+  binary-dependent helper paths do not silently skip in release CI.
+- Network-dependent live API checks (Crossref/DataCite/OpenAlex) are mocked in
+  offline self-tests; live resolution is best-effort.
+
+### Added
+
+- Research plan **schema 2.0**: `schema_version`, `tasks[].phase`
+  (`research` | `synthesis`), generic draft `init`, and
+  `research_plan.py migrate`.
+- Gate semantics: `synthesize_ready` checks research-phase tasks only;
+  `release_ready` requires synthesis outputs, real HMAC verify via
+  `D_RESEARCH_LEDGER_KEY`, complete reproducibility checklist, and 100% claim
+  coverage.
+- Evidence ledger optional `record_type` (`claim` | `process` | `blocker`);
+  report lint requires `[ref:claim_id]` for every claim row.
+- Report renderer preserves `report.draft.md` / section narrative; generated
+  Evidence Summary and References use explicit markers only.
+- `api_fetch.mjs`: AbortSignal timeouts, `--allow-partial`, metadata sidecars,
+  `--cursor-key`, same-origin Link next (with `--allow-next-origin`), credential
+  isolation, secret redaction.
+- Social snapshot schema **1.1**: expanded verification statuses; Tier B is
+  Wayback **lookup-only** by default (`--submit-archive` opt-in).
+- Source scoring v2 separates five deterministic axes (`type`, `authority`,
+  `freshness`, `traceability`, `independence`) from exactly three mandatory
+  human gates (`relevance`, `method_transparency`, `access_quality`), and emits
+  `base_total`, `adjusted_total`, `review_status`, and
+  `final_reviewed_confidence` (unresolved gates never report final high).
+- Eval bench/score schema 2.0 with strict multipart assertions, canonical
+  source identities, per-task `run-result.json` validation (task, ledger,
+  runtime/config hash, skill commit, timestamps), honest status counts, and a
+  deprecated flat-ledger compatibility path that never auto-passes refusals.
+- Eval comparison rejects `not_run` by default (`--allow-incomplete` is
+  exploratory only), verifies identical runtime/model/tool fingerprints, and
+  forces `WEAKER` for any Tier-1 or Tier-2 safety regression regardless of
+  newly passing factual tasks.
+- Score artifacts include a canonical SHA-256 fingerprint of the complete
+  bench; comparison hard-fails when baseline and candidate used different
+  questions, assertions, source identities, or bench metadata.
+- `scripts/resource_limits.py` + enforcement hooks (HTTP/file/Excel/PDF/OCR/
+  subprocess/table/Wayback/social); violations return structured incomplete
+  blockers (exit 3), never silent truncate-as-complete. Every helper exposes
+  per-invocation CLI overrides in addition to validated `D_RESEARCH_*` limits.
+- `scripts/browser_smoke.mjs` real local-fixture Chromium smoke;
+  `adversarial_acceptance.py` 27-case CI matrix. CI disables the matrix's
+  embedded browser case and launches Chromium exactly once per operating system.
+- `scripts/check_contract.py` for dynamic version/config/path/count/CLI contract
+  checks, including release-note and changelog-link drift.
+- CI: Python self-tests on 3.10/3.11/3.12, Node self-tests on 18/20/22, full
+  integration on Ubuntu + Windows, immutable Action SHAs, and Dependabot.
+- Release workflow requires a matching semantic version, an annotated tag with
+  a GitHub-verified signature, then creates a source archive, SHA256 manifest,
+  and provenance attestation. Stable promotion additionally requires hashed,
+  committed Tier-1/Tier-2 score artifacts, reviewer sign-off, and exact binding
+  to both the dogfooded RC-tag commit and the `v3.1.1` baseline-tag commit.
+  Stable promotion rejects code changes after that RC; only version/release
+  metadata and the versioned evidence directory may differ. Manual dispatch is
+  validation-only.
+- Citation: Crossref to DataCite DOI fallback; BibTeX escape + year-only
+  normalization; parser round-trip self-tests.
+
+### Changed
+
+- `init` creates a generic empty draft (no OAI-PMH example content). The former
+  example lives at `examples/fixtures/research-plan-oai-pmh-example.json`.
+- TLS verification is on by default for browser helpers; `--ignore-tls-errors`
+  is opt-in and recorded as a limitation.
+- Wayback/arXiv public endpoints use HTTPS.
+- `--no-respect-robots` is accepted only to explain a policy hard-fail.
+- Robots handling: 404/410 = no rules; 401/403 = disallow; 429/5xx = stop domain.
+- Every top-level example now declares `example_status` as `illustrative` or
+  `fixture`; the contract checker rejects missing/unknown status and requires a
+  committed fixture path for any future `verified` example.
+- Replaced fabricated result counts in the API dataset, systematic-review, and
+  large-crawl examples with replayable canonical CSV schemas, artifact-derived
+  arithmetic, and explicit no-completeness language; contract checks protect
+  their required headers and reject the former unverified claim patterns.
+- Contract checks now cap individual reference guides at 1,000 lines and
+  require `See also` navigation from guides of 300 lines or more.
+- README repository-tree entries are now resolved against the real tree by CI;
+  the former upgrade-plan tree entry was corrected to its archived path.
+- Added a tested v3.1.1-to-v3.2.0 upgrade guide and committed legacy workspace
+  fixture. Migration regression now proves byte-exact backup, lossless task/
+  blocker/output/execution preservation, phase inference, approval revocation,
+  stale-plan removal, re-render, re-approval, and `execute_ready`.
+- Package version `3.2.0-rc.1` / `3.2.0rc1`; `engines.node >= 18`;
+  Playwright and its Chromium revision are locked through exact version `1.61.1`.
+
+### Fixed
+
+- Citation export: unique keys, single RIS `TY`, BibTeX escape, year-only `year`.
+- Freshness scoring never treats `date_accessed` as publication date.
+- Report render no longer overwrites synthesized narrative with placeholders.
+- Report paths derived from a plan cannot read or write outside the resolved
+  workspace, including lint targets and synthesis inputs.
+- Browser crawl checks robots policy before following redirect destinations;
+  bounded local acceptance fixtures prove denied destinations receive zero
+  requests and cross-origin credentials never leak.
+- API response caps and body-read deadlines now cover streaming bodies, with
+  redacted structured sidecars for incomplete output.
+- Playwright probe/extract/crawl enforce the same bounded response policy;
+  resource-limit exits are structured and crawl results remain explicitly
+  incomplete. Unknown API CLI arguments are never echoed or retained verbatim.
+- Research-plan release checks reject blocked synthesis, empty output
+  directories, unreasoned `N/A` checklist items, and citation placeholders;
+  compatibility tests cover v1 plans and `.bib`/`.ris` synthesis artifacts.
+- Social verification rejects tier/platform conflicts, malformed RFC3339
+  timestamps, inconsistent archive-submission states, and non-canonical archive
+  hosts before content retrieval.
+- Remaining network helpers (Wikidata/SPARQL, citation graph/resolution/export,
+  CSL retrieval, remote embeddings/translation, and web search) now use a
+  shared conservative timeout/body cap; resource overruns fail closed with
+  exit 3, and search/translation error paths redact credential query values.
+
+### Compatibility
+
+- v1 research plans load via compatibility adapter with a deprecation warning
+  until v4.
+- Ledger 14/19/22-column headers still validate; missing `record_type` defaults
+  to `claim`.
+- `--paginate` remains a deprecated alias of `--pagination`.
+- No new runtime dependencies beyond Playwright + Python stdlib.
 
 ## [3.1.1] - 2026-06-01
 
@@ -524,7 +862,10 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.1.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0-rc.3...HEAD
+[3.2.0-rc.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.3
+[3.2.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.2
+[3.2.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.1
 [3.1.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.1
 [3.1.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.0
 [3.0.6]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.6

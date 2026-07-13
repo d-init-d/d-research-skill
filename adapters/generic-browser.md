@@ -31,5 +31,5 @@ Map the agent's browser tool to these abstract actions:
 
 Apply the same rules as Playwright:
 - no bypassing login, paywalls, captcha, rate limits, or access controls
-- no stealth by default
+- captcha solving and stealth/anti-detection are never allowed
 - report blockers

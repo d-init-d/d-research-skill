@@ -1,5 +1,16 @@
 # Research Plan Protocol — context-safe long-horizon research
 
+## Contents
+
+- [What this is for](#what-this-is-for)
+- [When to use it](#when-to-use-it)
+- [The five phases](#the-five-phases)
+- [Workspace layout](#workspace-layout)
+- [Gate definitions](#gate-definitions)
+- [Failure modes and how to handle them](#failure-modes-and-how-to-handle-them)
+- [Anti-patterns](#anti-patterns)
+- [See also](#see-also)
+
 ## What this is for
 
 Long, deep research tasks (a literature review, a multi-source dataset
@@ -25,11 +36,10 @@ sequence of small, resumable, checkpointed sessions.
 
 Use the protocol whenever the task has **any** of these properties:
 
-- More than 5 sub-questions or 5 distinct extraction targets.
+- More than 5 sub-questions.
 - An estimated >50 sources to read.
-- An estimated runtime that will not fit in one model call.
-- A reproducibility requirement (PRISMA review, audit, regulated report).
-- Multiple agents or humans collaborating.
+- An estimated runtime that will not fit in one context window.
+- An audit-grade or regulated output requirement.
 
 Do **not** use it for one-shot lookups, single-page extractions, or
 quick fact checks. The overhead is not worth it.
@@ -67,24 +77,33 @@ Rules:
 - Shared audit files (`evidence-ledger.csv`, its `.hmac` signature,
   `PLAN.md`, and `reproducibility-checklist.md`) stay at the workspace
   root.
-- Agents must not write outside the workspace. The checker rejects
-  absolute paths and `..` path escapes in task inputs and outputs.
+- Agents must not write outside the workspace. Every declared input/output is
+  validated as a portable workspace-relative path on every host. Backslashes
+  are treated as separators; absolute/drive/UNC/home paths, empty or `.`/`..`
+  segments, control characters, Windows ADS/reserved characters and device
+  names, and segments ending in a dot or space are rejected.
+- Each output tree has exactly one owning task. Exact aliases and
+  ancestor/descendant overlaps are compared case-insensitively, so declarations
+  such as `notes/A.md` versus `notes/a.md`, or `notes/` versus
+  `notes/source.md`, are invalid even on a case-sensitive host.
 
 Create a workspace with:
 
 ```sh
-python3 scripts/research_plan.py init \
+node scripts/run_python.mjs scripts/research_plan.py init \
   --slug oai-review
 ```
 
-On Windows, use `python` instead of `python3` if `python3` is not on
-PATH, or call the same subcommands through `npm run plan:*`.
+The launcher selects `py -3`, `python3`, or `python` for the host. The
+equivalent npm entry point is `npm run plan:init`.
 
 By default this creates a fresh `research-<slug>-<YYYY-MM-DD>/` folder
 in the current working directory. If that folder already exists, the
 script appends a numeric suffix. This writes `research-plan.json`,
 creates the standard output folders, and initialises an empty
-`evidence-ledger.csv` header.
+`evidence-ledger.csv` header. It also copies the shipped, versioned
+`reproducibility-checklist.md` contract into the workspace when one does not
+already exist.
 
 If `research.config.json` contains `researchPlan.workspace.baseDir`, the
 new run folder is created under that configured output root instead. If
@@ -118,7 +137,12 @@ Output the draft plan inside the workspace as `research-plan.json`
   plan executable, and before declaring the synthesis allowed. See
   the "Gate definitions" section below.
 - **Approval**: the `approval` block starts empty and must be filled by
-  `research_plan.py approve` before execution.
+  `research_plan.py approve` before execution. Approval records a canonical
+  `plan_sha256` over the immutable plan contract; any later scope, task graph,
+  execution, input/output, phase, or gate change invalidates dispatch until the
+  plan is rendered and approved again. Runtime task status, blocker progress,
+  free-form notes, and the final stopping-criteria flag are excluded so normal
+  execution does not invalidate synthesis gates.
 - **Stopping criteria**: the explicit "we are done" signal. Without
   this the agent will not know when to stop.
 
@@ -128,12 +152,14 @@ the underlying research will not.
 Verify the plan with `scripts/research_plan.py check --file
 research-plan.json` before doing any work. The checker validates
 schema, dependency closure (no cycles, no orphan deps), and gate
-consistency.
+consistency. Parsing is strict: duplicate object keys, non-finite numbers,
+wrong-type enum values, malformed dependency entries, and non-string gate
+assertions fail with diagnostics rather than being coerced or dispatched.
 
 After editing the task graph, refresh execution annotations from config:
 
 ```sh
-python3 scripts/research_plan.py configure-execution --file research-plan.json
+node scripts/run_python.mjs scripts/research_plan.py configure-execution --file research-plan.json
 ```
 
 This reads `research.config.json` if present. If sub-agent slots are
@@ -143,13 +169,14 @@ derived per-task context budget. If no sub-agent slot is configured, all
 tasks are annotated for the main agent and must be split according to
 the main agent's own context length.
 
-The rendered `PLAN.md` includes an **Execution Slots** table and task
-columns for `Execution`, `Threads`, `Context length`, and `Context
-budget`. Users can review this division before approval and change any
+The rendered `PLAN.md` includes an approval-contract SHA-256, an **Execution
+Slots** table, and task columns for phase, parallel safety, inputs, outputs,
+blocker state, `Execution`, `Threads`, `Context length`, and `Context budget`.
+Users can review this division before approval and change any
 task assignment with:
 
 ```sh
-python3 scripts/research_plan.py set-execution \
+node scripts/run_python.mjs scripts/research_plan.py set-execution \
   --file research-plan.json \
   --id T2 \
   --agent subagent \
@@ -164,8 +191,8 @@ again.
 Render the plan for human review:
 
 ```sh
-python3 scripts/research_plan.py render --file research-plan.json
-python3 scripts/research_plan.py gate --file research-plan.json --gate plan_ready
+node scripts/run_python.mjs scripts/research_plan.py render --file research-plan.json
+node scripts/run_python.mjs scripts/research_plan.py gate --file research-plan.json --gate plan_ready
 ```
 
 The render command writes `PLAN.md`, a human-readable version of scope,
@@ -176,7 +203,7 @@ execution.
 After the user approves the plan:
 
 ```sh
-python3 scripts/research_plan.py approve \
+node scripts/run_python.mjs scripts/research_plan.py approve \
   --file research-plan.json \
   --by "Reviewer Name" \
   --notes "Approved scope and task split."
@@ -186,15 +213,29 @@ If a host runtime is truly unattended, approval fails by default. The
 agent must explicitly bypass the human gate and leave an audit trail:
 
 ```sh
-python3 scripts/research_plan.py approve \
+node scripts/run_python.mjs scripts/research_plan.py approve \
   --file research-plan.json \
   --allow-unattended
 ```
 
-This records `approved_by=agent-self-approved` and notes that the run
-used `--allow-unattended`. If the scope or task graph changes before
-execution, run `research_plan.py revoke`, update the plan, render again,
-and re-approve.
+This records `approved_by=agent-self-approved`, the immutable-plan digest, and
+notes that the run used `--allow-unattended`. If the scope or task graph changes
+before execution, run `research_plan.py revoke`, update the plan, render again,
+and re-approve. Older approved schema-2.0 workspaces without `plan_sha256` fail
+closed; revoke and re-approve them. Unapproved workspaces remain compatible and
+receive the digest on their next approval.
+
+Approval alone does not authorize dispatch. Run the executable gate and stop
+on any failure:
+
+```sh
+node scripts/run_python.mjs scripts/research_plan.py gate \
+  --file research-plan.json \
+  --gate execute_ready
+```
+
+`dispatch_ready` is an alias with the same canonical assertions. Do not start a
+research task or dispatch a sub-agent until one of these gates passes.
 
 ### 2. Execute
 
@@ -253,8 +294,10 @@ Typical **not** parallel-safe:
 
 To list ready-to-dispatch tasks, run `scripts/research_plan.py
 parallelizable --file research-plan.json`. The script prints task ids
-that have all dependencies satisfied, no output-path conflicts, and an
-available sub-agent slot thread when `execution.agent=subagent`.
+that have all dependencies satisfied, no output-tree conflicts with running or
+simultaneously selected tasks, and an available sub-agent slot thread when
+`execution.agent=subagent`. Output conflict checks use the same portable,
+case-insensitive exact/ancestor/descendant rules as plan validation.
 
 Sub-agent usage is controlled by `research.config.json`:
 
@@ -305,6 +348,14 @@ After all dispatched tasks return, the orchestrator marks them `done`
 and re-runs `scripts/research_plan.py check` to confirm the plan is
 still consistent.
 
+At the end of the research phase, validate and sign the ledger, complete the
+reproducibility checklist, and run `gate --gate synthesize_ready`. Every
+long-horizon workspace therefore needs `D_RESEARCH_LEDGER_KEY` before synthesis;
+missing key material is a blocker, never a reason to skip verification.
+The checklist gate requires every canonical `DRC-###` ID from contract `v1`
+exactly once. Missing, duplicate, unknown, unchecked, or un-IDed boxes fail
+closed; an item may be marked `N/A` only with a non-empty reason.
+
 ### 4. Verify (gates)
 
 Before transitioning between phases, the orchestrator runs
@@ -320,16 +371,15 @@ Four standard gates are provided. A plan can add more.
   `done` yet. Passes before approval.
 - **`gate.execute_ready`** — `plan_ready` assertions plus
   `plan_approved`. Passes once at the end of the approval phase.
-- **`gate.synthesize_ready`** — every task is `done` or `blocked`;
-  every blocked task has a non-empty `blocker_reason`; every
-  declared `outputs` path exists on disk; the evidence ledger
-  validates (`scripts/evidence_ledger.py validate`) and is signed
-  (`scripts/evidence_ledger.py verify`); the reproducibility
-  checklist file exists. Passes once at the end of the execute
-  phase.
-- **`gate.release_ready`** — `synthesize_ready` plus: the final
-  report exists, the citation render exists, and the plan's
-  `stopping_criteria` are marked satisfied. Passes once at the end
+- **`gate.synthesize_ready`** — every **research-phase** task is `done` or
+  `blocked`; every blocked research task has a non-empty `blocker_reason`; every
+  research output exists; the evidence ledger validates and its HMAC verifies;
+  the reproducibility checklist is complete. Synthesis tasks are intentionally
+  not required yet. Passes once at the end of the research phase.
+- **`gate.release_ready`** — `synthesize_ready` plus: every synthesis task is
+  terminal; every synthesis output exists; the exact final report validates;
+  rendered citations exist; authored narrative covers 100 percent of claim
+  rows; and the plan's stopping criteria are satisfied. Passes once at the end
   of synthesis.
 
 If a gate fails, the agent fixes the failure and re-runs the gate.
@@ -337,21 +387,23 @@ The agent never advances past a failing gate.
 
 ### 5. Synthesize
 
-The synthesis phase is the **only** phase that produces a
-narrative artefact (the final report). The agent does this:
+The synthesis phase is the **only** phase that produces the final narrative
+artefact. Enter it only after `synthesize_ready` passes. The agent does this:
 
 1. Read the plan (just the metadata + sub-questions + gates).
 2. Read the evidence ledger (full).
 3. Read each per-task summary artefact (small structured
    markdown/JSON, not raw extractions).
-4. Initialize the report skeleton: `scripts/report_render.py init --workspace <dir>`.
-5. Compose the report following
+4. Mark the applicable synthesis task `running`.
+5. Initialize the report skeleton: `scripts/report_render.py init --workspace <dir>`.
+6. Compose the report following
    `references/final-report-template.md` or edit `report.draft.md`.
-6. Render the final report: `scripts/report_render.py render --workspace <dir>`.
-7. Render citations with `scripts/citation_render.py`.
-8. Lint the report: `scripts/report_render.py lint --workspace <dir>`.
-9. Sign the ledger with `scripts/evidence_ledger.py sign`.
-10. Run `gate.release_ready`.
+7. Render the final report: `scripts/report_render.py render --workspace <dir>`.
+8. Render citations with `scripts/citation_render.py`.
+9. Lint the exact report with `scripts/report_render.py lint --workspace <dir>
+   --report <declared-report-path> --strict`.
+10. Mark every synthesis task terminal after its declared outputs exist.
+11. Re-verify the ledger HMAC and run `gate.release_ready`.
 
 If at any point the agent feels the urge to "go look at one more
 source", it instead adds a follow-up task to the plan, marks the
@@ -377,7 +429,7 @@ requirements — e.g. a PRISMA review might add:
 |---|---|---|
 | A task takes longer than its budget | `research_plan.py status` shows it `running` past budget | Split the task into smaller sub-tasks, revoke approval if scope changes, render again, re-approve, then re-run `gate.execute_ready` |
 | A sub-agent returns inconsistent output | Output schema mismatch on read-back | Mark the task `blocked` with `blocker_reason`, re-dispatch with a tighter prompt |
-| Two tasks accidentally write to the same file | `parallelizable` would have caught it; if it slipped, the second write overwrites the first | Treat as data loss; re-run the task; tighten the plan to fix the conflict |
+| Two tasks declare the same or nested output tree | `check` rejects case-insensitive exact and ancestor/descendant aliases; `parallelizable` also fails closed | Assign each output tree to one task, revoke approval, render, re-approve, and re-run the dispatch gate |
 | The agent runs out of context anyway | The orchestrator detects a long-input retry | Checkpoint: persist `research_plan.py status` output, then restart in a fresh session with the same plan file |
 | The evidence ledger fails validation mid-run | `gate.synthesize_ready` blocks | Fix the offending row(s), re-validate, re-sign |
 | A gate fails | Non-zero exit from `scripts/research_plan.py gate` | Fix the failing assertion(s), do not advance |

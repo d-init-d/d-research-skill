@@ -1,5 +1,18 @@
 # Large-Scale Data Collection
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Principles](#principles)
+- [Checkpointing](#checkpointing)
+- [Adaptive Rate Limiting](#adaptive-rate-limiting)
+- [Batch Processing](#batch-processing)
+- [Multi-Domain Strategy](#multi-domain-strategy)
+- [Error Recovery](#error-recovery)
+- [Coverage Tracking](#coverage-tracking)
+- [Output](#output)
+- [See also](#see-also)
+
 Reference guide for collecting >100 pages or records efficiently, reliably, and at scale.
 
 ## When to Use
@@ -383,3 +396,9 @@ To update this dataset:
 3. Only new/modified records will be collected
 4. Final merge will include updates
 ```
+
+## See also
+
+- `references/api-access-workflow.md`
+- `references/browser-first-crawl.md`
+- `references/config-reference.md`

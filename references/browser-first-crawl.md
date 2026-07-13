@@ -1,5 +1,17 @@
 # Browser-First Crawl Protocol
 
+## Contents
+
+- [Principle](#principle)
+- [Page access states](#page-access-states)
+- [Browser probe checklist](#browser-probe-checklist)
+- [Crawl expansion](#crawl-expansion)
+- [Sitemaps and robots](#sitemaps-and-robots)
+- [Interaction rules](#interaction-rules)
+- [Extraction priority](#extraction-priority)
+- [Coverage notes](#coverage-notes)
+- [Politeness defaults](#politeness-defaults)
+
 Use this file when researching or collecting data from websites.
 
 ## Principle

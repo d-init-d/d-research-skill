@@ -1,182 +1,151 @@
 ---
-name: testing-d-research-scripts
-description: Verify the d-research-skill helper scripts (Node + Python). Use after editing any file under `scripts/`, after regenerating a script, or before publishing a new version of the skill.
+name: testing-scripts
+description: Verify the d-research-skill helper scripts (Node + Python). Use after editing files under scripts/, changing dependencies, or preparing a release.
 ---
 
 # Testing D Research Skill Scripts
 
-## When to use this sub-skill
-
-Run these checks whenever you have:
-
-- edited a file under `scripts/`
-- regenerated or replaced a helper script
-- bumped a dependency in `package.json`
-- prepared a release of `d-research-skill`
-
-The same checks run automatically in CI on every pull request (see "CI" below), so local runs are mainly to fail fast before pushing.
+Use this sub-skill after changing any helper under `scripts/`, changing
+`package.json` or `package-lock.json`, or preparing an RC/stable release.
 
 ## Prerequisites
 
-- Node.js 18+ (for `*.mjs` scripts and `npm run`)
-- Python 3.9+ (for `*.py` scripts; stdlib only — no `pip install` needed)
-- `pandoc >= 2.11` (only for the `citation_render.py` self-test; the script degrades cleanly when pandoc is missing)
-- Optional: `npx playwright install` — only needed for real-world browser runs, not for any self-test
+- Node.js 18 or newer
+- Python 3.10 or newer
+- Locked Node dependencies installed with `npm ci`
+- Chromium installed with `npx --no-install playwright install chromium` for
+  the real browser smoke
+- Pandoc, Poppler, and Tesseract for release-integration coverage of optional
+  extraction/rendering paths
 
-No external API keys are required. Every self-test runs offline.
+The unit and contract suites are offline. The browser smoke uses only local
+HTTP/HTTPS fixtures. No external API key is required.
 
-## Quick validation: one command
+## Required local release checks
 
-From the repo root:
+Run from the repository root:
 
 ```bash
+npm ci --ignore-scripts --no-audit --no-fund
 npm run self-test
+npm run acceptance
+npm run browser:smoke
+npm run package:check
+npm pack --dry-run --json
 ```
 
-This is the same chain CI runs. It executes every script's offline self-test in sequence and exits non-zero on the first failure. Pass criteria: exit code `0` and the final command (`check_internal_refs.py`) prints `OK: all backticked internal refs resolve.`
+Pass criteria:
 
-## Quick validation: individual scripts
+- every command exits `0`
+- the acceptance summary reports zero `FAIL`
+- the browser smoke reports all local security scenarios as passing
+- the package path fingerprint matches and no generated/local/evidence artifact
+  enters the dry-run tarball
+- no Python traceback or unhandled Node rejection appears
 
-If you want to isolate a failure, run scripts one at a time. The repo ships **35 files** in total: 33 research helpers (each with an offline `--self-test`: Python research utilities, 6 top-level Node scripts, plus 1 Node helper at `scripts/lib/http_cache.mjs`) plus 2 pre-commit utility scripts (`check_node_syntax.py`, `check_no_plan_files.py`) that run as checks rather than self-tests. `run_python.mjs` is a thin wrapper.
-
-### Node scripts (6 top-level + 1 helper)
+`npm run self-test` is split into:
 
 ```bash
-node scripts/playwright_probe.mjs   --self-test   # → "playwright_probe self-test ok"
-node scripts/playwright_extract.mjs --self-test   # → "playwright_extract self-test ok"
-node scripts/playwright_crawl.mjs   --self-test   # → "playwright_crawl self-test ok"
-node scripts/api_fetch.mjs          --self-test   # → 4× "✓ PASS" (parseArgs, Link header, cursor, offset)
-node scripts/lib/http_cache.mjs     --self-test   # → "http_cache.mjs self-test ok"
-node scripts/web_search.mjs         --self-test   # → "web_search self-test ok"
+npm run self-test:node
+npm run self-test:python
 ```
 
-### Python scripts (24)
+The Python suite includes the repository-reference checks, dynamic contract
+checker, eval-bench validation, and resource-limit tests. The Node suite covers
+the browser helpers, API fetcher, shared HTTP cache, and web-search helper.
+Treat `package.json` as the authoritative list; do not duplicate a stale script
+count here. `references/script-inventory.md` documents helper ownership and
+routing.
+
+Package validation must also pass after Python bytecode caches exist under
+`examples/`; generated `__pycache__`, `.pyc`, `.pyo`, and `.pyd` files must be
+excluded from npm output. The extracted source-archive test must run without a
+`.git` directory and still pass `npm run self-test` plus `npm pack --dry-run`.
+
+## Static checks
+
+Run these after any cross-cutting change:
 
 ```bash
-python3 scripts/evidence_ledger.py     self-test   # → "evidence_ledger self-test ok" (incl. tamper detection)
-python3 scripts/data_clean.py          self-test   # → "ALL TESTS PASSED" (5 subtests: clean/stats/dedup/validate/merge)
-python3 scripts/citation_export.py     self-test   # → "All self-tests passed!" (6 subtests)
-python3 scripts/citation_render.py     self-test   # → "All self-tests passed!" (incl. pandoc integration)
-python3 scripts/extract_tables.py      self-test   # → "All self-tests passed!" (5 subtests)
-python3 scripts/score_source.py        self-test   # → "All self-tests passed!" (4 subtests)
-python3 scripts/research_plan.py       self-test   # → "OK: research_plan self-test passed (NN sub-tests)."
-python3 scripts/run_dogfood.py         self-test   # → "OK: eval benches valid; dogfood-bench.json: 12 tasks, frontier-bench.json: 52 tasks."
-python3 scripts/pdf_extract.py         self-test   # → "pdf_extract self-test ok"
-python3 scripts/wayback.py             self-test   # → "wayback self-test ok"
-python3 scripts/wikidata.py            self-test   # → "wikidata self-test ok"
-python3 scripts/social_snapshot.py     self-test   # → "social_snapshot self-test ok"
-python3 scripts/citation_resolver.py   self-test   # → "citation_resolver self-test ok"
-python3 scripts/report_render.py       self-test   # → "report_render self-test ok"
-python3 scripts/ocr.py                 self-test   # → "ocr self-test ok"
-python3 scripts/translate.py           self-test   # → "translate self-test ok"
-python3 scripts/embed_corpus.py        self-test   # → "embed_corpus self-test ok"
-python3 scripts/citation_graph.py      self-test   # → "citation_graph self-test ok"
-python3 scripts/multi_extract.py       self-test   # → "multi_extract self-test ok"
-python3 scripts/dedup_near.py          self-test   # → "dedup_near self-test ok"
-python3 scripts/http_cache.py          self-test   # → "http_cache self-test ok"
-python3 scripts/bench_harness_check.py self-test   # → "bench_harness_check self-test ok"
-python3 scripts/run_metadata.py        self-test   # → "run_metadata self-test ok"
-python3 scripts/harvest_terms.py       self-test   # → "harvest_terms self-test ok"
-python3 scripts/check_internal_refs.py             # → "OK: all backticked internal refs resolve."
-python3 scripts/check_internal_refs.py --decision-tree   # → "OK: every references/*.md is reachable from the decision tree."
+ruff check scripts/
+python -m compileall -q scripts examples
+python scripts/check_node_syntax.py
+python scripts/check_internal_refs.py
+python scripts/check_internal_refs.py --decision-tree
+python scripts/check_contract.py
+python scripts/bench_harness_check.py check-all --strict
+git diff --check
 ```
 
-### Pre-commit utility scripts (checks, not self-tests)
+Run `actionlint` over all files under `.github/workflows/` when the Go toolchain
+is available. Run `npm audit --omit=dev --audit-level=moderate` when network
+access is available; record an unavailable registry as an external limitation,
+not a synthetic pass.
 
-Two stdlib helpers exist solely to drive cross-platform pre-commit hooks. They have no `self-test` subcommand because they are checks themselves.
+`evidence_ledger.py self-test` intentionally exercises tamper detection before
+printing its success marker. That intermediate diagnostic is expected.
 
-```bash
-python3 scripts/check_node_syntax.py                       # → runs `node --check` on every .mjs; exit 0 on success
-python3 scripts/check_no_plan_files.py README.md package.json   # → exit 0 (no PLAN file in the list)
-python3 scripts/check_no_plan_files.py PLAN-foo.md         # → exit 1, prints "blocked: PLAN-foo.md"
-```
+## Runtime matrix
 
-On Windows, use `python` if `python3` is not on PATH.
+The required CI matrix is:
 
-### Pass criteria (universal)
+- Python 3.10, 3.11, and 3.12 for lint and Python self-tests
+- Node.js 18, 20, and 22 for syntax and Node self-tests
+- Ubuntu and Windows integration jobs with Pandoc, Poppler, Tesseract, locked
+  Node dependencies, one adversarial acceptance run, and exactly one Chromium
+  smoke per operating system
 
-- Exit code `0` for every command
-- Output contains a positive marker: `ok`, `PASS`, `ALL TESTS PASSED`, `All self-tests passed!`, or `OK: …`
-- No Python tracebacks, no `FAIL`, no unhandled-promise warnings from Node
+When a change is sensitive to runtime compatibility, reproduce the affected
+matrix locally where those runtimes are available. A single local interpreter
+does not replace the required CI jobs.
 
-The `evidence_ledger.py` self-test intentionally exercises the tamper-detection path; a `TAMPER DETECTED` line in the middle of its output is expected and is followed by the success marker.
+## Security acceptance coverage
 
-## Real-world smoke tests (optional)
+`npm run acceptance` must exercise the actual behavior rather than wrapper
+existence. It covers at least:
 
-These hit live public APIs. Use them to verify network paths after a script change, not as gates for CI.
+- cross-origin credential and Link-header isolation
+- secret redaction and credential-cache policy
+- robots handling, including redirect destinations
+- TLS verification by default and explicit opt-in limitations
+- report workspace path containment and claim-marker linting
+- date/freshness scoring gates and citation fallbacks
+- structured resource-limit blockers
 
-### `api_fetch.mjs` — OpenAlex
+`npm run browser:smoke` launches real Chromium against loopback-only fixtures.
+It verifies probe/extract/crawl behavior, robots status mapping, zero-request
+redirect denial, credential isolation, and local self-signed TLS behavior.
 
-```bash
-node scripts/api_fetch.mjs \
-  --url "https://api.openalex.org/works?search=machine+learning&per_page=5" \
-  --max-pages 1 \
-  --out openalex.json
-```
+## Common failures
 
-Expected: `openalex.json` is a JSON array; each item has `id`, `title`, and (usually) `doi`.
-
-### `data_clean.py` — CSV dedup
-
-```bash
-python3 scripts/data_clean.py clean --file input.csv --out cleaned.csv
-```
-
-Expected: duplicates collapsed, whitespace normalized, ISO 8601 dates.
-
-### `citation_export.py` — BibTeX export
-
-```bash
-python3 scripts/citation_export.py export \
-  --file evidence.csv --format bibtex --out refs.bib
-```
-
-Expected: `refs.bib` contains `@misc{` (or `@article{`) entries with `title = {…}` and `url = {…}` fields.
-
-For the full list of npm shortcuts (`npm run probe`, `npm run plan:render`, `npm run citation:render`, …) see the "npm scripts" section of `README.md`.
-
-## CI
-
-Two GitHub Actions workflows replicate these checks on every pull request:
-
-- `.github/workflows/lint-and-self-test.yml`
-  - `ruff check scripts/` — Python lint
-  - `node --check` on every `scripts/*.mjs` — JS syntax
-  - `npm run self-test` — every offline self-test (with pandoc installed for `citation_render`)
-- `.github/workflows/link-check.yml`
-  - `scripts/check_internal_refs.py` — backticked in-repo path references
-  - `lychee --offline` on all markdown — standard `[text](url)` link integrity
-  - A weekly `lychee-external` job (non-blocking) validates external URLs
-
-If any of the 33 research-helper self-tests (or the four supplementary checks: `check_internal_refs.py`, `check_internal_refs.py --decision-tree`, `check_node_syntax.py`, `check_no_plan_files.py`) fail locally, the same failure will block the PR. Fix locally before pushing.
-
-## Common failure modes
-
-| Symptom | Likely cause | Fix |
+| Symptom | Likely cause | Action |
 |---|---|---|
-| `ImportError` or `ModuleNotFoundError` | Generated script missing a stdlib import | Add the import; re-run `python3 -c "import py_compile; py_compile.compile('scripts/<name>.py', doraise=True)"` |
-| `ERR_UNKNOWN_FILE_EXTENSION ".py"` | Tried to invoke `.py` with `node` directly | Use `python3` (or `node scripts/run_python.mjs scripts/<name>.py …`) |
-| Pandoc-related FAIL in `citation_render` | Pandoc not installed or `< 2.11` | Install pandoc; the self-test will skip the pandoc-dependent subtest if pandoc is genuinely missing |
-| `playwright_*` self-test hangs | Real browser launch attempted | Self-tests must not require a browser; check the script wasn't edited to drop the offline branch |
-| `check_internal_refs.py` reports a missing path | A markdown file backticks an in-repo path (e.g. a reference, adapter, template, or script) that no longer exists | Update the reference, restore the file, or remove the link |
-| Eval bench schema error | New task missing required keys or frontier/refusal rule violation | Compare against an existing task; required keys are listed in `docs/eval.md` |
+| `ModuleNotFoundError` | Missing import or wrong interpreter | Confirm Python 3.10+ and inspect imports before adding dependencies |
+| `ERR_UNKNOWN_FILE_EXTENSION .py` | Python helper invoked with Node | Use `python` or `scripts/run_python.mjs` |
+| Browser executable missing | Chromium was not installed for the locked Playwright version | Run `npx --no-install playwright install chromium` |
+| Resource test exits `3` | A configured cap was exceeded | Confirm the incomplete blocker/sidecar is present; raise the limit only when justified |
+| Reference check fails | A documented local path is stale | Correct the route or restore the file |
+| Contract check fails | Version, counts, config, CLI, or release docs drifted | Fix the reported source of truth; never hard-code around the check |
+| Eval strict check fails | Bench schema or frozen empty-score fixture drifted | Migrate the fixture intentionally and review the scoring delta |
 
-## Adding a new script
+## Adding or changing a helper
 
-When you add a new helper to `scripts/`:
+1. Keep the implementation compatible with the declared Python/Node runtime.
+2. Add an offline `self-test` (Python) or `--self-test` (Node).
+3. Add the self-test to the appropriate package script.
+4. Add or update focused adversarial coverage for security-sensitive behavior.
+5. Update `references/script-inventory.md`, route/config documentation, and
+   dynamic contract assertions when the public surface changes.
+6. Run every required local release check above.
 
-1. Implement an offline `self-test` (Python) or `--self-test` (Node) subcommand. CI runs offline, so any network dependency must degrade cleanly.
-2. Append the new self-test to the chained `self-test` script in `package.json` so it runs in CI.
-3. Add the script to `SKILL.md`'s "Optional bundled scripts" list and link it from a reference doc.
-4. Update the script-count notes in `README.md` if the total changes.
-5. Re-run `npm run self-test` locally before opening a PR.
+## CI and release boundary
 
-See `CONTRIBUTING.md` for the full conventions (argparse, shebangs, error formatting, etc.).
-
-## See also
-
-- `SKILL.md` — main entry point of d-research-skill (decision tree)
-- `package.json` — full list of `npm run` shortcuts and the chained `self-test` definition
-- `CONTRIBUTING.md` — conventions for adding references, adapters, examples, scripts, and templates
-- `docs/eval.md` — eval-harness usage guide for `run_dogfood.py`
-- `.github/workflows/` — the two CI workflows that mirror these checks
+`.github/workflows/lint-and-self-test.yml` is the authoritative CI definition.
+`.github/workflows/release-source-archive.yml` may publish only from a matching
+annotated tag under the release policy frozen into the candidate RC. Manual
+dispatch is validation-only. The default stable path requires GitHub-verified
+tags, independent review, and live dogfood. A release-scoped maintainer override
+is valid only when the RC contract names the exact version, waiver set, owner,
+non-waivable hard gates, required local checks, and hash-bound evidence before
+the candidate tag exists. Such an override never waives annotated tags, RC
+ancestry, exact-SHA CI, archive/checksum validation, or provenance attestation.

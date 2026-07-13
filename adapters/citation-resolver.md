@@ -18,13 +18,13 @@ Resolves academic identifiers (DOI, PMID, arXiv ID, ISBN) to structured metadata
 | DOI | Datacite | `https://api.datacite.org/dois/<doi>` | None |
 | DOI | Unpaywall | `https://api.unpaywall.org/v2/<doi>?email=<email>` | Email param |
 | PMID | NCBI E-utilities | `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi` | None |
-| arXiv ID | arXiv API | `http://export.arxiv.org/api/query?id_list=<id>` | None |
+| arXiv ID | arXiv API | `https://export.arxiv.org/api/query?id_list=<id>` | None |
 | ISBN | Open Library | `https://openlibrary.org/api/books?bibkeys=ISBN:<isbn>` | None |
 
 ## Usage
 
 ```bash
-# Resolve a DOI (auto-selects CrossRef)
+# Resolve a DOI (CrossRef first; DataCite only on not-found/unsupported metadata)
 python scripts/citation_resolver.py doi 10.1038/nature12373
 
 # Force Datacite for dataset DOIs
@@ -57,11 +57,17 @@ python scripts/citation_resolver.py batch --in ids.txt --out resolved.json
 The resolver is the canonical "Step 0" before any citation workflow:
 
 1. **Resolve** → `citation_resolver.py doi|pmid|arxiv|isbn`
-2. **Enrich** → `citation_export.py enrich --doi <doi>` (uses CrossRef directly)
+2. **Enrich** → `citation_export.py enrich --doi <doi>` (CrossRef first, then DataCite only for a provider miss or unusable record)
 3. **Export** → `citation_export.py export --format bibtex`
 4. **Render** → `citation_render.py render --style apa`
 
 For fact-verification tasks involving academic claims, the resolver provides a one-shot canonical lookup that short-circuits the full research loop.
+
+`auto` does not hide transient provider failures. HTTP/network/parse/resource
+limit errors from CrossRef remain non-zero hard failures; only 404/410 or a
+successful record without usable title metadata activates DataCite fallback.
+Generated BibTeX escapes parser-structural braces, backslashes, and line breaks
+in text, DOI, and URL fields.
 
 ## Rate Limits
 

@@ -1,5 +1,17 @@
 # Frontier Search (gap-driven follow-up research)
 
+## Contents
+
+- [When to escalate](#when-to-escalate)
+- [The two ledgers and the gap map](#the-two-ledgers-and-the-gap-map)
+- [Node types](#node-types)
+- [Priority score](#priority-score)
+- [Loop](#loop)
+- [Stopping criteria](#stopping-criteria)
+- [Integration with the rest of the skill](#integration-with-the-rest-of-the-skill)
+- [What this layer deliberately does not do](#what-this-layer-deliberately-does-not-do)
+- [See also](#see-also)
+
 Use this file when a first-pass run of the deep research workflow leaves real evidence gaps and the answer is obscure, long-tail, or scattered across many sources. It adds a lightweight controller on top of `references/source-discovery.md`, `references/query-patterns.md`, and `references/evidence-ledger.md` so the agent can decide *which* node to expand next, *what* it still does not know, and *when* to stop. It does not replace the 12-step workflow in `SKILL.md`; it only kicks in when the standard pass left documented gaps.
 
 This is **not** a literal pathfinding algorithm (no A*, no Dijkstra). It is a single best-first priority queue over candidate research nodes, scored against the unresolved gaps in the evidence ledger. Treat the word "frontier" as bookkeeping, not as a promise of exhaustive Internet coverage. Stay inside `references/safety-and-access-policy.md` — frontier search never bypasses login, paywall, captcha, rate limit, or `robots.txt`.

@@ -1,3 +1,7 @@
+---
+example_status: fixture
+---
+
 # Long-horizon research with a context-safe plan
 
 This example walks through using `references/research-plan-protocol.md`
@@ -17,18 +21,18 @@ resets and parallelisable where safe.
 ## Step 1 — Initialise the plan
 
 ```sh
-python3 scripts/research_plan.py init --slug oai-review
+node scripts/run_python.mjs scripts/research_plan.py init --slug oai-review
 cd ./research-oai-review-2026-05-16
-python3 ../scripts/research_plan.py check --file research-plan.json
-python3 ../scripts/research_plan.py configure-execution --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py check --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py configure-execution --file research-plan.json
 ```
 
 The `init` command prints the actual `workspace:` path. Use that path in
 the `cd` command; if the same slug/date already exists, the folder may
 have a suffix such as `-02`.
 
-On Windows, use `python` instead of `python3` if `python3` is not on
-PATH, or use the matching `npm run plan:*` commands from the repo root.
+`run_python.mjs` selects an available Python launcher on Windows, macOS, and
+Linux. The matching `npm run plan:*` commands are also available.
 
 The template ships with seven illustrative tasks (T1–T7) and four gates
 (`plan_ready`, `execute_ready`, `synthesize_ready`, `release_ready`). The
@@ -43,8 +47,8 @@ context after this point.
 ## Step 2 — Render, review, and approve the plan
 
 ```sh
-python3 ../scripts/research_plan.py render --file research-plan.json
-python3 ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
+node ../scripts/run_python.mjs ../scripts/research_plan.py render --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
 ```
 
 Expected:
@@ -69,12 +73,12 @@ re-run `render` and `plan_ready`.
 Once the user approves:
 
 ```sh
-python3 ../scripts/research_plan.py approve \
+node ../scripts/run_python.mjs ../scripts/research_plan.py approve \
   --file research-plan.json \
   --by "reviewer@example.org" \
   --notes "Scope, tasks, and stopping criteria approved."
 
-python3 ../scripts/research_plan.py gate --file research-plan.json --gate execute_ready
+node ../scripts/run_python.mjs ../scripts/research_plan.py gate --file research-plan.json --gate execute_ready
 ```
 
 Expected:
@@ -95,7 +99,7 @@ Unattended runs fail by default. If no human can review the plan, the
 agent must explicitly record the bypass:
 
 ```sh
-python3 ../scripts/research_plan.py approve \
+node ../scripts/run_python.mjs ../scripts/research_plan.py approve \
   --file research-plan.json \
   --allow-unattended
 ```
@@ -103,7 +107,7 @@ python3 ../scripts/research_plan.py approve \
 ## Step 3 — Dispatch parallel tasks
 
 ```sh
-python3 ../scripts/research_plan.py parallelizable --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py parallelizable --file research-plan.json
 ```
 
 This prints the task ids whose dependencies are all `done` and whose
@@ -125,7 +129,7 @@ Before dispatching, mark each task as `running` so the
 
 ```sh
 for t in T1 T2 T3 T4; do
-  python3 ../scripts/research_plan.py mark --file research-plan.json --id "$t" --status running
+  node ../scripts/run_python.mjs ../scripts/research_plan.py mark --file research-plan.json --id "$t" --status running
 done
 ```
 
@@ -145,14 +149,14 @@ Each sub-agent must:
 When a sub-agent finishes, the orchestrator marks the task `done`:
 
 ```sh
-python3 ../scripts/research_plan.py mark --file research-plan.json --id T2 --status done
+node ../scripts/run_python.mjs ../scripts/research_plan.py mark --file research-plan.json --id T2 --status done
 ```
 
 If a sub-agent gets stuck (paywalled source, captcha wall, repeated
 429s), the orchestrator blocks the task with a reason instead:
 
 ```sh
-python3 ../scripts/research_plan.py block \
+node ../scripts/run_python.mjs ../scripts/research_plan.py block \
     --file research-plan.json \
     --id T3 \
     --reason "Selenium docs site returns 429 after 5 requests; manual fetch needed"
@@ -167,13 +171,13 @@ Once T1–T4 are all terminal (`done` or `blocked`), T5 becomes
 available:
 
 ```sh
-python3 ../scripts/research_plan.py parallelizable --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py parallelizable --file research-plan.json
 # (none ready — T5 has parallel_safe=false)
 
-python3 ../scripts/research_plan.py mark --file research-plan.json --id T5 --status running
+node ../scripts/run_python.mjs ../scripts/research_plan.py mark --file research-plan.json --id T5 --status running
 # ...orchestrator reads T1..T4 outputs from disk, writes
 # research-output/sections/sq1.md...
-python3 ../scripts/research_plan.py mark --file research-plan.json --id T5 --status done
+node ../scripts/run_python.mjs ../scripts/research_plan.py mark --file research-plan.json --id T5 --status done
 ```
 
 Critically: at this point the orchestrator does **not** re-read the
@@ -191,12 +195,12 @@ and writes the audit to `reproducibility-checklist.md` (or under
 ## Step 6 — Synthesize-ready gate
 
 ```sh
-python3 ../scripts/evidence_ledger.py validate --file evidence-ledger.csv
-python3 ../scripts/evidence_ledger.py sign \
+node ../scripts/run_python.mjs ../scripts/evidence_ledger.py validate --file evidence-ledger.csv
+node ../scripts/run_python.mjs ../scripts/evidence_ledger.py sign \
     --file evidence-ledger.csv \
     --key-env D_RESEARCH_LEDGER_KEY
 
-python3 ../scripts/research_plan.py gate \
+node ../scripts/run_python.mjs ../scripts/research_plan.py gate \
     --file research-plan.json \
     --gate synthesize_ready
 ```
@@ -215,7 +219,7 @@ writes both to `research-output/`. Finally:
 # Mark the stopping criteria satisfied (manual review step):
 # (edit research-plan.json by hand and set
 #  "stopping_criteria_satisfied": true)
-python3 ../scripts/research_plan.py gate \
+node ../scripts/run_python.mjs ../scripts/research_plan.py gate \
     --file research-plan.json \
     --gate release_ready
 ```

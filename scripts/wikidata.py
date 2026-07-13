@@ -32,6 +32,12 @@ try:
     import http_cache as _http_cache
 except ImportError:  # pragma: no cover
     _http_cache = None
+from resource_limits import (
+    ResourceLimitError,
+    emit_blocker_and_exit,
+    load_limits,
+    read_http_response_bounded,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -70,10 +76,17 @@ class WikidataClient:
         if data is not None:
             req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
-            with urllib.request.urlopen(req, data=data) as resp:
-                body = resp.read()
+            limits = load_limits()
+            with urllib.request.urlopen(
+                req,
+                data=data,
+                timeout=limits.http_timeout_sec,
+            ) as resp:
+                body = read_http_response_bounded(resp, limits)
                 resp_headers = dict(resp.headers.items()) if resp.headers else {}
                 status = resp.status
+        except ResourceLimitError as exc:
+            emit_blocker_and_exit(exc)
         except urllib.error.HTTPError as exc:
             print(
                 f"Error: Wikidata API returned HTTP {exc.code}: {exc.reason}",
@@ -250,8 +263,11 @@ class WikidataClient:
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
         req.add_header("Accept", "application/sparql-results+json")
         try:
-            with urllib.request.urlopen(req) as resp:
-                raw = resp.read()
+            limits = load_limits()
+            with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+                raw = read_http_response_bounded(resp, limits)
+        except ResourceLimitError as exc:
+            emit_blocker_and_exit(exc)
         except urllib.error.HTTPError as exc:
             print(
                 f"Error: SPARQL endpoint returned HTTP {exc.code}: {exc.reason}",
@@ -397,8 +413,8 @@ def cmd_self_test(_args: argparse.Namespace) -> None:
             self.reason = "OK" if code == 200 else "Not Found"
             self.headers = {"content-type": "application/json"}
 
-        def read(self) -> bytes:
-            return self._data.read()
+        def read(self, size: int = -1) -> bytes:
+            return self._data.read(size)
 
         def __enter__(self):
             return self

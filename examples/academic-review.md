@@ -1,3 +1,7 @@
+---
+example_status: illustrative
+---
+
 # Example — academic review
 
 User asks: *"Help me write a literature review on web scraping methods

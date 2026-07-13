@@ -1,0 +1,30 @@
+{
+  "plan_id": "plan-v1-fuzz",
+  "title": "V1 plan for migrate fuzz",
+  "workspace_dir": "workspace",
+  "created": "2026-01-01T00:00:00Z",
+  "owner": "quality-eval",
+  "scope": "migrate semantic preservation",
+  "sub_questions": ["q1", "q2"],
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Research basin A",
+      "depends_on": [],
+      "status": "pending",
+      "outputs": ["findings/T1.md"]
+    },
+    {
+      "id": "T2",
+      "title": "Synthesize report",
+      "depends_on": ["T1"],
+      "status": "pending",
+      "outputs": ["report.md"]
+    }
+  ],
+  "gates": {
+    "plan_ready": {"assertions": ["schema_valid"]},
+    "synthesize_ready": {"assertions": ["all_tasks_terminal", "all_outputs_exist"]},
+    "release_ready": {"assertions": ["ledger_signed", "reproducibility_checklist_exists", "final_report_exists"]}
+  }
+}

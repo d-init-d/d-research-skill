@@ -1,0 +1,20 @@
+{
+  "report_claims": [
+    {"claim_id": "C1", "text": "Done", "important": true}
+  ],
+  "ledger_rows": [
+    {
+      "claim_id": "C1",
+      "claim": "Done",
+      "source_url": "https://example.com",
+      "evidence": "Done",
+      "confidence": "high",
+      "record_type": "fact"
+    }
+  ],
+  "sources": [{"url": "https://example.com"}],
+  "status": "completed",
+  "gates_passed": [],
+  "required_gates": ["source_map", "evidence_verification", "synthesis_readiness"],
+  "declared_complete": true
+}

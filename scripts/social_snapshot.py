@@ -13,6 +13,7 @@ Privacy boundary
 All requests pass through check_privacy_boundary() BEFORE any HTTP call.
 Violations exit with code 2.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,6 +22,7 @@ import datetime
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -35,14 +37,51 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-USER_AGENT = "d-research-skill/0.3.0 (https://github.com/d-init-d/d-research-skill)"
-SCHEMA_VERSION = "1.0"
+USER_AGENT = "d-research-skill/3.2.0 (https://github.com/d-init-d/d-research-skill)"
+SCHEMA_VERSION = "1.1"
+
+VALID_VERIFICATION_STATUS = {
+    "intact",
+    "edited",
+    "deleted",
+    "access_denied",
+    "rate_limited",
+    "unavailable",
+    "malformed",
+    "unknown",
+}
+
+# Platforms and accepted host suffixes for verify policy checks.
+PLATFORM_HOST_HINTS = {
+    "reddit": ("reddit.com", "redd.it"),
+    "hn": ("news.ycombinator.com", "ycombinator.com"),
+    "mastodon": (),  # instance-specific
+    "bluesky": ("bsky.app", "bsky.social"),
+    "lemmy": (),
+    "x": ("x.com", "twitter.com"),
+    "facebook": ("facebook.com", "fb.com"),
+    "instagram": ("instagram.com",),
+    "tiktok": ("tiktok.com",),
+    "youtube": ("youtube.com", "youtu.be"),
+    "threads": ("threads.net",),
+    "linkedin": ("linkedin.com",),
+}
 
 TIER_A_PLATFORMS = {"reddit", "hn", "mastodon", "bluesky", "lemmy"}
 TIER_B_PLATFORMS = {"x", "facebook", "instagram", "tiktok", "youtube", "threads", "linkedin"}
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 WAYBACK_SCRIPT = SCRIPTS_DIR / "wayback.py"
+sys.path.insert(0, str(SCRIPTS_DIR))
+from resource_limits import (  # type: ignore
+    ResourceLimitError,
+    add_resource_limit_arguments,
+    apply_cli_limit_overrides,
+    check_file_size,
+    emit_blocker,
+    load_limits,
+    read_bounded,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -140,27 +179,139 @@ def compute_content_hash(text: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_json(url: str) -> dict:
-    """Fetch URL and parse JSON response. Exits on error."""
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+class FetchError(Exception):
+    """Structured network/fetch failure for status mapping."""
+
+    def __init__(self, status: str, message: str, http_code: int | None = None):
+        super().__init__(message)
+        self.status = status  # maps to verification status
+        self.http_code = http_code
+        self.message = message
+
+
+def _assert_safe_url(url: str) -> str:
+    """SSRF guard before any network call (public HTTPS only)."""
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = resp.read()
+        # Prefer same-directory import; fall back to path load.
+        from _ssrf_helpers import assert_public_http_url  # type: ignore
+    except ImportError:
+        import importlib.util
+
+        helper = Path(__file__).resolve().parent / "_ssrf_helpers.py"
+        spec = importlib.util.spec_from_file_location("ssrf_helpers", helper)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        assert_public_http_url = mod.assert_public_http_url
+    try:
+        return assert_public_http_url(url, allow_http=False)
+    except ValueError as e:
+        raise FetchError("malformed", f"SSRF guard rejected URL: {e}") from e
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        raise FetchError(
+            "unavailable",
+            f"HTTP redirect blocked (manual revalidation required): {code}",
+            code,
+        )
+
+
+def _public_urlopen(req: urllib.request.Request, timeout: float | None = None):
+    """SSRF-validated open with DNS pin (via _ssrf_helpers.public_urlopen)."""
+    try:
+        from _ssrf_helpers import public_urlopen as _ssrf_open  # type: ignore
+    except ImportError:
+        import importlib.util
+
+        helper = Path(__file__).resolve().parent / "_ssrf_helpers.py"
+        spec = importlib.util.spec_from_file_location("ssrf_helpers", helper)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        _ssrf_open = mod.public_urlopen
+    return _ssrf_open(req, timeout=timeout)
+
+
+def _fetch_json(url: str) -> dict:
+    """Fetch URL and parse JSON response. Raises FetchError on failure."""
+    url = _assert_safe_url(url)
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    # Redirects are refused: pinned open does not follow them, and legacy
+    # urlopen mocks used in self-test never issue redirects.
+    try:
+        urllib.request.install_opener(urllib.request.build_opener(_NoRedirect()))
+    except Exception:
+        pass
+    try:
+        limits = load_limits()
+        with _public_urlopen(req, timeout=limits.http_timeout_sec) as resp:
+            response_headers = getattr(resp, "headers", None)
+            raw_length = response_headers.get("Content-Length") if response_headers else None
+            if raw_length:
+                try:
+                    content_length = int(raw_length)
+                except (TypeError, ValueError):
+                    content_length = None
+                if content_length is not None and content_length > limits.social_max_bytes:
+                    raise ResourceLimitError(
+                        "social_max_bytes",
+                        "social Content-Length exceeds response limit",
+                        limit=limits.social_max_bytes,
+                        observed=content_length,
+                    )
+            data = read_bounded(
+                resp,
+                limits.social_max_bytes,
+                code="social_max_bytes",
+            )
             return json.loads(data.decode("utf-8", errors="replace"))
+    except FetchError:
+        raise
     except urllib.error.HTTPError as e:
-        if e.code == 404:
-            print(f"error: post not found at {url}", file=sys.stderr)
-        elif e.code == 403:
-            print(f"error: access denied for {url}", file=sys.stderr)
-        else:
-            print(f"error: HTTP {e.code} for {url}", file=sys.stderr)
-        sys.exit(1)
+        try:
+            if e.code in (404, 410):
+                raise FetchError("deleted", f"post not found at {url}", e.code) from e
+            if e.code == 403:
+                raise FetchError("access_denied", f"access denied for {url}", e.code) from e
+            if e.code == 429:
+                raise FetchError("rate_limited", f"rate limited for {url}", e.code) from e
+            raise FetchError("unavailable", f"HTTP {e.code} for {url}", e.code) from e
+        finally:
+            # Close pinned streaming error body without draining it unbounded.
+            try:
+                e.close()
+            except Exception:
+                pass
     except urllib.error.URLError as e:
-        print(f"error: could not resolve or connect to {url}: {e.reason}", file=sys.stderr)
+        raise FetchError("unavailable", f"could not resolve or connect to {url}: {e.reason}") from e
+    except TimeoutError as e:
+        raise FetchError("unavailable", f"timeout fetching {url}") from e
+    except json.JSONDecodeError as e:
+        raise FetchError("malformed", f"invalid JSON from {url}") from e
+
+
+def _fetch_json_or_exit(url: str) -> dict:
+    """Fetch helper for snapshot capture path (exits with mapped codes)."""
+    try:
+        return _fetch_json(url)
+    except FetchError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        # deleted/not found still exit 1 for capture; verify maps status separately
         sys.exit(1)
-    except json.JSONDecodeError:
-        print(f"error: invalid JSON from {url}", file=sys.stderr)
-        sys.exit(1)
+
+
+def _read_snapshot_json(file: Path) -> dict:
+    limits = load_limits()
+    check_file_size(file, limits.download_max_bytes, code="download_file_bytes")
+    with file.open("rb") as stream:
+        raw = read_bounded(
+            stream,
+            limits.download_max_bytes,
+            code="download_file_bytes",
+        )
+    return json.loads(raw.decode("utf-8", errors="strict"))
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +321,30 @@ def _fetch_json(url: str) -> dict:
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _is_rfc3339(value: object) -> bool:
+    """Return whether *value* is a timezone-aware RFC 3339 timestamp."""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+
+
+def _mark_snapshot_malformed(file: Path, snap: dict, message: str) -> int:
+    """Persist a deterministic malformed result without making a network call."""
+    print(f"error: {message}", file=sys.stderr)
+    verification = snap.get("verification")
+    if not isinstance(verification, dict):
+        verification = {}
+        snap["verification"] = verification
+    verification["status"] = "malformed"
+    verification["last_verified_at"] = _now_iso()
+    file.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
+    return 1
 
 
 def _build_snapshot(
@@ -183,8 +358,9 @@ def _build_snapshot(
     post: dict,
     content_hash: str,
     limitations: list[str],
+    archive_submission: dict | None = None,
 ) -> dict:
-    """Build a schema v1.0 Snapshot JSON dict."""
+    """Build a schema v1.1 Snapshot JSON dict."""
     now = _now_iso()
     return {
         "schema_version": SCHEMA_VERSION,
@@ -202,6 +378,13 @@ def _build_snapshot(
             "first_capture_at": now,
             "last_verified_at": None,
             "status": "intact" if tier == "A" else "unknown",
+        },
+        "archive_submission": archive_submission
+        or {
+            "requested": False,
+            "status": "not_requested",
+            "timestamp": None,
+            "archive_url": url_archive,
         },
         "limitations": limitations,
     }
@@ -236,7 +419,7 @@ def snapshot_reddit(url: str, out: Path) -> int:
         path += ".json"
     api_url = f"https://www.reddit.com{path}"
 
-    data = _fetch_json(api_url)
+    data = _fetch_json_or_exit(api_url)
     # Reddit returns a list of listings; first listing has the post
     if isinstance(data, list) and len(data) > 0:
         post_data = data[0].get("data", {}).get("children", [{}])[0].get("data", {})
@@ -281,7 +464,7 @@ def snapshot_reddit(url: str, out: Path) -> int:
 def snapshot_hn(item_id: str, out: Path) -> int:
     """Fetch Hacker News item via Algolia API."""
     api_url = f"https://hn.algolia.com/api/v1/items/{item_id}"
-    data = _fetch_json(api_url)
+    data = _fetch_json_or_exit(api_url)
 
     text = data.get("text") or data.get("title") or ""
     content_hash = compute_content_hash(text)
@@ -328,7 +511,7 @@ def snapshot_mastodon(url: str, out: Path) -> int:
     status_id = match.group(1)
 
     api_url = f"https://{instance}/api/v1/statuses/{status_id}"
-    data = _fetch_json(api_url)
+    data = _fetch_json_or_exit(api_url)
 
     # Mastodon returns HTML content; strip tags for plain text
     html_content = data.get("content", "")
@@ -381,7 +564,7 @@ def snapshot_bluesky(url: str, out: Path) -> int:
     at_uri = f"at://{handle}/app.bsky.feed.post/{rkey}"
     params = urllib.parse.urlencode({"uri": at_uri, "depth": "0"})
     api_url = f"https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?{params}"
-    data = _fetch_json(api_url)
+    data = _fetch_json_or_exit(api_url)
 
     thread = data.get("thread", {})
     post_record = thread.get("post", {}).get("record", {})
@@ -435,7 +618,7 @@ def snapshot_lemmy(url: str, out: Path) -> int:
     post_id = match.group(1)
 
     api_url = f"https://{instance}/api/v3/post?id={post_id}"
-    data = _fetch_json(api_url)
+    data = _fetch_json_or_exit(api_url)
 
     post_view = data.get("post_view", {})
     post_data = post_view.get("post", {})
@@ -481,13 +664,32 @@ def snapshot_lemmy(url: str, out: Path) -> int:
 # ---------------------------------------------------------------------------
 
 _TIER_B_LIMITATIONS = {
-    "x": ["No direct API access; content from Wayback archive only", "Text may be incomplete or missing"],
-    "facebook": ["No direct API access; content from Wayback archive only", "Login-walled content not captured"],
+    "x": [
+        "No direct API access; content from Wayback archive only",
+        "Text may be incomplete or missing",
+    ],
+    "facebook": [
+        "No direct API access; content from Wayback archive only",
+        "Login-walled content not captured",
+    ],
     "instagram": ["No direct API access; content from Wayback archive only", "Media not captured"],
-    "tiktok": ["No direct API access; content from Wayback archive only", "Video content not captured"],
-    "youtube": ["No direct API access; content from Wayback archive only", "Video content not captured", "Comments not captured"],
-    "threads": ["No direct API access; content from Wayback archive only", "Text may be incomplete"],
-    "linkedin": ["No direct API access; content from Wayback archive only", "Login-walled content not captured"],
+    "tiktok": [
+        "No direct API access; content from Wayback archive only",
+        "Video content not captured",
+    ],
+    "youtube": [
+        "No direct API access; content from Wayback archive only",
+        "Video content not captured",
+        "Comments not captured",
+    ],
+    "threads": [
+        "No direct API access; content from Wayback archive only",
+        "Text may be incomplete",
+    ],
+    "linkedin": [
+        "No direct API access; content from Wayback archive only",
+        "Login-walled content not captured",
+    ],
 }
 
 _TIER_B_NOTES = {
@@ -501,34 +703,135 @@ _TIER_B_NOTES = {
 }
 
 
-def snapshot_tier_b(platform: str, url: str, out: Path) -> int:
-    """Archive-only path via wayback.py subprocess."""
+def snapshot_tier_b(platform: str, url: str, out: Path, submit_archive: bool = False) -> int:
+    """Archive-only path via wayback.py.
+
+    Default: lookup existing Wayback snapshot only (no POST/Save Page Now).
+    Opt-in mutation: pass submit_archive=True / --submit-archive.
+    """
     python_cmd = sys.executable or "python3"
+    limits = load_limits()
+    archive_url = None
+    submission = {
+        "requested": bool(submit_archive),
+        "status": "not_requested",
+        "timestamp": None,
+        "archive_url": None,
+    }
 
-    # Step 1: Save to Wayback
-    save_result = subprocess.run(
-        [python_cmd, str(WAYBACK_SCRIPT), "save", "--url", url],
-        capture_output=True, text=True, timeout=60,
-    )
-    if save_result.returncode != 0:
-        print(f"error: wayback.py save failed: {save_result.stderr.strip()}", file=sys.stderr)
-        sys.exit(1)
-
-    # Step 2: Find nearest snapshot
+    # Step 1 (default): lookup nearest existing snapshot — no mutation.
     today = datetime.date.today().strftime("%Y%m%d")
     nearest_result = subprocess.run(
         [python_cmd, str(WAYBACK_SCRIPT), "nearest", "--url", url, "--timestamp", today],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True,
+        text=True,
+        timeout=limits.subprocess_timeout_sec,
     )
-
-    # Parse archive URL from stdout
-    archive_url = None
+    if nearest_result.returncode != 0 and not submit_archive:
+        submission["status"] = "lookup_failed"
+        submission["timestamp"] = _now_iso()
+        limitations = list(
+            _TIER_B_LIMITATIONS.get(
+                platform, ["No direct API access; content from Wayback archive only"]
+            )
+        ) + [f"wayback nearest failed: {(nearest_result.stderr or '').strip()[:200]}"]
+        note = _TIER_B_NOTES.get(platform, "Archived via Wayback Machine; verifiability limited.")
+        post = _default_post()
+        snap = _build_snapshot(
+            platform=platform,
+            tier="B",
+            verifiability="archive_snapshot",
+            verifiability_note=note,
+            url_original=url,
+            url_canonical=url,
+            url_archive=None,
+            post=post,
+            content_hash="",
+            limitations=limitations,
+            archive_submission=submission,
+        )
+        out.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(
+            f"error: wayback nearest lookup failed for {url}: "
+            f"{(nearest_result.stderr or nearest_result.stdout or '').strip()}",
+            file=sys.stderr,
+        )
+        return 1
     for line in nearest_result.stdout.splitlines():
         if line.startswith("Snapshot URL:"):
             archive_url = line.split(":", 1)[1].strip()
             break
 
-    limitations = _TIER_B_LIMITATIONS.get(platform, ["No direct API access; content from Wayback archive only"])
+    # Step 2 (opt-in only): Save Page Now
+    if submit_archive:
+        submission["timestamp"] = _now_iso()
+        save_result = subprocess.run(
+            [python_cmd, str(WAYBACK_SCRIPT), "save", "--url", url],
+            capture_output=True,
+            text=True,
+            timeout=limits.subprocess_timeout_sec,
+        )
+        if save_result.returncode != 0:
+            submission["status"] = "failed"
+            print(
+                f"error: wayback.py save failed: {save_result.stderr.strip()}",
+                file=sys.stderr,
+            )
+            # Still write snapshot with failure metadata; exit non-zero.
+            limitations = _TIER_B_LIMITATIONS.get(
+                platform, ["No direct API access; content from Wayback archive only"]
+            )
+            note = _TIER_B_NOTES.get(
+                platform, "Archived via Wayback Machine; verifiability limited."
+            )
+            post = _default_post()
+            snap = _build_snapshot(
+                platform=platform,
+                tier="B",
+                verifiability="archive_snapshot",
+                verifiability_note=note,
+                url_original=url,
+                url_canonical=url,
+                url_archive=archive_url,
+                post=post,
+                content_hash="",
+                limitations=limitations + ["archive_submission_failed"],
+                archive_submission=submission,
+            )
+            out.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
+            sys.exit(1)
+        submission["status"] = "submitted"
+        # Re-lookup after save
+        nearest_result = subprocess.run(
+            [
+                python_cmd,
+                str(WAYBACK_SCRIPT),
+                "nearest",
+                "--url",
+                url,
+                "--timestamp",
+                today,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=limits.subprocess_timeout_sec,
+        )
+        for line in nearest_result.stdout.splitlines():
+            if line.startswith("Snapshot URL:"):
+                archive_url = line.split(":", 1)[1].strip()
+                break
+        submission["archive_url"] = archive_url
+    else:
+        submission["status"] = "lookup_only"
+        submission["archive_url"] = archive_url
+
+    limitations = _TIER_B_LIMITATIONS.get(
+        platform, ["No direct API access; content from Wayback archive only"]
+    )
+    if not submit_archive:
+        limitations = list(limitations) + [
+            "Wayback Save Page Now not requested; lookup-only (use --submit-archive to opt in)"
+        ]
     note = _TIER_B_NOTES.get(platform, "Archived via Wayback Machine; verifiability limited.")
 
     post = _default_post()
@@ -545,6 +848,7 @@ def snapshot_tier_b(platform: str, url: str, out: Path) -> int:
         post=post,
         content_hash="",
         limitations=limitations,
+        archive_submission=submission,
     )
     out.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
     return 0
@@ -555,49 +859,9 @@ def snapshot_tier_b(platform: str, url: str, out: Path) -> int:
 # ---------------------------------------------------------------------------
 
 
-def snapshot_generic(url: str, out: Path) -> int:
-    """Generic fallback: attempt Wayback snapshot path."""
-    python_cmd = sys.executable or "python3"
-
-    # Save to Wayback
-    save_result = subprocess.run(
-        [python_cmd, str(WAYBACK_SCRIPT), "save", "--url", url],
-        capture_output=True, text=True, timeout=60,
-    )
-    if save_result.returncode != 0:
-        print(f"error: wayback.py save failed: {save_result.stderr.strip()}", file=sys.stderr)
-        sys.exit(1)
-
-    # Find nearest snapshot
-    today = datetime.date.today().strftime("%Y%m%d")
-    nearest_result = subprocess.run(
-        [python_cmd, str(WAYBACK_SCRIPT), "nearest", "--url", url, "--timestamp", today],
-        capture_output=True, text=True, timeout=60,
-    )
-
-    archive_url = None
-    for line in nearest_result.stdout.splitlines():
-        if line.startswith("Snapshot URL:"):
-            archive_url = line.split(":", 1)[1].strip()
-            break
-
-    post = _default_post()
-    post["text"] = None
-
-    snap = _build_snapshot(
-        platform="generic",
-        tier="B",
-        verifiability="archive_snapshot",
-        verifiability_note="Platform not specifically recognized; archived via Wayback Machine.",
-        url_original=url,
-        url_canonical=url,
-        url_archive=archive_url,
-        post=post,
-        content_hash="",
-        limitations=["Platform not recognized; generic archive-only path used"],
-    )
-    out.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
-    return 0
+def snapshot_generic(url: str, out: Path, submit_archive: bool = False) -> int:
+    """Generic fallback: Wayback lookup-only unless --submit-archive."""
+    return snapshot_tier_b("generic", url, out, submit_archive=submit_archive)
 
 
 # ---------------------------------------------------------------------------
@@ -605,7 +869,13 @@ def snapshot_generic(url: str, out: Path) -> int:
 # ---------------------------------------------------------------------------
 
 
-def route_platform(platform: str, url: str, item_id: str | None, out: Path) -> int:
+def route_platform(
+    platform: str,
+    url: str,
+    item_id: str | None,
+    out: Path,
+    submit_archive: bool = False,
+) -> int:
     """Dispatch to the correct handler based on platform tier."""
     if platform in TIER_A_PLATFORMS:
         if platform == "reddit":
@@ -622,9 +892,9 @@ def route_platform(platform: str, url: str, item_id: str | None, out: Path) -> i
         elif platform == "lemmy":
             return snapshot_lemmy(url, out)
     elif platform in TIER_B_PLATFORMS:
-        return snapshot_tier_b(platform, url, out)
+        return snapshot_tier_b(platform, url, out, submit_archive=submit_archive)
     elif platform == "generic":
-        return snapshot_generic(url, out)
+        return snapshot_generic(url, out, submit_archive=submit_archive)
     else:
         print(f"error: unknown platform '{platform}'", file=sys.stderr)
         sys.exit(1)
@@ -636,27 +906,163 @@ def route_platform(platform: str, url: str, item_id: str | None, out: Path) -> i
 # ---------------------------------------------------------------------------
 
 
+def _platform_host_ok(platform: str, url: str) -> bool:
+    hints = PLATFORM_HOST_HINTS.get(platform)
+    if hints is None:
+        return False
+    if not hints:
+        return True  # instance-specific (mastodon/lemmy)
+    try:
+        host = urllib.parse.urlparse(url).hostname or ""
+    except Exception:
+        return False
+    host = host.lower()
+    return any(host == h or host.endswith("." + h) for h in hints)
+
+
 def verify_snapshot(file: Path) -> int:
     """Re-fetch and compare hash for verification."""
     try:
-        snap = json.loads(file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
+        snap = _read_snapshot_json(file)
+    except (json.JSONDecodeError, OSError, UnicodeError) as e:
         print(f"error: invalid snapshot file: {e}", file=sys.stderr)
         sys.exit(1)
 
+    if snap.get("schema_version") not in {SCHEMA_VERSION, "1.0"}:
+        print(
+            f"error: unsupported snapshot schema_version {snap.get('schema_version')!r}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    platform = snap.get("platform", "")
     tier = snap.get("tier", "")
     now = _now_iso()
+    url_original = snap.get("url_original", "")
+
+    # Validate schema and tier policy before any network call.
+    if platform not in TIER_A_PLATFORMS | TIER_B_PLATFORMS | {"generic"}:
+        print(f"error: unknown platform in snapshot: {platform!r}", file=sys.stderr)
+        sys.exit(1)
+    expected_tier = "A" if platform in TIER_A_PLATFORMS else "B"
+    if tier != expected_tier:
+        return _mark_snapshot_malformed(
+            file,
+            snap,
+            f"tier {tier!r} conflicts with platform {platform!r}; expected {expected_tier}",
+        )
+    verification = snap.get("verification")
+    if not isinstance(verification, dict):
+        return _mark_snapshot_malformed(file, snap, "verification must be an object")
+    for label, value in (
+        ("captured_at", snap.get("captured_at")),
+        ("verification.first_capture_at", verification.get("first_capture_at")),
+    ):
+        if not _is_rfc3339(value):
+            return _mark_snapshot_malformed(file, snap, f"{label} must be RFC3339")
+    last_verified_at = verification.get("last_verified_at")
+    if last_verified_at is not None and not _is_rfc3339(last_verified_at):
+        return _mark_snapshot_malformed(
+            file, snap, "verification.last_verified_at must be null or RFC3339"
+        )
+
+    if snap.get("schema_version") == SCHEMA_VERSION:
+        submission = snap.get("archive_submission")
+        if not isinstance(submission, dict):
+            return _mark_snapshot_malformed(file, snap, "archive_submission must be an object")
+        requested = submission.get("requested")
+        status = submission.get("status")
+        submitted_at = submission.get("timestamp")
+        archive_submission_url = submission.get("archive_url")
+        if not isinstance(requested, bool):
+            return _mark_snapshot_malformed(
+                file, snap, "archive_submission.requested must be boolean"
+            )
+        allowed_statuses = (
+            {"submitted", "failed"}
+            if requested
+            else ({"not_requested"} if tier == "A" else {"lookup_only", "lookup_failed"})
+        )
+        if status not in allowed_statuses:
+            return _mark_snapshot_malformed(
+                file,
+                snap,
+                f"archive_submission.status {status!r} conflicts with tier/request policy",
+            )
+        timestamp_required = status in {"submitted", "failed", "lookup_failed"}
+        if timestamp_required != (submitted_at is not None):
+            return _mark_snapshot_malformed(
+                file,
+                snap,
+                "archive_submission.timestamp presence conflicts with submission status",
+            )
+        if submitted_at is not None and not _is_rfc3339(submitted_at):
+            return _mark_snapshot_malformed(
+                file, snap, "archive_submission.timestamp must be RFC3339"
+            )
+        if archive_submission_url not in {None, "", snap.get("url_archive")}:
+            return _mark_snapshot_malformed(
+                file,
+                snap,
+                "archive_submission.archive_url must match url_archive",
+            )
+
+    # Policy: check original/canonical/archive domains before content retrieval.
+    try:
+        _assert_safe_url(str(url_original))
+    except FetchError as e:
+        return _mark_snapshot_malformed(
+            file, snap, f"url_original failed public-host safety check: {e.message}"
+        )
+    if platform in PLATFORM_HOST_HINTS and not _platform_host_ok(platform, url_original):
+        return _mark_snapshot_malformed(
+            file,
+            snap,
+            f"url host does not match platform policy metadata ({platform}): {url_original}",
+        )
+
+    # Validate url_canonical / archive URL public-host safety before network.
+    url_canonical = str(snap.get("url_canonical") or "").strip()
+    url_archive = str(snap.get("url_archive") or "").strip()
+    for label, candidate in (
+        ("url_canonical", url_canonical),
+        ("url_archive", url_archive),
+    ):
+        if not candidate:
+            continue
+        try:
+            _assert_safe_url(candidate)
+        except FetchError as e:
+            return _mark_snapshot_malformed(
+                file, snap, f"{label} failed public-host safety check: {e.message}"
+            )
+        if label == "url_archive":
+            archive_host = (urllib.parse.urlparse(candidate).hostname or "").lower()
+            if archive_host != "web.archive.org":
+                return _mark_snapshot_malformed(
+                    file, snap, "url_archive must use the canonical web.archive.org host"
+                )
+    if url_canonical and platform in PLATFORM_HOST_HINTS:
+        if not _platform_host_ok(platform, url_canonical):
+            # Federated platforms (mastodon/lemmy) allow empty host hints, so
+            # _platform_host_ok is permissive; for others enforce identity match.
+            return _mark_snapshot_malformed(
+                file,
+                snap,
+                f"url_canonical host does not match platform {platform}: {url_canonical}",
+            )
 
     if tier == "B":
         snap["verification"]["status"] = "unknown"
         snap["verification"]["last_verified_at"] = now
-        print("info: Tier B snapshots cannot be re-verified against the original; status set to unknown.")
+        print(
+            "info: Tier B snapshots cannot be re-verified against the original; "
+            "status set to unknown."
+        )
         file.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
         return 0
 
     # Tier A: re-fetch and compare
-    platform = snap.get("platform", "")
-    url_original = snap.get("url_original", "")
     stored_hash = snap.get("content_hash_sha256", "")
 
     try:
@@ -712,14 +1118,18 @@ def verify_snapshot(file: Path) -> int:
             print(f"error: unsupported platform for verification: {platform}", file=sys.stderr)
             return 1
 
-    except SystemExit:
-        # _fetch_json calls sys.exit(1) on 404 → treat as deleted
-        snap["verification"]["status"] = "deleted"
+    except FetchError as e:
+        # Only 404/410 map to deleted; other failures keep their status.
+        status = e.status if e.status in VALID_VERIFICATION_STATUS else "unknown"
+        snap["verification"]["status"] = status
         snap["verification"]["last_verified_at"] = now
-        snap["verifiability"] = "direct_api_deleted"
+        if status == "deleted":
+            snap["verifiability"] = "direct_api_deleted"
+            print("warning: original post appears deleted.")
+        else:
+            print(f"warning: verification status={status}: {e.message}")
         file.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
-        print("warning: original post appears deleted.")
-        return 0
+        return 0 if status == "deleted" else 1
 
     new_hash = compute_content_hash(text if text else None)
 
@@ -739,12 +1149,28 @@ def verify_snapshot(file: Path) -> int:
 # ---------------------------------------------------------------------------
 
 LEDGER_FIELDS = [
-    "claim_id", "claim", "sub_question", "source_title", "source_url",
-    "source_type", "date_published", "date_accessed", "access_method",
-    "evidence", "quote_or_anchor", "contradiction", "confidence", "notes",
-    "archive_url", "content_hash", "snapshot_status", "verifiability",
+    "claim_id",
+    "claim",
+    "sub_question",
+    "source_title",
+    "source_url",
+    "source_type",
+    "date_published",
+    "date_accessed",
+    "access_method",
+    "evidence",
+    "quote_or_anchor",
+    "contradiction",
+    "confidence",
+    "notes",
+    "archive_url",
+    "content_hash",
+    "snapshot_status",
+    "verifiability",
     "verifiability_note",
-    "license_spdx", "robots_status", "prov_activity_id",
+    "license_spdx",
+    "robots_status",
+    "prov_activity_id",
 ]
 
 
@@ -758,8 +1184,8 @@ def _prov_activity_id(prefix: str, *parts: str) -> str:
 def to_ledger_row(file: Path, out_row: Path) -> int:
     """Convert Snapshot JSON to evidence-ledger CSV row."""
     try:
-        snap = json.loads(file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
+        snap = _read_snapshot_json(file)
+    except (json.JSONDecodeError, OSError, UnicodeError) as e:
         print(f"error: invalid snapshot file: {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -823,39 +1249,73 @@ def to_ledger_row(file: Path, out_row: Path) -> int:
 
 # Mock API responses for each Tier A platform
 _MOCK_REDDIT_JSON = [
-    {"data": {"children": [{"data": {
-        "id": "abc123", "author": "testuser", "selftext": "Hello from Reddit",
-        "title": "Test Post", "score": 42, "num_comments": 5,
-        "permalink": "/r/test/comments/abc123/test_post/", "subreddit": "test",
-    }}]}},
+    {
+        "data": {
+            "children": [
+                {
+                    "data": {
+                        "id": "abc123",
+                        "author": "testuser",
+                        "selftext": "Hello from Reddit",
+                        "title": "Test Post",
+                        "score": 42,
+                        "num_comments": 5,
+                        "permalink": "/r/test/comments/abc123/test_post/",
+                        "subreddit": "test",
+                    }
+                }
+            ]
+        }
+    },
 ]
 
 _MOCK_HN_JSON = {
-    "id": 12345, "author": "hnuser", "text": "Hello from HN",
-    "title": "HN Test", "points": 100, "created_at": "2026-01-01T00:00:00Z",
+    "id": 12345,
+    "author": "hnuser",
+    "text": "Hello from HN",
+    "title": "HN Test",
+    "points": 100,
+    "created_at": "2026-01-01T00:00:00Z",
     "children": [{"id": 1}, {"id": 2}],
 }
 
 _MOCK_MASTODON_JSON = {
-    "id": "109876", "content": "<p>Hello from Mastodon</p>",
-    "created_at": "2026-01-01T00:00:00Z", "language": "en",
-    "favourites_count": 10, "reblogs_count": 3, "replies_count": 1,
+    "id": "109876",
+    "content": "<p>Hello from Mastodon</p>",
+    "created_at": "2026-01-01T00:00:00Z",
+    "language": "en",
+    "favourites_count": 10,
+    "reblogs_count": 3,
+    "replies_count": 1,
     "url": "https://mastodon.social/@user/109876",
     "account": {"acct": "user", "display_name": "Test User"},
 }
 
 _MOCK_BLUESKY_JSON = {
-    "thread": {"post": {
-        "record": {"text": "Hello from Bluesky", "createdAt": "2026-01-01T00:00:00Z", "langs": ["en"]},
-        "author": {"handle": "user.bsky.social", "displayName": "Bsky User"},
-        "likeCount": 5, "repostCount": 2, "replyCount": 1,
-    }},
+    "thread": {
+        "post": {
+            "record": {
+                "text": "Hello from Bluesky",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "langs": ["en"],
+            },
+            "author": {"handle": "user.bsky.social", "displayName": "Bsky User"},
+            "likeCount": 5,
+            "repostCount": 2,
+            "replyCount": 1,
+        }
+    },
 }
 
 _MOCK_LEMMY_JSON = {
     "post_view": {
-        "post": {"id": 999, "name": "Lemmy Test", "body": "Hello from Lemmy",
-                 "published": "2026-01-01T00:00:00Z", "ap_id": "https://lemmy.ml/post/999"},
+        "post": {
+            "id": 999,
+            "name": "Lemmy Test",
+            "body": "Hello from Lemmy",
+            "published": "2026-01-01T00:00:00Z",
+            "ap_id": "https://lemmy.ml/post/999",
+        },
         "creator": {"name": "lemmyuser", "display_name": "Lemmy User"},
         "counts": {"score": 20, "comments": 3},
         "community": {"name": "test"},
@@ -875,11 +1335,15 @@ def self_test() -> int:
 
     class _MockResponse:
         def __init__(self, data: bytes):
-            self._data = data
-        def read(self):
-            return self._data
+            self._stream = io.BytesIO(data)
+            self.headers = {"Content-Length": str(len(data))}
+
+        def read(self, _n: int | None = None):
+            return self._stream.read(_n)
+
         def __enter__(self):
             return self
+
         def __exit__(self, *a):
             pass
 
@@ -924,7 +1388,6 @@ def self_test() -> int:
 
     subprocess.run = mock_subprocess_run
 
-
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -953,10 +1416,15 @@ def self_test() -> int:
 
                 snap = json.loads(out_file.read_text(encoding="utf-8"))
                 # Validate schema compliance
-                if snap.get("schema_version") != "1.0":
-                    errors.append(f"{platform}: missing schema_version")
+                if snap.get("schema_version") != SCHEMA_VERSION:
+                    errors.append(
+                        f"{platform}: expected schema_version {SCHEMA_VERSION}, "
+                        f"got {snap.get('schema_version')!r}"
+                    )
                 if snap.get("platform") != platform:
                     errors.append(f"{platform}: wrong platform field")
+                if "archive_submission" not in snap:
+                    errors.append(f"{platform}: missing archive_submission")
                 if snap.get("tier") != "A":
                     errors.append(f"{platform}: tier should be A")
                 if snap.get("verifiability") != "direct_api":
@@ -982,6 +1450,8 @@ def self_test() -> int:
                     snapshot_tier_b(platform, f"https://{platform}.com/post/1", out_file)
 
                 snap = json.loads(out_file.read_text(encoding="utf-8"))
+                if snap.get("schema_version") != SCHEMA_VERSION:
+                    errors.append(f"{platform}: wrong schema_version")
                 if snap.get("tier") != "B":
                     errors.append(f"{platform}: tier should be B")
                 if snap.get("verifiability") != "archive_snapshot":
@@ -990,7 +1460,27 @@ def self_test() -> int:
                     errors.append(f"{platform}: post.text should be null for Tier B")
                 if not snap.get("limitations"):
                     errors.append(f"{platform}: limitations should be non-empty")
+                arch = snap.get("archive_submission") or {}
+                if arch.get("requested"):
+                    errors.append(f"{platform}: default Tier B must not request archive submit")
+                if arch.get("status") != "lookup_only":
+                    errors.append(f"{platform}: default Tier B status should be lookup_only")
 
+            # Tier B default must not call wayback save
+            save_calls = [c for c in calls_made if "wayback.py" in c and "save" in c]
+            if save_calls:
+                errors.append(f"Tier B default must not submit archive; save calls: {save_calls}")
+
+            # Opt-in submit-archive does call save
+            calls_before = len(calls_made)
+            submit_out = tmp / "x_submit.json"
+            snapshot_tier_b("x", "https://x.com/post/2", submit_out, submit_archive=True)
+            save_after = [c for c in calls_made[calls_before:] if "wayback.py" in c and "save" in c]
+            if not save_after:
+                errors.append("--submit-archive should invoke wayback save")
+            submit_snap = json.loads(submit_out.read_text(encoding="utf-8"))
+            if not (submit_snap.get("archive_submission") or {}).get("requested"):
+                errors.append("submit-archive snapshot should set requested=true")
 
             # --- Test 3: Hash stability ---
             known_input = "Hello, world!"
@@ -1016,22 +1506,56 @@ def self_test() -> int:
             verify_snapshot(reddit_snap_file)
             snap = json.loads(reddit_snap_file.read_text(encoding="utf-8"))
             if snap["verification"]["status"] != "intact":
-                errors.append(f"verification: expected intact, got {snap['verification']['status']}")
+                errors.append(
+                    f"verification: expected intact, got {snap['verification']['status']}"
+                )
 
             # Different content → edited
-            snap["content_hash_sha256"] = "0000000000000000000000000000000000000000000000000000000000000000"
+            snap["content_hash_sha256"] = (
+                "0000000000000000000000000000000000000000000000000000000000000000"
+            )
             reddit_snap_file.write_text(json.dumps(snap, indent=2), encoding="utf-8")
             verify_snapshot(reddit_snap_file)
             snap = json.loads(reddit_snap_file.read_text(encoding="utf-8"))
             if snap["verification"]["status"] != "edited":
-                errors.append(f"verification: expected edited, got {snap['verification']['status']}")
+                errors.append(
+                    f"verification: expected edited, got {snap['verification']['status']}"
+                )
 
             # Tier B → unknown
             tier_b_file = tmp / "x_snap.json"
             verify_snapshot(tier_b_file)
             snap = json.loads(tier_b_file.read_text(encoding="utf-8"))
             if snap["verification"]["status"] != "unknown":
-                errors.append(f"verification: expected unknown for Tier B, got {snap['verification']['status']}")
+                errors.append(
+                    f"verification: expected unknown for Tier B, got {snap['verification']['status']}"
+                )
+
+            # Tier/platform mismatch and malformed timestamps must fail before
+            # any content re-fetch is attempted.
+            tier_policy_file = tmp / "tier_policy_invalid.json"
+            tier_policy_snap = json.loads(tier_b_file.read_text(encoding="utf-8"))
+            tier_policy_snap["tier"] = "A"
+            tier_policy_file.write_text(json.dumps(tier_policy_snap), encoding="utf-8")
+            calls_before_policy_check = len(calls_made)
+            if verify_snapshot(tier_policy_file) == 0:
+                errors.append("verification: tier/platform mismatch should fail")
+            if len(calls_made) != calls_before_policy_check:
+                errors.append(
+                    "verification: tier-policy failure must not perform HTTP/subprocess work"
+                )
+
+            timestamp_file = tmp / "timestamp_invalid.json"
+            timestamp_snap = json.loads(tier_b_file.read_text(encoding="utf-8"))
+            timestamp_snap["captured_at"] = "not-a-timestamp"
+            timestamp_file.write_text(json.dumps(timestamp_snap), encoding="utf-8")
+            calls_before_timestamp_check = len(calls_made)
+            if verify_snapshot(timestamp_file) == 0:
+                errors.append("verification: malformed captured_at should fail")
+            if len(calls_made) != calls_before_timestamp_check:
+                errors.append(
+                    "verification: timestamp failure must not perform HTTP/subprocess work"
+                )
 
             # --- Test 5: To-ledger ---
             ledger_out = tmp / "row.csv"
@@ -1055,10 +1579,58 @@ def self_test() -> int:
                 from evidence_ledger import validate_ledger
 
                 if validate_ledger(ledger_out) != 0:
-                    errors.append("to-ledger: generated ledger row failed evidence_ledger validation")
+                    errors.append(
+                        "to-ledger: generated ledger row failed evidence_ledger validation"
+                    )
             except ImportError as exc:
                 errors.append(f"to-ledger: could not import evidence_ledger validator: {exc}")
 
+            # --- Test 6a: SSRF guard blocks private targets before fetch ---
+            for bad in (
+                "http://127.0.0.1/x",
+                "https://127.0.0.1/x",
+                "https://localhost/x",
+                "https://169.254.169.254/latest/meta-data/",
+                "https://192.168.1.10/x",
+                "https://[::1]/x",
+                "https://[::ffff:127.0.0.1]/x",
+                "https://[::ffff:169.254.169.254]/latest/",
+                "https://[::ffff:10.0.0.1]/x",
+            ):
+                try:
+                    _assert_safe_url(bad)
+                    errors.append(f"SSRF: should reject {bad}")
+                except FetchError:
+                    pass
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"SSRF: unexpected error for {bad}: {exc}")
+
+            # url_canonical private must not verify as intact
+            bad_canon = tmp / "bad_canonical.json"
+            bad_canon.write_text(
+                json.dumps(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "platform": "reddit",
+                        "tier": "A",
+                        "url_original": "https://www.reddit.com/r/test/comments/abc/x/",
+                        "url_canonical": "http://127.0.0.1/admin",
+                        "url_archive": None,
+                        "verification": {
+                            "status": "intact",
+                            "first_capture_at": "2026-01-01T00:00:00Z",
+                            "last_verified_at": None,
+                        },
+                        "content_hash_sha256": "abc",
+                        "post": {"id": "1", "text": "hi"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            vrc = verify_snapshot(bad_canon)
+            vsnap = json.loads(bad_canon.read_text(encoding="utf-8"))
+            if vrc == 0 or vsnap.get("verification", {}).get("status") == "intact":
+                errors.append("verify must fail when url_canonical is private (not intact)")
 
             # --- Test 6: Privacy refusal probe ---
             privacy_calls_before = len(calls_made)
@@ -1087,6 +1659,23 @@ def self_test() -> int:
             except SystemExit as e:
                 if e.code != 2:
                     errors.append(f"privacy: harassment refusal expected exit code 2, got {e.code}")
+
+            # Social HTTP limit must propagate as a ResourceLimitError so the
+            # CLI can emit exit 3 and an incomplete sidecar.
+            limit_env = "D_RESEARCH_SOCIAL_MAX_BYTES"
+            previous_limit = os.environ.get(limit_env)
+            os.environ[limit_env] = "4"
+            try:
+                _fetch_json("https://www.reddit.com/r/test/comments/abc123/test_post/.json")
+                errors.append("social oversized response should fail closed")
+            except ResourceLimitError as exc:
+                if exc.code != "social_max_bytes":
+                    errors.append(f"social oversized response wrong code: {exc.code}")
+            finally:
+                if previous_limit is None:
+                    os.environ.pop(limit_env, None)
+                else:
+                    os.environ[limit_env] = previous_limit
 
     finally:
         # Restore originals
@@ -1125,19 +1714,39 @@ def main() -> int:
 
     # snapshot subcommand
     snap_parser = subparsers.add_parser("snapshot", help="Capture a public social post")
-    snap_parser.add_argument("platform", help="Platform name (reddit, hn, mastodon, bluesky, lemmy, x, facebook, etc.)")
+    snap_parser.add_argument(
+        "platform", help="Platform name (reddit, hn, mastodon, bluesky, lemmy, x, facebook, etc.)"
+    )
     snap_parser.add_argument("--url", help="URL of the post to capture")
     snap_parser.add_argument("--id", dest="item_id", help="Item ID (required for hn)")
     snap_parser.add_argument("--out", required=True, help="Output JSON file path")
+    snap_parser.add_argument(
+        "--submit-archive",
+        action="store_true",
+        default=False,
+        help="Opt-in: submit URL to Wayback Save Page Now (Tier B). Default is lookup-only.",
+    )
 
     # verify subcommand
     verify_parser = subparsers.add_parser("verify", help="Re-fetch and compare content hash")
     verify_parser.add_argument("--file", required=True, help="Snapshot JSON file to verify")
 
     # to-ledger subcommand
-    ledger_parser = subparsers.add_parser("to-ledger", help="Convert snapshot to evidence-ledger CSV row")
+    ledger_parser = subparsers.add_parser(
+        "to-ledger", help="Convert snapshot to evidence-ledger CSV row"
+    )
     ledger_parser.add_argument("--file", required=True, help="Snapshot JSON file")
     ledger_parser.add_argument("--out-row", required=True, help="Output CSV row file")
+    for command_parser in (snap_parser, verify_parser, ledger_parser):
+        add_resource_limit_arguments(
+            command_parser,
+            (
+                "download_max_bytes",
+                "social_max_bytes",
+                "http_timeout_sec",
+                "subprocess_timeout_sec",
+            ),
+        )
 
     # self-test subcommand
     subparsers.add_parser("self-test", help="Run offline self-tests")
@@ -1145,26 +1754,42 @@ def main() -> int:
     args = parser.parse_args()
     _REFUSAL_LOCALE = args.locale
 
-    if args.command == "snapshot":
-        platform = args.platform.lower()
-        url = args.url or ""
-        # Privacy check BEFORE any HTTP call
-        if url:
-            check_privacy_boundary(url, platform)
-        return route_platform(platform, url, args.item_id, Path(args.out))
+    try:
+        apply_cli_limit_overrides(args)
+        if args.command == "snapshot":
+            platform = args.platform.lower()
+            url = args.url or ""
+            # Privacy check BEFORE any HTTP call
+            if url:
+                check_privacy_boundary(url, platform)
+            return route_platform(
+                platform,
+                url,
+                args.item_id,
+                Path(args.out),
+                submit_archive=bool(getattr(args, "submit_archive", False)),
+            )
 
-    elif args.command == "verify":
-        return verify_snapshot(Path(args.file))
+        if args.command == "verify":
+            return verify_snapshot(Path(args.file))
 
-    elif args.command == "to-ledger":
-        return to_ledger_row(Path(args.file), Path(args.out_row))
+        if args.command == "to-ledger":
+            return to_ledger_row(Path(args.file), Path(args.out_row))
 
-    elif args.command == "self-test":
-        return self_test()
+        if args.command == "self-test":
+            return self_test()
+    except ResourceLimitError as error:
+        output = None
+        if args.command == "snapshot":
+            output = getattr(args, "out", None)
+        elif args.command == "verify":
+            output = getattr(args, "file", None)
+        elif args.command == "to-ledger":
+            output = getattr(args, "out_row", None)
+        return emit_blocker(error, output)
 
-    else:
-        parser.print_help()
-        return 1
+    parser.print_help()
+    return 1
 
 
 if __name__ == "__main__":

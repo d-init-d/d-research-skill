@@ -1,0 +1,153 @@
+{
+  "plan_id": "upgrade-fixture-v3-1-1",
+  "title": "v3.1.1 workspace migration fixture",
+  "workspace_dir": ".",
+  "plan_render_path": "PLAN.md",
+  "scope": "Verify lossless migration of tasks, blockers, outputs, execution assignments, and approval state.",
+  "sub_questions": [
+    {
+      "id": "SQ1",
+      "text": "Can this v3.1.1 plan be migrated without losing execution state?"
+    }
+  ],
+  "approval": {
+    "approved_by": "v3.1.1-reviewer",
+    "approved_at": "2026-07-01T00:00:00Z",
+    "notes": "Migration must revoke this approval."
+  },
+  "stopping_criteria": "Migration is valid and all source task fields are preserved.",
+  "stopping_criteria_satisfied": false,
+  "tasks": [
+    {
+      "id": "T1",
+      "description": "Collect primary evidence",
+      "depends_on": [],
+      "parallel_safe": true,
+      "owner": "main",
+      "inputs": [],
+      "outputs": [
+        "research-output/notes/primary.md"
+      ],
+      "status": "todo",
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": 128000,
+        "context_budget": 64000,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
+    },
+    {
+      "id": "T2",
+      "description": "Collect an unavailable comparison source",
+      "depends_on": [],
+      "parallel_safe": true,
+      "owner": "sub-1",
+      "inputs": [],
+      "outputs": [
+        "research-output/notes/comparison.md"
+      ],
+      "status": "blocked",
+      "blocker_reason": "The public source returned a persistent access-control challenge after the bounded fallback chain.",
+      "execution": {
+        "agent": "subagent",
+        "subagent_slot": "deep-reader",
+        "parallel_threads": 1,
+        "max_parallel_threads": 2,
+        "context_length": 128000,
+        "context_budget": 64000,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
+    },
+    {
+      "id": "T3",
+      "description": "Synthesize the final report and citations",
+      "depends_on": [
+        "T1",
+        "T2"
+      ],
+      "parallel_safe": false,
+      "owner": "main",
+      "inputs": [
+        "research-output/notes/primary.md",
+        "research-output/notes/comparison.md"
+      ],
+      "outputs": [
+        "research-output/report.md",
+        "research-output/references.bib"
+      ],
+      "status": "todo",
+      "blocker_reason": "",
+      "execution": {
+        "agent": "main",
+        "subagent_slot": null,
+        "parallel_threads": 0,
+        "max_parallel_threads": 0,
+        "context_length": 128000,
+        "context_budget": 64000,
+        "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget"
+      }
+    }
+  ],
+  "gates": {
+    "plan_ready": {
+      "description": "Legacy plan is shaped and rendered.",
+      "assertions": [
+        "schema_valid",
+        "workspace_layout",
+        "execution_configured",
+        "plan_rendered",
+        "no_dependency_cycles",
+        "no_orphan_dependencies",
+        "no_task_is_done"
+      ]
+    },
+    "execute_ready": {
+      "description": "Legacy plan is approved.",
+      "assertions": [
+        "schema_valid",
+        "plan_approved"
+      ]
+    },
+    "synthesize_ready": {
+      "description": "Legacy research is ready for synthesis.",
+      "assertions": [
+        "schema_valid",
+        "all_tasks_terminal",
+        "all_outputs_exist",
+        "ledger_signed",
+        "reproducibility_checklist_exists"
+      ]
+    },
+    "release_ready": {
+      "description": "Legacy release gate.",
+      "assertions": [
+        "synthesize_ready",
+        "final_report_exists"
+      ]
+    },
+    "review_ready": {
+      "description": "Custom gate that migration must preserve.",
+      "assertions": [
+        "schema_valid"
+      ]
+    }
+  },
+  "execution_profile": {
+    "source": "research.config.json",
+    "main_context_length": 128000,
+    "task_budget_ratio": 0.5,
+    "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget",
+    "subagent_slots": [
+      {
+        "id": "deep-reader",
+        "agent": "research-worker",
+        "context_length": 128000,
+        "max_parallel": 2
+      }
+    ]
+  }
+}

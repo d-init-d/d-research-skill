@@ -24,6 +24,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from run_dogfood import (
+    normalize_url_for_match,
+    validate_bench,
+    value_matches,
+)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVALS_DIR = REPO_ROOT / "examples" / "evals"
 FIXTURES_DIR = EVALS_DIR / "fixtures"
@@ -48,6 +54,9 @@ def check_bench(bench_path: Path, *, strict: bool = False) -> tuple[list[str], l
 
     bench = load_json(bench_path)
     tasks = bench.get("tasks", [])
+    schema_errors, schema_warnings = validate_bench(bench, bench_path)
+    errors.extend(schema_errors)
+    warnings.extend(schema_warnings)
 
     if not isinstance(tasks, list) or not tasks:
         errors.append(f"{bench_path.name}: no tasks found")
@@ -75,29 +84,97 @@ def check_bench(bench_path: Path, *, strict: bool = False) -> tuple[list[str], l
             )
             continue
 
-        # Check each source path exists (skip URLs)
+        # Check each source path exists (skip URLs). Schema 2.0 requires
+        # {canonical, equivalents} objects; schema 1.0 retains plain strings.
         source_contents: list[str] = []
+        source_identities: set[str] = set()
         for src in sources:
-            if src.startswith("http://") or src.startswith("https://"):
-                # External URL — cannot verify offline, skip
-                continue
-            src_path = REPO_ROOT / src
-            if not src_path.is_file():
-                errors.append(
-                    f"{task_id}: ground_truth_sources path not found: {src}"
-                )
+            if isinstance(src, dict):
+                candidates = [src.get("canonical"), *(src.get("equivalents") or [])]
             else:
-                try:
-                    source_contents.append(
-                        src_path.read_text(encoding="utf-8", errors="replace")
+                candidates = [src]
+            for item in candidates:
+                if not item:
+                    continue
+                s = str(item)
+                legacy_absolute = (
+                    bench.get("schema_version") == "1.0" and Path(s).is_absolute()
+                )
+                normalized = (
+                    s if legacy_absolute else normalize_url_for_match(s, repo_roots=(REPO_ROOT,))
+                )
+                if not normalized:
+                    errors.append(
+                        f"{task_id}: source identity is invalid, outside the repo, "
+                        f"or contains traversal: {s}"
                     )
-                except OSError:
-                    warnings.append(
-                        f"{task_id}: could not read source file: {src}"
+                    continue
+                source_identities.add(normalized)
+                if normalized.startswith("http://") or normalized.startswith("https://"):
+                    continue
+                if legacy_absolute:
+                    src_path = Path(s)
+                else:
+                    src_path = REPO_ROOT / normalized
+                if not src_path.is_file():
+                    errors.append(
+                        f"{task_id}: ground_truth_sources path not found: {s}"
                     )
+                else:
+                    try:
+                        source_contents.append(
+                            src_path.read_text(encoding="utf-8", errors="replace")
+                        )
+                    except OSError:
+                        warnings.append(
+                            f"{task_id}: could not read source file: {s}"
+                        )
 
-        # Check expected_answer.value appears in at least one source
-        if expected_value and expected_value != "REFUSAL" and source_contents:
+        if bench.get("schema_version") == "2.0":
+            for assertion in task.get("required_assertions") or []:
+                if not isinstance(assertion, dict):
+                    continue
+                declared = assertion.get("fields")
+                fields = (
+                    list(declared)
+                    if isinstance(declared, list)
+                    else [assertion.get("field")]
+                )
+                values = assertion.get("required_values") or []
+                if "source_url" in fields:
+                    for value in values:
+                        identity = normalize_url_for_match(
+                            str(value), repo_roots=(REPO_ROOT,)
+                        )
+                        if identity not in source_identities:
+                            errors.append(
+                                f"{task_id}.{assertion.get('id')}: source_url assertion "
+                                f"value is not a declared source identity: {value}"
+                            )
+                if "quote_or_anchor" in fields and source_contents:
+                    match_contract = {
+                        "match_mode": assertion.get("match_mode", "substring"),
+                        "case_sensitive": assertion.get("case_sensitive", True),
+                    }
+                    for value in values:
+                        if not any(
+                            value_matches(content, str(value), match_contract)
+                            for content in source_contents
+                        ):
+                            errors.append(
+                                f"{task_id}.{assertion.get('id')}: quote_or_anchor "
+                                f"value not found in any declared local source: {value!r}"
+                            )
+        # Schema 1.0 used one legacy expected_answer substring. Schema 2.0 uses
+        # multipart required_assertions and is structurally checked by the
+        # canonical validator above; do not keep a second, contradictory source
+        # of truth in this consistency checker.
+        if (
+            bench.get("schema_version") == "1.0"
+            and expected_value
+            and expected_value != "REFUSAL"
+            and source_contents
+        ):
             found = False
             # For substring/word matching, check if value appears in any source
             for content in source_contents:
@@ -380,7 +457,41 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if not any("refusal" in e for e in errs):
             errors.append("refusal task with sources was not detected as error")
 
-        # Test 6: Orphans detection
+        # Test 6: the strict checker must share the canonical schema-2.0
+        # contract. Plain string sources and missing required_assertions cannot
+        # pass merely because this helper skipped them.
+        invalid_v2 = {
+            "schema_version": "2.0",
+            "name": "invalid schema2 bench",
+            "description": "schema drift probe",
+            "classes": ["test-class"],
+            "scoring": {},
+            "tasks": [
+                {
+                    "task_id": "V2-001",
+                    "class": "test-class",
+                    "difficulty": "easy",
+                    "expected_branch": "fact-verification",
+                    "question": "What is the answer?",
+                    "expected_answer": {"value": "forty-two", "format": "text"},
+                    "ground_truth_sources": ["https://example.test/source"],
+                    "notes": "invalid schema2 source shape",
+                }
+            ],
+        }
+        invalid_v2_path = tmp / "invalid-v2-bench.json"
+        invalid_v2_path.write_text(
+            json.dumps(invalid_v2, indent=2), encoding="utf-8"
+        )
+        errs, _warns = check_bench(invalid_v2_path, strict=True)
+        if not any("required_assertions" in error for error in errs) or not any(
+            "canonical/equivalents" in error for error in errs
+        ):
+            errors.append(
+                "strict checker did not enforce canonical schema-2.0 assertions/sources"
+            )
+
+        # Test 7: Orphans detection
         fixture_data = {
             "schema_version": "1.0",
             "bench_name": "test",

@@ -1,5 +1,18 @@
 # Shared HTTP Cache
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Configuration](#configuration)
+- [Cache Layout](#cache-layout)
+- [Cache Key](#cache-key)
+- [CLI](#cli)
+- [Default TTL](#default-ttl)
+- [Privacy and Safety](#privacy-and-safety)
+- [Integration](#integration)
+- [Self-tests](#self-tests)
+- [See Also](#see-also)
+
 A content-addressed HTTP cache shared across Python and Node scripts. Reduces repeated requests during development and respects API rate limits.
 
 ## When to Use
@@ -80,6 +93,12 @@ python scripts/http_cache.py purge --all
 python scripts/http_cache.py purge --max-age 86400
 ```
 
+`purge --all` requires a 200 ms quiescent clean snapshot after bounded retries.
+It fails if any handle-confirmed `.json`, `.body`, or `.tmp` remains, or if the
+entries directory cannot be inspected/enumerated. A Windows directory
+tombstone is ignored only after opening the enumerated path confirms that the
+file no longer exists.
+
 ## Default TTL
 
 Entries expire after **7 days** by default. Override per-call with `max_age` (Python) / `maxAge` (Node).
@@ -90,7 +109,9 @@ Entries expire after **7 days** by default. Override per-call with `max_age` (Py
 - Request headers (`Authorization`, `Cookie`, `X-API-Key`, `API-Key`) are **hashed into the cache key but never stored on disk**. Cache metadata only contains response headers.
 - Cache **never bypasses authentication or access controls** — it only stores responses the script was already allowed to fetch.
 - Set `D_RESEARCH_HTTP_CACHE_PATH` to a path inside `.gitignore` — never commit cache content.
-- Cache failures are non-fatal: scripts proceed with a live request when the cache cannot be read or written.
+- Cache failures are non-fatal to fetch callers: a failed atomic publication
+  returns no cache key, and scripts proceed with a live request instead of
+  treating an unpublished body as cached.
 
 ## Integration
 

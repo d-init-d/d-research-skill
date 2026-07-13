@@ -1,5 +1,23 @@
 # API Access Workflow for AI Research Agents
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [API Discovery](#api-discovery)
+- [Authentication Patterns](#authentication-patterns)
+- [Request Workflow](#request-workflow)
+- [Pagination Patterns](#pagination-patterns)
+- [Rate Limit Handling](#rate-limit-handling)
+- [Response Processing](#response-processing)
+- [Safety Rules](#safety-rules)
+- [Quick Reference](#quick-reference)
+- [Response Processing](#response-processing-1)
+- [Common API Patterns](#common-api-patterns)
+- [Output](#output)
+- [Safety](#safety)
+- [Quick Reference](#quick-reference-1)
+- [See also](#see-also)
+
 This guide provides a structured approach to accessing REST APIs for research data collection, ensuring efficient, reliable, and safe API interactions.
 
 ---
@@ -768,3 +786,9 @@ def safety_check(passed):
 - `references/data-processing-pipeline.md` - Data cleaning, validation, and transformation
 - `templates/api-request-log.csv` - Header for the per-request log this workflow refers to
 - `references/large-scale-collection.md` - Checkpointing and adaptive rate limiting for >100 records
+
+## See also
+
+- `references/data-extraction-toolbox.md`
+- `references/large-scale-collection.md`
+- `references/safety-and-access-policy.md`

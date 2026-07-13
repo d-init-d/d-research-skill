@@ -1,0 +1,10 @@
+{
+  "package_type": "release-evidence",
+  "stuffing_markers": [
+    "| required:",
+    "factory_ledger",
+    "hand_edited_score"
+  ],
+  "synthetic": true,
+  "skill_commit_claimed": "0000000000000000000000000000000000000000"
+}

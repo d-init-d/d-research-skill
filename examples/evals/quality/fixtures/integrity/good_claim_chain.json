@@ -1,0 +1,33 @@
+{
+  "report_claims": [
+    {
+      "claim_id": "C001",
+      "text": "OpenAlex per-page max is 200",
+      "important": true
+    }
+  ],
+  "ledger_rows": [
+    {
+      "claim_id": "C001",
+      "claim": "OpenAlex per-page max is 200",
+      "source_url": "https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging",
+      "source_title": "OpenAlex paging",
+      "source_type": "official",
+      "date_published": "2024-03-01",
+      "date_accessed": "2026-05-15",
+      "evidence": "OpenAlex per-page max is 200",
+      "quote_or_anchor": "OpenAlex per-page max is 200",
+      "expected_support": "supports",
+      "confidence": "high",
+      "record_type": "fact",
+      "contradiction": "none"
+    }
+  ],
+  "sources": [
+    {
+      "url": "https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging",
+      "independent_origin": true,
+      "primary": true
+    }
+  ]
+}

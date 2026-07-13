@@ -1,0 +1,622 @@
+{
+  "schema_version": "1.0",
+  "skill_name": "d-research",
+  "repository_contract": {
+    "version": "3.2.0-rc.3",
+    "counts": {
+      "references_markdown": 48,
+      "adapters_markdown": 9,
+      "examples_markdown": 9,
+      "scripts_python": 35,
+      "scripts_node_top_level": 8,
+      "scripts_node_lib": 5,
+      "scripts_total": 48,
+      "templates_files": 14,
+      "evidence_ledger_columns": 23
+    },
+    "core_paths": [
+      "SKILL.md",
+      "AGENTS.md",
+      "README.md",
+      "README.vi.md",
+      "docs/upgrade-v3.1.1-to-v3.2.0.md",
+      "scripts/check_contract.py",
+      "scripts/package_manifest_check.mjs",
+      "scripts/release_verify.py",
+      "scripts/lib/browser_limits.mjs",
+      "scripts/lib/browser_ssrf.mjs",
+      "scripts/content_sanitize.py",
+      "scripts/quality_eval.py",
+      "docs/ssrf-helper-inventory.md",
+      "templates/research-plan.json",
+      "templates/evidence-ledger.csv",
+      "templates/route-manifest.json",
+      "references/workflow-routes.md",
+      "references/script-inventory.md",
+      "references/config-reference.md"
+    ],
+    "readme_markers": [
+      "`references/` — 48 deep-dive guides",
+      "# 48 deep-dive guides",
+      "23 columns",
+      "48 small, self-contained files"
+    ],
+    "installation_contract": {
+      "final_directory": "d-research",
+      "entrypoint_suffix": "d-research/SKILL.md",
+      "runtime_markers": [
+        "Agent Skills portable",
+        "Codex",
+        "Claude Code",
+        "Grok Build",
+        "OpenCode"
+      ],
+      "canonical_paths": [
+        ".agents/skills/d-research",
+        "$CODEX_HOME/skills/d-research",
+        ".claude/skills/d-research",
+        "~/.grok/skills/d-research",
+        ".opencode/skills/d-research"
+      ]
+    },
+    "cli_contracts": [
+      {
+        "path": "scripts/api_fetch.mjs",
+        "canonical_flags": [
+          "--pagination",
+          "--allow-partial",
+          "--cursor-key"
+        ]
+      },
+      {
+        "path": "scripts/playwright_probe.mjs",
+        "canonical_flags": [
+          "--max-response-bytes",
+          "--ignore-tls-errors"
+        ]
+      },
+      {
+        "path": "scripts/playwright_extract.mjs",
+        "canonical_flags": [
+          "--max-response-bytes",
+          "--ignore-tls-errors"
+        ]
+      },
+      {
+        "path": "scripts/playwright_crawl.mjs",
+        "canonical_flags": [
+          "--max-response-bytes",
+          "--no-respect-robots"
+        ]
+      },
+      {
+        "path": "scripts/research_plan.py",
+        "canonical_flags": [
+          "--workspace",
+          "--gate"
+        ]
+      },
+      {
+        "path": "scripts/report_render.py",
+        "canonical_flags": [
+          "--workspace",
+          "--report",
+          "--strict"
+        ]
+      },
+      {
+        "path": "scripts/run_dogfood.py",
+        "canonical_flags": [
+          "--runs-dir",
+          "--run-result",
+          "--ledgers-dir",
+          "--allow-incomplete"
+        ]
+      },
+      {
+        "path": "scripts/web_search.mjs",
+        "canonical_flags": [
+          "--max-response-bytes",
+          "--timeout-ms"
+        ]
+      },
+      {
+        "path": "scripts/release_verify.py",
+        "canonical_flags": [
+          "--expected-sha",
+          "--expected-tag-object",
+          "--promotion-sha256"
+        ]
+      },
+      {
+        "path": "scripts/check_contract.py",
+        "canonical_flags": [
+          "--release-tag",
+          "--require-release-waiver",
+          "--validate-post-rc-paths",
+          "--validate-post-rc-metadata"
+        ]
+      }
+    ]
+  },
+  "stable_release_gate": {
+    "promotion_mode": "maintainer_override",
+    "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
+    "required_baseline_version": "3.1.1",
+    "required_candidate_version": "3.2.0-rc.3",
+    "full_ci": {
+      "workflow_path": ".github/workflows/lint-and-self-test.yml",
+      "exact_release_sha": true,
+      "required_conclusion": "success"
+    },
+    "candidate_tag": {
+      "annotated": true,
+      "github_verified": false,
+      "bind_tag_object_sha": true,
+      "verification_mode": "annotated_tag_object_sha"
+    },
+    "release_tag": {
+      "annotated": true,
+      "github_verified": false,
+      "verification_mode": "annotated_tag_object_sha"
+    },
+    "maintainer_override": {
+      "schema_version": "1.0",
+      "manifest_path": "release-evidence/v{version}/maintainer-override.json",
+      "allowed_release_version": "3.2.0",
+      "required_decision": "approved_with_waivers",
+      "required_repository": "d-init-d/d-research-skill",
+      "required_maintainer_login": "d-init-d",
+      "required_waivers": [
+        "github_verified_candidate_tag",
+        "github_verified_release_tag",
+        "independent_reviewer",
+        "live_dogfood"
+      ],
+      "required_checks": [
+        "npm_ci",
+        "python_self_test_310",
+        "python_self_test_312",
+        "node_self_test",
+        "acceptance",
+        "browser_smoke",
+        "package_check",
+        "npm_pack_dry_run",
+        "ruff",
+        "compileall_310",
+        "compileall_312",
+        "node_syntax",
+        "internal_refs",
+        "decision_tree",
+        "contract",
+        "contract_self_test",
+        "bench_strict",
+        "quality_triple",
+        "promotion_anti_spoof",
+        "actionlint",
+        "git_diff_check",
+        "archive_replay",
+        "npm_audit"
+      ],
+      "bind_candidate_commit": true,
+      "bind_candidate_tag_object_sha": true,
+      "require_annotated_tags": true,
+      "require_exact_sha_ci": true,
+      "non_waivable": {
+        "annotated_candidate_tag": true,
+        "annotated_release_tag": true,
+        "candidate_tag_object_binding": true,
+        "candidate_ancestry": true,
+        "exact_release_sha_ci": true,
+        "source_archive": true,
+        "sha256_manifest": true,
+        "provenance_attestation": true
+      }
+    },
+    "reviewer_attestation": {
+      "type": "github_verified_pull_request_review",
+      "repository": "d-init-d/d-research-skill",
+      "bind_exact_release_sha": true,
+      "bind_promotion_sha256": true,
+      "trusted_associations": [
+        "OWNER",
+        "MEMBER",
+        "COLLABORATOR"
+      ]
+    },
+    "tiers": {
+      "tier1": {
+        "bench_path": "examples/evals/dogfood-bench.json",
+        "expected_tier": "regression"
+      },
+      "tier2": {
+        "bench_path": "examples/evals/frontier-bench.json",
+        "expected_tier": "frontier"
+      }
+    }
+  },
+  "documentation_contract": {
+    "skill_required_statements": [
+      "Never use this skill to bypass access controls",
+      "Dispatch only after `execute_ready`/`dispatch_ready` passes;",
+      "Machine-readable routes: `templates/route-manifest.json`.",
+      "Canonical assertion sets live in `templates/route-manifest.json`"
+    ],
+    "agents_required_statements": [
+      "Treat `templates/route-manifest.json` as the canonical route/gate contract shared with `SKILL.md`.",
+      "Do not dispatch until `execute_ready`/`dispatch_ready` passes;",
+      "captcha solving and stealth/anti-detection plugins are never allowed",
+      "Do not claim completeness unless the relevant execution gates passed."
+    ],
+    "protocol_required_statements": [
+      "Approval alone does not authorize dispatch.",
+      "every **research-phase** task",
+      "every synthesis task is"
+    ],
+    "readme_vi_required_statements": [
+      "frontier probe bench 3.0",
+      "`run-result.json` schema 2.1"
+    ],
+    "openai_yaml_required_statements": [
+      "choose the narrowest lawful research route"
+    ]
+  },
+  "routes": [
+    {
+      "id": "atomic_fact",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Atomic fact",
+        "target": "`references/fact-verification.md`"
+      },
+      "labels": ["atomic fact", "verify one fact"],
+      "intake_labels": ["atomic_fact"],
+      "reference": "references/fact-verification.md"
+    },
+    {
+      "id": "social_media_archival",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Social post archive",
+        "target": "`references/social-media-archival.md`"
+      },
+      "labels": ["social post", "archive post"],
+      "intake_labels": ["public_social_post"],
+      "reference": "references/social-media-archival.md"
+    },
+    {
+      "id": "person_public_role",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Named public-role person",
+        "target": "`references/person-aggregation.md`"
+      },
+      "labels": ["named person", "public role"],
+      "intake_labels": ["person_public_role"],
+      "reference": "references/person-aggregation.md"
+    },
+    {
+      "id": "semantic_retrieval",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Semantic corpus query",
+        "target": "`references/semantic-retrieval.md`"
+      },
+      "labels": ["semantic corpus", "find claims like"],
+      "intake_labels": ["large_corpus_semantic"],
+      "reference": "references/semantic-retrieval.md"
+    },
+    {
+      "id": "broad_research",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Broad multi-source research",
+        "target": "`references/workflow-routes.md`"
+      },
+      "labels": ["broad research", "multi-source synthesis"],
+      "intake_labels": ["broad_research"],
+      "reference": "references/workflow-routes.md"
+    },
+    {
+      "id": "due_diligence_or_investigation",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Due diligence / red flags",
+        "target": "intake `due_diligence_or_investigation`"
+      },
+      "labels": ["due diligence", "red flags"],
+      "intake_labels": ["due_diligence_or_investigation"],
+      "reference": "references/research-intake.md"
+    },
+    {
+      "id": "policy_or_standards_analysis",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Policy / standards / RFC",
+        "target": "intake `policy_or_standards_analysis`"
+      },
+      "labels": ["policy", "standards", "RFC"],
+      "intake_labels": ["policy_or_standards_analysis"],
+      "reference": "references/research-intake.md"
+    },
+    {
+      "id": "creative_or_cultural_research",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Creative / cultural",
+        "target": "intake `creative_or_cultural_research`"
+      },
+      "labels": ["creative", "cultural", "reception"],
+      "intake_labels": ["creative_or_cultural_research"],
+      "reference": "references/research-intake.md"
+    },
+    {
+      "id": "technical_research",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Technical research",
+        "target": "`references/source-discovery.md`, `references/workflow-routes.md`"
+      },
+      "labels": ["technical research", "software investigation"],
+      "intake_labels": ["technical_research"],
+      "references": [
+        "references/source-discovery.md",
+        "references/workflow-routes.md"
+      ]
+    },
+    {
+      "id": "market_competitor",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Market / competitor",
+        "target": "`references/source-discovery.md`, `references/source-quality-rubric.md`"
+      },
+      "labels": ["market research", "competitor analysis"],
+      "intake_labels": ["market_competitor"],
+      "references": [
+        "references/source-discovery.md",
+        "references/source-quality-rubric.md"
+      ]
+    },
+    {
+      "id": "legal_government_financial",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Legal / government / financial",
+        "target": "`references/specialized-domains.md`"
+      },
+      "labels": ["legal", "government", "financial"],
+      "intake_labels": ["legal_government_financial"],
+      "reference": "references/specialized-domains.md"
+    },
+    {
+      "id": "medical_or_safety",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Medical / safety",
+        "target": "`references/specialized-domains.md`, `references/source-quality-rubric.md`"
+      },
+      "labels": ["medical", "safety", "high stakes"],
+      "intake_labels": ["medical_or_safety"],
+      "references": [
+        "references/specialized-domains.md",
+        "references/source-quality-rubric.md"
+      ]
+    },
+    {
+      "id": "dataset_collection",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Dataset collection",
+        "target": "`references/data-extraction-toolbox.md`, `references/data-processing-pipeline.md`"
+      },
+      "labels": ["dataset", "crawl extraction"],
+      "intake_labels": ["dataset_collection", "structured_extraction"],
+      "references": [
+        "references/data-extraction-toolbox.md",
+        "references/data-processing-pipeline.md"
+      ]
+    },
+    {
+      "id": "academic_review",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Academic / literature",
+        "target": "`references/academic-research-protocol.md`, `references/citation-management.md`"
+      },
+      "labels": ["academic", "literature review"],
+      "intake_labels": ["academic_review"],
+      "references": [
+        "references/academic-research-protocol.md",
+        "references/citation-management.md"
+      ]
+    },
+    {
+      "id": "systematic_review",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Systematic / PRISMA",
+        "target": "`references/systematic-review-protocol.md`"
+      },
+      "labels": ["systematic review", "PRISMA"],
+      "intake_labels": ["systematic_review"],
+      "reference": "references/systematic-review-protocol.md"
+    },
+    {
+      "id": "single_url",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Single URL",
+        "target": "`references/browser-first-crawl.md`, `references/anti-bot-fallback.md`"
+      },
+      "labels": ["specific URL"],
+      "intake_labels": ["public_url_analysis"],
+      "references": [
+        "references/browser-first-crawl.md",
+        "references/anti-bot-fallback.md"
+      ]
+    },
+    {
+      "id": "api_collection",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "API collection",
+        "target": "`references/api-access-workflow.md`"
+      },
+      "labels": ["API collection"],
+      "intake_labels": ["api_or_database"],
+      "reference": "references/api-access-workflow.md"
+    },
+    {
+      "id": "large_scale",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Large-scale (100+)",
+        "target": "`references/large-scale-collection.md`"
+      },
+      "labels": ["large-scale", "100+"],
+      "intake_labels": [],
+      "reference": "references/large-scale-collection.md"
+    },
+    {
+      "id": "monitoring_change",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Monitoring / change detection",
+        "target": "`references/monitoring-change-detection.md`"
+      },
+      "labels": ["monitoring", "change detection"],
+      "intake_labels": ["monitoring_change"],
+      "reference": "references/monitoring-change-detection.md"
+    },
+    {
+      "id": "visualization_report",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Visualization / rendered report",
+        "target": "`references/data-visualization.md`, `references/report-generation.md`"
+      },
+      "labels": ["visualization", "rendered report"],
+      "intake_labels": ["visualization_report"],
+      "references": [
+        "references/data-visualization.md",
+        "references/report-generation.md"
+      ]
+    },
+    {
+      "id": "multilingual",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Multilingual / Vietnamese",
+        "target": "`references/multilingual-research.md`, `references/vietnamese-source-discovery.md`"
+      },
+      "labels": ["multilingual", "Vietnamese"],
+      "intake_labels": ["multilingual_local", "vietnamese_local"],
+      "references": [
+        "references/multilingual-research.md",
+        "references/vietnamese-source-discovery.md"
+      ]
+    },
+    {
+      "id": "register_jargon",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Thin recall / jargon",
+        "target": "`references/register-and-jargon-expansion.md`"
+      },
+      "labels": ["jargon", "vernacular", "thin recall"],
+      "intake_labels": ["register_jargon_recall"],
+      "reference": "references/register-and-jargon-expansion.md"
+    },
+    {
+      "id": "frontier_search",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Evidence gaps",
+        "target": "`references/frontier-search.md`"
+      },
+      "labels": ["evidence gaps", "frontier"],
+      "intake_labels": [],
+      "reference": "references/frontier-search.md"
+    },
+    {
+      "id": "long_horizon",
+      "skill_surface": {
+        "kind": "text_anchor",
+        "anchor": "**Long-horizon outer loop:**"
+      },
+      "labels": ["long-horizon", "research plan"],
+      "intake_labels": ["long_horizon"],
+      "reference": "references/research-plan-protocol.md"
+    }
+  ],
+  "required_skill_references": [
+    "references/research-intake.md",
+    "references/research-plan-protocol.md",
+    "references/execution-gates.md",
+    "references/safety-and-access-policy.md",
+    "references/evidence-ledger.md",
+    "references/tool-adapter-policy.md",
+    "references/anti-bot-fallback.md",
+    "templates/route-manifest.json"
+  ],
+  "canonical_gates": {
+    "plan_ready": [
+      "schema_valid",
+      "plan_complete",
+      "workspace_layout",
+      "execution_configured",
+      "plan_rendered",
+      "no_dependency_cycles",
+      "no_orphan_dependencies",
+      "no_task_is_done",
+      "standard_gates_intact"
+    ],
+    "execute_ready": [
+      "schema_valid",
+      "plan_complete",
+      "workspace_layout",
+      "execution_configured",
+      "plan_rendered",
+      "no_dependency_cycles",
+      "no_orphan_dependencies",
+      "no_task_is_done",
+      "plan_approved",
+      "standard_gates_intact"
+    ],
+    "dispatch_ready": [
+      "schema_valid",
+      "plan_complete",
+      "workspace_layout",
+      "execution_configured",
+      "plan_rendered",
+      "no_dependency_cycles",
+      "no_orphan_dependencies",
+      "no_task_is_done",
+      "plan_approved",
+      "standard_gates_intact"
+    ],
+    "synthesize_ready": [
+      "schema_valid",
+      "workspace_layout",
+      "execution_configured",
+      "research_tasks_terminal",
+      "research_outputs_exist",
+      "blocked_research_justified",
+      "ledger_validates",
+      "ledger_hmac_verified",
+      "reproducibility_checklist_complete",
+      "standard_gates_intact"
+    ],
+    "release_ready": [
+      "synthesize_ready",
+      "synthesis_tasks_terminal",
+      "synthesis_outputs_exist",
+      "final_report_valid",
+      "rendered_citations_exist",
+      "claim_coverage_complete",
+      "stopping_criteria_satisfied",
+      "standard_gates_intact"
+    ]
+  }
+}

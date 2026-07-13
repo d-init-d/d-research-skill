@@ -6,6 +6,11 @@ Use this file for all data collection, crawling, and browser automation tasks.
 
 Research is read-only by default.
 
+Browser routes enforce this boundary at the network layer: page-originated
+HTTP methods other than `GET` and `HEAD` are blocked and recorded. JavaScript
+on a public page cannot use the browser adapter to submit a form or issue a
+mutation request. WebSockets and service workers remain fail-closed.
+
 Do not submit forms, create accounts, make purchases, change settings, send messages, or perform side-effect actions unless the user explicitly requests and authorizes that action.
 
 ## Access boundaries

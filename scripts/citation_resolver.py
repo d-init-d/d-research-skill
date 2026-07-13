@@ -24,7 +24,10 @@ import http.server
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -39,6 +42,12 @@ try:
     import http_cache as _http_cache
 except ImportError:  # pragma: no cover
     _http_cache = None
+from resource_limits import (
+    ResourceLimitError,
+    emit_blocker_and_exit,
+    load_limits,
+    read_http_response_bounded,
+)
 
 USER_AGENT = (
     "d-research-skill/0.3.0 "
@@ -50,11 +59,15 @@ CROSSREF_API = "https://api.crossref.org/works"
 DATACITE_API = "https://api.datacite.org/dois"
 UNPAYWALL_API = "https://api.unpaywall.org/v2"
 NCBI_EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-ARXIV_API = "http://export.arxiv.org/api/query"
+ARXIV_API = "https://export.arxiv.org/api/query"
 OPENLIBRARY_API = "https://openlibrary.org/api/books"
 
 MAX_RETRIES = 3
 BATCH_DELAY_SEC = 1.0
+
+
+class ProviderNotFoundError(Exception):
+    """A DOI provider has no record for the requested identifier."""
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +75,7 @@ BATCH_DELAY_SEC = 1.0
 # ---------------------------------------------------------------------------
 
 
-def _request(url: str, *, timeout: int = 30) -> bytes:
+def _request(url: str, *, timeout: int | None = None) -> bytes:
     """Make a polite HTTP GET request.
 
     When D_RESEARCH_HTTP_CACHE_PATH is set, results are cached. Cache
@@ -80,10 +93,14 @@ def _request(url: str, *, timeout: int = 30) -> bytes:
 
     req = urllib.request.Request(url, headers=request_headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read()
+        limits = load_limits()
+        effective_timeout = timeout or limits.http_timeout_sec
+        with urllib.request.urlopen(req, timeout=effective_timeout) as resp:
+            body = read_http_response_bounded(resp, limits)
             resp_headers = dict(resp.headers.items()) if resp.headers else {}
             status = resp.status
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except urllib.error.HTTPError as e:
         print(f"error: HTTP {e.code} for {url}", file=sys.stderr)
         raise SystemExit(1) from e
@@ -102,7 +119,12 @@ def _request(url: str, *, timeout: int = 30) -> bytes:
     return body
 
 
-def _request_with_backoff(url: str, *, max_retries: int = MAX_RETRIES) -> bytes:
+def _request_with_backoff(
+    url: str,
+    *,
+    max_retries: int = MAX_RETRIES,
+    not_found_is_miss: bool = False,
+) -> bytes:
     """HTTP GET with exponential backoff on 429.
 
     Cache lookup happens once before the first attempt. Successful responses
@@ -121,8 +143,9 @@ def _request_with_backoff(url: str, *, max_retries: int = MAX_RETRIES) -> bytes:
     for attempt in range(max_retries + 1):
         req = urllib.request.Request(url, headers=request_headers)
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body = resp.read()
+            limits = load_limits()
+            with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+                body = read_http_response_bounded(resp, limits)
                 resp_headers = dict(resp.headers.items()) if resp.headers else {}
                 status = resp.status
             if _http_cache is not None and 200 <= status < 300:
@@ -134,7 +157,11 @@ def _request_with_backoff(url: str, *, max_retries: int = MAX_RETRIES) -> bytes:
                 except Exception:  # noqa: BLE001
                     pass
             return body
+        except ResourceLimitError as exc:
+            emit_blocker_and_exit(exc)
         except urllib.error.HTTPError as e:
+            if not_found_is_miss and e.code in {404, 410}:
+                raise ProviderNotFoundError(f"HTTP {e.code} for {url}") from e
             if e.code == 429 and attempt < max_retries:
                 time.sleep(2 ** (attempt + 1))
                 continue
@@ -155,7 +182,7 @@ def _request_with_backoff(url: str, *, max_retries: int = MAX_RETRIES) -> bytes:
 def resolve_doi_crossref(doi: str) -> dict[str, Any]:
     """Resolve DOI via CrossRef API."""
     url = f"{CROSSREF_API}/{urllib.parse.quote(doi, safe='')}"
-    raw = _request_with_backoff(url)
+    raw = _request_with_backoff(url, not_found_is_miss=True)
     data = json.loads(raw)
     msg = data.get("message", {})
     authors = []
@@ -164,10 +191,15 @@ def resolve_doi_crossref(doi: str) -> dict[str, Any]:
         authors.append(name)
     date_parts = msg.get("published", {}).get("date-parts", [[None]])[0]
     year = date_parts[0] if date_parts else None
+    raw_titles = msg.get("title") or []
+    if isinstance(raw_titles, list):
+        title = str(raw_titles[0]) if raw_titles else ""
+    else:
+        title = str(raw_titles)
     return {
         "source": "crossref",
         "doi": doi,
-        "title": (msg.get("title") or [""])[0],
+        "title": title,
         "authors": authors,
         "year": year,
         "journal": (msg.get("container-title") or [""])[0],
@@ -200,13 +232,28 @@ def resolve_doi_datacite(doi: str) -> dict[str, Any]:
 
 
 def resolve_doi(doi: str, source: str = "auto") -> dict[str, Any]:
-    """Resolve DOI using specified or auto-detected source."""
+    """Resolve DOI using specified source, or Crossref→DataCite for auto."""
     if source == "datacite":
         return resolve_doi_datacite(doi)
     if source == "crossref":
-        return resolve_doi_crossref(doi)
-    # auto: try crossref first
-    return resolve_doi_crossref(doi)
+        try:
+            return resolve_doi_crossref(doi)
+        except ProviderNotFoundError as exc:
+            print(f"error: Crossref DOI not found: {doi}", file=sys.stderr)
+            raise SystemExit(1) from exc
+    # auto: Crossref first. Only a provider miss or a syntactically successful
+    # but unusable record falls back to DataCite. Network, HTTP, parse, and
+    # resource-limit failures remain hard failures.
+    try:
+        result = resolve_doi_crossref(doi)
+        if result and str(result.get("title") or "").strip():
+            return result
+    except ProviderNotFoundError:
+        return resolve_doi_datacite(doi)
+    except Exception as e:  # noqa: BLE001
+        print(f"error: Crossref DOI lookup failed for {doi}: {e}", file=sys.stderr)
+        raise SystemExit(1) from e
+    return resolve_doi_datacite(doi)
 
 
 
@@ -371,39 +418,129 @@ def resolve_oa(doi: str, email: str = DEFAULT_EMAIL) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def to_bibtex(resolved: dict[str, Any]) -> str:
-    """Convert resolved metadata to a BibTeX entry."""
-    authors = resolved.get("authors", [])
-    title = resolved.get("title", "Untitled")
-    year = resolved.get("year", "")
-    doi = resolved.get("doi", "")
+def _single_line(value: object) -> str:
+    """Normalize CR/LF sequences without dropping surrounding text."""
+    return re.sub(
+        r"(?:\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029])+",
+        " ",
+        str(value or ""),
+    )
 
-    # Generate key
-    first_author = authors[0].split(",")[0] if authors else "Unknown"
-    key = re.sub(r"[^A-Za-z0-9]", "", first_author) + str(year)
+
+def _bibtex_escape(value: object) -> str:
+    """Encode literal text so BibTeX parsers recover it without corruption."""
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "{": r"\{",
+        "}": r"\}",
+        "%": r"\%",
+        "&": r"\&",
+        "_": r"\_",
+        "#": r"\#",
+        "$": r"\$",
+        "^": r"\textasciicircum{}",
+        "~": r"\textasciitilde{}",
+    }
+    return "".join(replacements.get(ch, ch) for ch in _single_line(value))
+
+
+def _bibtex_verbatim(value: object) -> str:
+    """Escape parser-structural characters in a BibTeX URL/DOI field."""
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "{": r"\{",
+        "}": r"\}",
+    }
+    return "".join(replacements.get(ch, ch) for ch in _single_line(value))
+
+
+def _year_only(date_or_year: Any) -> str:
+    """Normalize year to a 4-digit string, or empty if invalid."""
+    from calendar import monthrange
+
+    s = str(date_or_year or "").strip()
+    m = re.fullmatch(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?", s)
+    if not m:
+        # bare integer year
+        if re.fullmatch(r"\d{4}", s):
+            y = int(s)
+            return f"{y:04d}" if 1400 <= y <= 9999 else ""
+        return ""
+    year = int(m.group(1))
+    month = int(m.group(2) or "1")
+    day = int(m.group(3) or "1")
+    if year < 1400 or year > 9999 or month < 1 or month > 12:
+        return ""
+    if day < 1 or day > monthrange(year, month)[1]:
+        return ""
+    return f"{year:04d}"
+
+
+def _citation_key(resolved: dict[str, Any]) -> str:
+    """Return a deterministic ASCII key with a canonical-identity hash."""
+    raw_authors = resolved.get("authors") or []
+    authors = [raw_authors] if isinstance(raw_authors, str) else list(raw_authors)
+    first_author = str(authors[0]).split(",")[0] if authors else "Unknown"
+    author_label = re.sub(r"[^A-Za-z0-9]", "", first_author) or "Unknown"
+    year = _year_only(resolved.get("year", "")) or "nodate"
+    doi = str(resolved.get("doi") or "").strip().lower()
+    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+        if doi.startswith(prefix):
+            doi = doi[len(prefix) :].strip()
+            break
+    if doi:
+        identity = f"doi:{doi}"
+    else:
+        identity = json.dumps(
+            {
+                "url": _single_line(resolved.get("url", "")).strip(),
+                "title": _single_line(resolved.get("title", "")).strip(),
+                "authors": [str(author) for author in authors],
+                "year": year,
+                "pmid": str(resolved.get("pmid") or ""),
+                "arxiv_id": str(resolved.get("arxiv_id") or ""),
+                "isbn": str(resolved.get("isbn") or ""),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    return f"{author_label}{year}_{digest}"
+
+
+def to_bibtex(resolved: dict[str, Any]) -> str:
+    """Convert resolved metadata to a BibTeX entry (escaped + year-normalized)."""
+    raw_authors = resolved.get("authors") or []
+    authors = [raw_authors] if isinstance(raw_authors, str) else list(raw_authors)
+    title = resolved.get("title", "Untitled")
+    year = _year_only(resolved.get("year", ""))
+    doi = resolved.get("doi", "") or ""
+
+    key = _citation_key(resolved)
 
     author_str = " and ".join(authors) if authors else "Unknown"
-    journal = resolved.get("journal", "")
+    journal = resolved.get("journal", "") or ""
 
     entry_type = "article" if journal else "misc"
     lines = [f"@{entry_type}{{{key},"]
-    lines.append(f"  author = {{{author_str}}},")
-    lines.append(f"  title = {{{title}}},")
+    lines.append(f"  author = {{{_bibtex_escape(author_str)}}},")
+    lines.append("  title = {{" + _bibtex_escape(title) + "}},")
     if year:
         lines.append(f"  year = {{{year}}},")
     if journal:
-        lines.append(f"  journal = {{{journal}}},")
+        lines.append(f"  journal = {{{_bibtex_escape(journal)}}},")
     if resolved.get("volume"):
-        lines.append(f"  volume = {{{resolved['volume']}}},")
+        lines.append(f"  volume = {{{_bibtex_escape(resolved['volume'])}}},")
     if resolved.get("issue"):
-        lines.append(f"  number = {{{resolved['issue']}}},")
+        lines.append(f"  number = {{{_bibtex_escape(resolved['issue'])}}},")
     if resolved.get("pages"):
-        lines.append(f"  pages = {{{resolved['pages']}}},")
+        lines.append(f"  pages = {{{_bibtex_escape(resolved['pages'])}}},")
     if doi:
-        lines.append(f"  doi = {{{doi}}},")
-    url = resolved.get("url", "")
+        lines.append(f"  doi = {{{_bibtex_verbatim(doi)}}},")
+    url = resolved.get("url", "") or ""
     if url:
-        lines.append(f"  url = {{{url}}},")
+        lines.append(f"  url = {{{_bibtex_verbatim(url)}}},")
     lines.append("}")
     return "\n".join(lines)
 
@@ -612,8 +749,19 @@ class _MockHandler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        if path.startswith("/works/10."):
-            # Mock CrossRef response
+        if path.startswith("/works/"):
+            # Crossref: 404 for DataCite-only DOIs so auto can fall back
+            doi_part = path[len("/works/") :]
+            if "zenodo" in doi_part.lower() or "datacite-only" in doi_part.lower():
+                self._respond(404, b'{"status":"error","message":"Not found"}', "application/json")
+                return
+            if "crossref-empty" in doi_part.lower():
+                data = {
+                    "status": "ok",
+                    "message": {"DOI": "10.9999/crossref-empty", "title": []},
+                }
+                self._respond(200, json.dumps(data).encode(), "application/json")
+                return
             data = {
                 "status": "ok",
                 "message": {
@@ -634,7 +782,7 @@ class _MockHandler(http.server.BaseHTTPRequestHandler):
             }
             self._respond(200, json.dumps(data).encode(), "application/json")
 
-        elif path.startswith("/dois/10."):
+        elif path.startswith("/dois/"):
             # Mock Datacite response
             data = {
                 "data": {
@@ -770,6 +918,130 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         result = resolve_doi("10.5281/zenodo.1234567", "datacite")
         if result.get("title") != "Test Dataset":
             errors.append(f"DOI datacite title mismatch: {result.get('title')}")
+
+        # auto: Crossref miss must fall back to DataCite
+        result = resolve_doi("10.5281/zenodo.1234567", "auto")
+        if result.get("source") != "datacite":
+            errors.append(f"auto fallback source expected datacite, got {result.get('source')}")
+        if result.get("title") != "Test Dataset":
+            errors.append(f"auto fallback title mismatch: {result.get('title')}")
+
+        # A syntactically successful but unusable Crossref record must not
+        # block the DataCite fallback.
+        result = resolve_doi("10.9999/crossref-empty", "auto")
+        if result.get("source") != "datacite":
+            errors.append(
+                "auto fallback expected datacite for empty Crossref title, "
+                f"got {result.get('source')}"
+            )
+
+        # Auto fallback is deliberately bounded to not-found/unsupported.
+        # Transient/provider failures must fail closed and must not call the
+        # alternate provider.
+        saved_resolvers = (resolve_doi_crossref, resolve_doi_datacite)
+        datacite_called = False
+
+        def transient_crossref(_doi: str) -> dict[str, Any]:
+            raise RuntimeError("transient Crossref failure")
+
+        def tracked_datacite(_doi: str) -> dict[str, Any]:
+            nonlocal datacite_called
+            datacite_called = True
+            return {"source": "datacite", "title": "must not run"}
+
+        try:
+            globals()["resolve_doi_crossref"] = transient_crossref
+            globals()["resolve_doi_datacite"] = tracked_datacite
+            try:
+                resolve_doi("10.9999/transient", "auto")
+            except SystemExit:
+                pass
+            else:
+                errors.append("transient Crossref failure did not fail auto lookup")
+            if datacite_called:
+                errors.append(
+                    "auto lookup called DataCite after a transient Crossref failure"
+                )
+        finally:
+            (
+                globals()["resolve_doi_crossref"],
+                globals()["resolve_doi_datacite"],
+            ) = saved_resolvers
+
+        # BibTeX escape + year normalization
+        evil = {
+            "source": "test",
+            "title": "Braces {x} and \\slash\nnewline",
+            "authors": ["Author, A"],
+            "year": "not-a-year",
+            "doi": "10.1/x{suffix}\\tail",
+            "url": "https://example.com/{segment}\\tail",
+        }
+        bib_evil = to_bibtex(evil)
+        if "year = {" in bib_evil:
+            errors.append("invalid year must not appear in BibTeX")
+        if "\\{" not in bib_evil or r"\textbackslash{}" not in bib_evil:
+            errors.append("BibTeX must escape braces and backslashes")
+        if "doi = {10.1/x\\{suffix\\}" not in bib_evil:
+            errors.append("BibTeX DOI field did not escape structural braces")
+        if "url = {https://example.com/\\{segment\\}" not in bib_evil:
+            errors.append("BibTeX URL field did not escape structural braces")
+        if "\nnewline" in bib_evil.split("title")[1].split("\n")[0] if "title" in bib_evil else True:
+            # title value must not contain raw newline
+            title_line = [ln for ln in bib_evil.splitlines() if "title =" in ln]
+            if title_line and "\n" in title_line[0].replace("title = ", ""):
+                pass  # single line ok
+        if _year_only("2020-01-15") != "2020":
+            errors.append("year_only failed for ISO date")
+        if _year_only("abc2020") != "":
+            errors.append("year_only must reject garbage year strings")
+
+        key_one = _citation_key(
+            {"authors": ["Doe, Jane"], "title": "One", "year": 2024, "doi": "10.1/one"}
+        )
+        key_two = _citation_key(
+            {"authors": ["Doe, John"], "title": "Two", "year": 2024, "doi": "10.1/two"}
+        )
+        if key_one == key_two:
+            errors.append("BibTeX keys must be unique for distinct DOI identities")
+        if key_one != _citation_key(
+            {"authors": ["Doe, Jane"], "title": "One", "year": 2024, "doi": "10.1/one"}
+        ):
+            errors.append("BibTeX keys must be deterministic")
+        if key_one != _citation_key(
+            {
+                "authors": ["Doe, Jane"],
+                "title": "One",
+                "year": 2024,
+                "doi": "https://doi.org/10.1/one",
+            }
+        ):
+            errors.append("BibTeX DOI keys must use canonical DOI identity")
+
+        pandoc = shutil.which("pandoc")
+        if pandoc:
+            expected_title = "Braces {x} and \\slash newline"
+            with tempfile.TemporaryDirectory() as pandoc_td:
+                bib_path = Path(pandoc_td) / "resolver-roundtrip.bib"
+                bib_path.write_text(bib_evil, encoding="utf-8")
+                proc = subprocess.run(
+                    [pandoc, "--from", "bibtex", "--to", "csljson", str(bib_path)],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=15,
+                    check=False,
+                )
+                if proc.returncode != 0:
+                    errors.append(f"Pandoc BibTeX parse failed: {proc.stderr.strip()}")
+                else:
+                    parsed_entries = json.loads(proc.stdout)
+                    parsed_title = parsed_entries[0].get("title") if parsed_entries else None
+                    if parsed_title != expected_title:
+                        errors.append(
+                            "Pandoc BibTeX title round-trip mismatch: "
+                            f"expected {expected_title!r}, got {parsed_title!r}"
+                        )
 
         # Test PMID
         result = resolve_pmid("35027834")

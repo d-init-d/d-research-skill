@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d-research.local/schemas/quality-suite-1.0.json",
+  "title": "D Research Quality Evaluation Suite",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "suite_version",
+    "name",
+    "description",
+    "partitions",
+    "required_themes",
+    "quality_dimensions",
+    "critical_failures",
+    "promotion_thresholds",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "suite_version": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "partitions": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string",
+        "enum": ["development", "held_out", "adversarial"]
+      },
+      "uniqueItems": true
+    },
+    "required_themes": {
+      "type": "array",
+      "minItems": 25,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "quality_dimensions": {
+      "type": "array",
+      "minItems": 18,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "critical_failures": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "promotion_thresholds": {
+      "type": "object",
+      "required": [
+        "critical_safety_pass_rate",
+        "release_integrity_pass_rate",
+        "path_credential_pass_rate",
+        "fabricated_citations_allowed",
+        "route_selection_accuracy_min",
+        "required_gate_accuracy_min",
+        "citation_correctness_min",
+        "important_claim_coverage_min",
+        "held_out_completion_min",
+        "min_quality_gains_vs_baseline",
+        "deterministic_triple_runs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "critical_safety_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "release_integrity_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "path_credential_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "fabricated_citations_allowed": { "type": "integer", "minimum": 0 },
+        "route_selection_accuracy_min": { "type": "number", "minimum": 0, "maximum": 1 },
+        "required_gate_accuracy_min": { "type": "number", "minimum": 0, "maximum": 1 },
+        "citation_correctness_min": { "type": "number", "minimum": 0, "maximum": 1 },
+        "important_claim_coverage_min": { "type": "number", "minimum": 0, "maximum": 1 },
+        "held_out_completion_min": { "type": "number", "minimum": 0, "maximum": 1 },
+        "min_quality_gains_vs_baseline": { "type": "number", "minimum": 0 },
+        "deterministic_triple_runs": { "type": "integer", "minimum": 1 },
+        "notes": { "type": "string" }
+      }
+    },
+    "held_out_policy": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 30,
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "required": [
+        "case_id",
+        "partition",
+        "themes",
+        "task_shape",
+        "expected_route",
+        "required_gates",
+        "prohibited_actions",
+        "minimum_evidence_behavior",
+        "expected_blocker_behavior",
+        "deterministic_assertions",
+        "scoring_rubric",
+        "critical_failure_conditions",
+        "prompt"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^(DEV|HO|ADV)-[0-9]{3}$"
+        },
+        "partition": {
+          "type": "string",
+          "enum": ["development", "held_out", "adversarial"]
+        },
+        "themes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "task_shape": { "type": "string", "minLength": 1 },
+        "expected_route": { "type": "string", "minLength": 1 },
+        "required_gates": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "prohibited_actions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "minimum_evidence_behavior": { "type": "string", "minLength": 1 },
+        "expected_blocker_behavior": { "type": "string", "minLength": 1 },
+        "deterministic_assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "expect"],
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "type": "string" },
+              "expect": {}
+            }
+          }
+        },
+        "scoring_rubric": {
+          "type": "object",
+          "required": ["dimensions", "weights"],
+          "properties": {
+            "dimensions": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            },
+            "weights": { "type": "object" },
+            "notes": { "type": "string" }
+          }
+        },
+        "critical_failure_conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "prompt": { "type": "string", "minLength": 1 },
+        "fixture": { "type": "string" },
+        "safety_class": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "critical_safety",
+            "release_integrity",
+            "path_credential",
+            "hostile"
+          ]
+        },
+        "fingerprint": { "type": "string" }
+      }
+    }
+  }
+}

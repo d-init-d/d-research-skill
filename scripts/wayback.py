@@ -18,7 +18,9 @@ Save Page Now). It does not bypass any access control or rate limit.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import difflib
+import email.utils
 import hashlib
 import http.server
 import io
@@ -38,16 +40,25 @@ try:
     import http_cache as _http_cache
 except ImportError:  # pragma: no cover
     _http_cache = None
+from resource_limits import (  # type: ignore
+    ResourceLimitError,
+    add_resource_limit_arguments,
+    apply_cli_limit_overrides,
+    emit_blocker,
+    load_limits,
+    read_bounded,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-CDX_API = "http://web.archive.org/cdx/search/cdx"
-AVAILABILITY_API = "http://archive.org/wayback/available"
+CDX_API = "https://web.archive.org/cdx/search/cdx"
+AVAILABILITY_API = "https://archive.org/wayback/available"
 SAVE_URL_PREFIX = "https://web.archive.org/save/"
 RATE_LIMIT_PER_MIN = 15
 MAX_RETRIES = 3
+MAX_RETRY_DELAY_SECONDS = 120
 
 USER_AGENT = "d-research-skill/0.2.0 (https://github.com/d-init-d/d-research-skill)"
 
@@ -55,6 +66,32 @@ USER_AGENT = "d-research-skill/0.2.0 (https://github.com/d-init-d/d-research-ski
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _retry_after_seconds(
+    value: str | None,
+    *,
+    now: dt.datetime | None = None,
+    fallback: float = 1.0,
+) -> float:
+    """Parse Retry-After seconds or HTTP-date and cap the resulting delay."""
+    delay = fallback
+    raw = str(value or "").strip()
+    if raw:
+        if raw.isdigit():
+            delay = float(raw)
+        else:
+            try:
+                target = email.utils.parsedate_to_datetime(raw)
+                if target.tzinfo is None:
+                    target = target.replace(tzinfo=dt.timezone.utc)
+                current = now or dt.datetime.now(dt.timezone.utc)
+                if current.tzinfo is None:
+                    current = current.replace(tzinfo=dt.timezone.utc)
+                delay = max(0.0, (target - current).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                delay = fallback
+    return min(max(0.0, delay), float(MAX_RETRY_DELAY_SECONDS))
 
 
 def build_cdx_url(
@@ -156,6 +193,40 @@ def parse_cdx_response(raw: str) -> list[dict]:
     return results
 
 
+def _bounded_wayback_body(resp) -> bytes:
+    limits = load_limits()
+    raw_length = resp.headers.get("Content-Length") if resp.headers else None
+    if raw_length:
+        try:
+            content_length = int(raw_length)
+        except (TypeError, ValueError):
+            content_length = None
+        if content_length is not None and content_length > limits.wayback_max_bytes:
+            raise ResourceLimitError(
+                "wayback_max_bytes",
+                "Wayback Content-Length exceeds response limit",
+                limit=limits.wayback_max_bytes,
+                observed=content_length,
+            )
+    return read_bounded(
+        resp,
+        limits.wayback_max_bytes,
+        code="wayback_max_bytes",
+    )
+
+
+def _check_cached_wayback_body(body: bytes) -> bytes:
+    limit = load_limits().wayback_max_bytes
+    if len(body) > limit:
+        raise ResourceLimitError(
+            "wayback_max_bytes",
+            "cached Wayback response exceeds limit",
+            limit=limit,
+            observed=len(body),
+        )
+    return body
+
+
 def _make_request(url: str) -> bytes:
     """Make an HTTP GET request with a polite User-Agent header.
 
@@ -174,14 +245,14 @@ def _make_request(url: str) -> bytes:
         try:
             cached = _http_cache.get("GET", url, request_headers=request_headers)
             if cached:
-                return cached["body"]
+                return _check_cached_wayback_body(cached["body"])
         except Exception:  # noqa: BLE001 - cache failures are non-fatal
             pass
 
     req = urllib.request.Request(url, headers=request_headers)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read()
+        with urllib.request.urlopen(req, timeout=load_limits().http_timeout_sec) as resp:
+            body = _bounded_wayback_body(resp)
             response_headers = dict(resp.headers.items()) if resp.headers else {}
             status = resp.status
     except urllib.error.HTTPError as e:
@@ -313,15 +384,18 @@ def fetch_with_backoff(url: str, method: str = "GET", max_retries: int = MAX_RET
         try:
             cached = _http_cache.get("GET", url, request_headers=request_headers)
             if cached:
-                return cached["body"]
+                return _check_cached_wayback_body(cached["body"])
         except Exception:  # noqa: BLE001
             pass
 
     for attempt in range(max_retries + 1):
         req = urllib.request.Request(url, method=method, headers=request_headers)
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body = resp.read()
+            with urllib.request.urlopen(
+                req,
+                timeout=load_limits().http_timeout_sec,
+            ) as resp:
+                body = _bounded_wayback_body(resp)
                 resp_headers = dict(resp.headers.items()) if resp.headers else {}
                 status = resp.status
             if method.upper() == "GET" and _http_cache is not None and 200 <= status < 300:
@@ -335,7 +409,10 @@ def fetch_with_backoff(url: str, method: str = "GET", max_retries: int = MAX_RET
             return body
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < max_retries:
-                delay = 2 ** (attempt + 1)
+                delay = _retry_after_seconds(
+                    e.headers.get("Retry-After") if e.headers else None,
+                    fallback=2 ** (attempt + 1),
+                )
                 time.sleep(delay)
                 continue
             if e.code == 429:
@@ -784,6 +861,36 @@ def cmd_self_test(args: argparse.Namespace) -> int:
             except json.JSONDecodeError:
                 errors.append("diff --summarize (identical) output is not valid JSON")
 
+        # --- Resource cap applies to the shared GET path too ---
+        class _OversizedResponse(io.BytesIO):
+            headers = {"Content-Length": "10"}
+
+        limit_env = "D_RESEARCH_WAYBACK_MAX_BYTES"
+        previous_limit = os.environ.get(limit_env)
+        os.environ[limit_env] = "4"
+        try:
+            _bounded_wayback_body(_OversizedResponse(b"0123456789"))
+            errors.append("Wayback oversized GET should fail closed")
+        except ResourceLimitError as exc:
+            if exc.code != "wayback_max_bytes":
+                errors.append(f"Wayback oversized GET wrong code: {exc.code}")
+        finally:
+            if previous_limit is None:
+                os.environ.pop(limit_env, None)
+            else:
+                os.environ[limit_env] = previous_limit
+
+        # Retry-After accepts seconds and HTTP-date, always with an upper cap.
+        fixed_now = dt.datetime(2026, 7, 11, 0, 0, tzinfo=dt.timezone.utc)
+        if _retry_after_seconds("7", now=fixed_now) != 7:
+            errors.append("Retry-After seconds parsing failed")
+        http_date = email.utils.format_datetime(fixed_now + dt.timedelta(seconds=9))
+        parsed_date_delay = _retry_after_seconds(http_date, now=fixed_now)
+        if not 8.0 <= parsed_date_delay <= 9.0:
+            errors.append("Retry-After HTTP-date parsing failed")
+        if _retry_after_seconds("999999", now=fixed_now) != MAX_RETRY_DELAY_SECONDS:
+            errors.append("Retry-After delay cap failed")
+
         # Report results
         if errors:
             print("wayback self-test FAILED:", file=sys.stderr)
@@ -878,22 +985,31 @@ def main() -> int:
         default=5,
         help="Number of largest hunks to include in the summary (default: 5).",
     )
+    for command_parser in (lookup_p, nearest_p, save_p, diff_p):
+        add_resource_limit_arguments(
+            command_parser,
+            ("wayback_max_bytes", "http_timeout_sec"),
+        )
 
     # -- self-test (placeholder for future implementation) --
     sub.add_parser("self-test", help="Run offline self-tests with mock server.")
 
     args = p.parse_args()
 
-    if args.cmd == "lookup":
-        return cmd_lookup(args)
-    if args.cmd == "nearest":
-        return cmd_nearest(args)
-    if args.cmd == "save":
-        return cmd_save(args)
-    if args.cmd == "diff":
-        return cmd_diff(args)
-    if args.cmd == "self-test":
-        return cmd_self_test(args)
+    try:
+        apply_cli_limit_overrides(args)
+        if args.cmd == "lookup":
+            return cmd_lookup(args)
+        if args.cmd == "nearest":
+            return cmd_nearest(args)
+        if args.cmd == "save":
+            return cmd_save(args)
+        if args.cmd == "diff":
+            return cmd_diff(args)
+        if args.cmd == "self-test":
+            return cmd_self_test(args)
+    except ResourceLimitError as error:
+        return emit_blocker(error)
 
     p.print_help()
     return 1

@@ -1,5 +1,16 @@
 # Execution Gates
 
+## Contents
+
+- [When to Apply](#when-to-apply)
+- [Operating Principles](#operating-principles)
+- [Gate 1: Source Map Gate](#gate-1-source-map-gate)
+- [Gate 2: Coverage and Recall Gate](#gate-2-coverage-and-recall-gate)
+- [Gate 3: Identity, Date, and Inference Gate](#gate-3-identity-date-and-inference-gate)
+- [Gate 4: Evidence Verification Gate](#gate-4-evidence-verification-gate)
+- [Gate 5: Synthesis Readiness Gate](#gate-5-synthesis-readiness-gate)
+- [Optional Worker Roles](#optional-worker-roles)
+
 Use these gates as a portable quality controller before synthesis. They capture
 the strongest parts of orchestrated agent workflows without requiring MiniMax,
 OpenAI, Claude, a specific subagent runtime, or any single research domain.

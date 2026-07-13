@@ -17,9 +17,9 @@ Use Playwright as the default browser automation layer.
 
 - bypassing login
 - bypassing paywalls
-- solving or evading captchas
+- solving or evading captchas (never allowed)
 - bypassing rate limits
-- stealth or anti-detection behavior by default
+- stealth or anti-detection behavior (never allowed)
 - forging identity
 - using credentials without explicit user permission
 - accessing private or personal data without authorization
@@ -84,3 +84,8 @@ node scripts/playwright_probe.mjs --url https://example.com --out research-outpu
 node scripts/playwright_extract.mjs --url https://example.com --format json --out research-output/extract.json
 node scripts/playwright_crawl.mjs --seed https://example.com --outDir research-output/crawl --maxDepth 2 --maxPages 30
 ```
+
+All three commands enforce `D_RESEARCH_HTTP_MAX_BYTES` for the main document;
+override it per invocation with `--max-response-bytes <n>`. Exceeding the cap
+emits a structured incomplete blocker and exits `3` (crawl also writes the
+blocker and `complete: false` summary before exiting).

@@ -1,3 +1,7 @@
+---
+example_status: illustrative
+---
+
 # Example — technical research
 
 User asks: *"Research the best open-source browser-automation stack

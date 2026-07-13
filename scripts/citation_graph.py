@@ -35,6 +35,12 @@ try:
     import http_cache as _http_cache
 except ImportError:  # pragma: no cover
     _http_cache = None
+from resource_limits import (
+    ResourceLimitError,
+    emit_blocker_and_exit,
+    load_limits,
+    read_http_response_bounded,
+)
 
 OPENALEX_API = "https://api.openalex.org"
 USER_AGENT = (
@@ -83,10 +89,13 @@ def _request(url: str, delay: float | None = None) -> dict[str, Any] | None:
         time.sleep(actual_delay)
     req = urllib.request.Request(url, headers=request_headers)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read()
+        limits = load_limits()
+        with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+            body = read_http_response_bounded(resp, limits)
             resp_headers = dict(resp.headers.items()) if resp.headers else {}
             status = resp.status
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except (urllib.error.URLError, urllib.error.HTTPError) as e:
         print(f"warning: request failed for {url}: {e}", file=sys.stderr)
         return None

@@ -1,0 +1,404 @@
+# Validate an annotated release tag under the frozen RC policy, then build a source archive, SHA256 manifest,
+# and GitHub provenance attestation. Manual dispatch validates the release
+# contract only; it never publishes or attests an untagged branch build.
+name: release-source-archive
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  validate:
+    name: validate release contract (manual only)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # actions/checkout@v7.0.0
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # actions/setup-python@v6.3.0
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+
+      - name: Validate repository release contract
+        run: python scripts/check_contract.py
+
+  archive:
+    name: validate tag + source archive + sha256 + provenance
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    steps:
+      # actions/checkout@v7.0.0
+      - name: Checkout complete history and tag objects
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # actions/setup-python@v6.3.0
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+
+      # actions/setup-node@v6.4.0
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Validate repository release contract
+        run: python scripts/check_contract.py
+
+      - name: Enforce tag-specific promotion contract
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          candidate_version="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('templates/route-manifest.json').read_text(encoding='utf-8'))
+          print(manifest['stable_release_gate']['required_candidate_version'])
+          PY
+          )"
+          candidate_tag="v${candidate_version}"
+          release_type="$(git cat-file -t "refs/tags/${RELEASE_TAG}")"
+          candidate_type="$(git cat-file -t "refs/tags/${candidate_tag}")"
+          if [[ "$release_type" != "tag" ]]; then
+            echo "release tag must be annotated; got object type: ${release_type}" >&2
+            exit 1
+          fi
+          if [[ "$candidate_type" != "tag" ]]; then
+            echo "candidate tag must be annotated; got object type: ${candidate_type}" >&2
+            exit 1
+          fi
+          candidate_commit="$(git rev-parse "refs/tags/${candidate_tag}^{commit}")"
+          candidate_tag_object="$(git rev-parse "refs/tags/${candidate_tag}^{tag}")"
+          baseline_commit="$(git rev-parse "refs/tags/v3.1.1^{commit}")"
+          python scripts/check_contract.py \
+            --release-tag "$RELEASE_TAG" \
+            --candidate-commit "$candidate_commit" \
+            --baseline-commit "$baseline_commit" \
+            --candidate-tag-object "$candidate_tag_object"
+
+          if [[ "$RELEASE_TAG" != *-rc.* ]]; then
+            git merge-base --is-ancestor "$candidate_commit" "$release_commit" || {
+              echo "dogfooded candidate ${candidate_tag} is not an ancestor of ${RELEASE_TAG}" >&2
+              exit 1
+            }
+            release_version="${RELEASE_TAG#v}"
+            # Canonical allowlist: scripts/check_contract.py::validate_post_rc_changed_paths
+            # Do not re-encode the allowlist in bash.
+            paths_file="$(mktemp)"
+            trap 'rm -f "$paths_file"' EXIT
+            git diff --name-only "$candidate_commit" "$release_commit" > "$paths_file"
+            python scripts/check_contract.py \
+              --validate-post-rc-paths "$paths_file" \
+              --release-version "$release_version"
+            python scripts/check_contract.py \
+              --validate-post-rc-metadata "$candidate_commit" \
+              --release-version "$release_version"
+          fi
+
+      - name: Validate semantic version and metadata match
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RELEASE_TAG" <<'PY'
+          import json
+          import re
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          tag = sys.argv[1]
+          match = re.fullmatch(r"v(\d+\.\d+\.\d+(?:-rc\.\d+)?)", tag)
+          if not match:
+              raise SystemExit(f"release tag must be vX.Y.Z or vX.Y.Z-rc.N, got {tag!r}")
+          tag_version = match.group(1)
+          package_version = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
+          pyproject_version = tomllib.loads(
+              Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+          normalized_python = re.sub(r"rc(\d+)$", r"-rc.\1", pyproject_version)
+          if package_version != tag_version:
+              raise SystemExit(
+                  f"tag/package mismatch: tag={tag_version!r}, package={package_version!r}"
+              )
+          if normalized_python != tag_version:
+              raise SystemExit(
+                  "tag/pyproject mismatch: "
+                  f"tag={tag_version!r}, pyproject={pyproject_version!r}"
+              )
+          PY
+
+      - name: Require annotated release and candidate tags under frozen policy
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_version="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('templates/route-manifest.json').read_text(encoding='utf-8'))
+          print(manifest['stable_release_gate']['required_candidate_version'])
+          PY
+          )"
+          candidate_tag="v${candidate_version}"
+          tags=("${RELEASE_TAG}")
+          if [[ "$candidate_tag" != "$RELEASE_TAG" ]]; then
+            tags+=("$candidate_tag")
+          fi
+          responses="$(mktemp -d)"
+          trap 'rm -rf "$responses"' EXIT
+          for tag in "${tags[@]}"; do
+            tag_ref="refs/tags/${tag}"
+            object_type="$(git cat-file -t "$tag_ref")"
+            if [[ "$object_type" != "tag" ]]; then
+              echo "${tag} must be annotated; got object type: ${object_type}" >&2
+              exit 1
+            fi
+            tag_object="$(git rev-parse "${tag_ref}^{tag}")"
+            tag_commit="$(git rev-parse "${tag_ref}^{commit}")"
+            waiver="github_verified_release_tag"
+            if [[ "$tag" == "$candidate_tag" ]]; then
+              waiver="github_verified_candidate_tag"
+            fi
+            if python scripts/check_contract.py \
+              --release-tag "$RELEASE_TAG" \
+              --require-release-waiver "$waiver"; then
+              echo "${tag}: GitHub tag verification explicitly waived by frozen RC policy"
+              continue
+            fi
+            response="${responses}/${tag}.json"
+            curl --fail-with-body --silent --show-error \
+              --retry 3 --retry-all-errors \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPOSITORY}/git/tags/${tag_object}" \
+              -o "$response"
+            python scripts/release_verify.py verify-tag-response \
+              --input "$response" \
+              --expected-tag-object "$tag_object" \
+              --expected-commit "$tag_commit"
+          done
+
+      - name: Require successful full CI for the exact release commit
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          workflow_path="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('templates/route-manifest.json').read_text(encoding='utf-8'))
+          print(manifest['stable_release_gate']['full_ci']['workflow_path'])
+          PY
+          )"
+          workflow_file="$(basename "$workflow_path")"
+          response="$(mktemp)"
+          headers="$(mktemp)"
+          trap 'rm -f "$response" "$headers"' EXIT
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -D "$headers" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/${workflow_file}/runs?head_sha=${release_commit}&status=completed&per_page=100" \
+            -o "$response"
+          if grep -Eiq '^link:.*rel="next"' "$headers"; then
+            echo "exact-SHA CI response is paginated; refusing a potentially truncated result" >&2
+            exit 1
+          fi
+          python scripts/release_verify.py verify-ci-response \
+            --input "$response" \
+            --expected-sha "$release_commit" \
+            --repository "$REPOSITORY" \
+            --workflow-path "$workflow_path"
+
+      - name: Verify independent reviewer attestation for stable promotion
+        if: github.event_name == 'push' && !contains(github.ref_name, '-rc.')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ACTOR: ${{ github.actor }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if python scripts/check_contract.py \
+            --release-tag "$RELEASE_TAG" \
+            --require-release-waiver independent_reviewer; then
+            echo "Independent review explicitly waived by frozen RC policy"
+            exit 0
+          fi
+          release_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          query="$(mktemp)"
+          reviews="$(mktemp)"
+          review_headers="$(mktemp)"
+          pull_request="$(mktemp)"
+          trap 'rm -f "$query" "$reviews" "$review_headers" "$pull_request"' EXIT
+          python - "$REPOSITORY" "$query" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          repository, output = sys.argv[1:]
+          manifest = json.loads(Path('templates/route-manifest.json').read_text(encoding='utf-8'))
+          version = json.loads(Path('package.json').read_text(encoding='utf-8'))['version']
+          promotion_path = Path(
+              manifest['stable_release_gate']['promotion_manifest_path'].format(version=version)
+          )
+          promotion = json.loads(promotion_path.read_text(encoding='utf-8'))
+          signoff = json.loads(Path(promotion['reviewer_signoff_path']).read_text(encoding='utf-8'))
+          attestation = signoff['attestation']
+          if attestation['repository'] != repository:
+              raise SystemExit('review attestation repository does not match github.repository')
+          query = {
+              'pull_request_number': attestation['pull_request_number'],
+              'reviewer_login': attestation['reviewer_login'],
+              'promotion_sha256': 'sha256:' + hashlib.sha256(promotion_path.read_bytes()).hexdigest(),
+              'promotion_generated_at': promotion['generated_at'],
+          }
+          Path(output).write_text(json.dumps(query), encoding='utf-8')
+          PY
+          review_pr="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["pull_request_number"])' "$query")"
+          reviewer_login="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["reviewer_login"])' "$query")"
+          promotion_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["promotion_sha256"])' "$query")"
+          promotion_generated_at="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["promotion_generated_at"])' "$query")"
+          if [[ "${reviewer_login,,}" == "${RELEASE_ACTOR,,}" ]]; then
+            echo "release actor cannot serve as the independent reviewer" >&2
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/pulls/${review_pr}" \
+            -o "$pull_request"
+          pr_author="$(python - "$pull_request" "$release_commit" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+          expected_commit = sys.argv[2]
+          if (payload.get('head') or {}).get('sha') != expected_commit:
+              raise SystemExit('attestation PR head is not the exact release commit')
+          author = (payload.get('user') or {}).get('login')
+          if not isinstance(author, str) or not author:
+              raise SystemExit('attestation PR has no verifiable author')
+          print(author)
+          PY
+          )"
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -D "$review_headers" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/pulls/${review_pr}/reviews?per_page=100" \
+            -o "$reviews"
+          if grep -Eiq '^link:.*rel="next"' "$review_headers"; then
+            echo "review response is paginated; refusing a potentially truncated result" >&2
+            exit 1
+          fi
+          python scripts/release_verify.py verify-review-response \
+            --input "$reviews" \
+            --expected-commit "$release_commit" \
+            --promotion-sha256 "$promotion_sha" \
+            --reviewer-login "$reviewer_login" \
+            --pull-request-author "$pr_author" \
+            --promotion-generated-at "$promotion_generated_at"
+
+      - name: Build source archive and SHA256 manifest
+        if: github.event_name == 'push'
+        id: archive
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="d-research-skill-${RELEASE_TAG}"
+          archive="dist/${name}.tar.gz"
+          checksum="dist/${name}.tar.gz.sha256"
+          mkdir -p dist
+          git archive \
+            --format=tar.gz \
+            --prefix="${name}/" \
+            -o "$archive" \
+            "refs/tags/${RELEASE_TAG}^{commit}"
+          (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+          (cd dist && sha256sum --check "${name}.tar.gz.sha256")
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the extracted source archive without Git metadata
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_ARCHIVE: ${{ steps.archive.outputs.archive }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          extract_dir="$(mktemp -d)"
+          trap 'rm -rf "$extract_dir"' EXIT
+          tar -xzf "$SOURCE_ARCHIVE" -C "$extract_dir"
+          cd "$extract_dir/d-research-skill-${RELEASE_TAG}"
+          test ! -e .git
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run self-test
+          npm pack --dry-run --json >/dev/null
+
+      # actions/upload-artifact@v4.6.2
+      - name: Upload versioned source archive and checksum
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-archive-${{ github.ref_name }}
+          if-no-files-found: error
+          path: |
+            ${{ steps.archive.outputs.archive }}
+            ${{ steps.archive.outputs.checksum }}
+
+      # actions/attest-build-provenance@v2.4.0
+      - name: Attest source archive provenance
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: ${{ steps.archive.outputs.archive }}

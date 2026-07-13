@@ -80,7 +80,8 @@
     "allowPaywalledSources": false,
     "allowCaptchaSolving": false,
     "allowStealthEvasion": false,
-    "defaultMode": "read-only"
+    "defaultMode": "read-only",
+    "_safetyNote": "allowCaptchaSolving and allowStealthEvasion MUST remain false. Values of true fail validation — captcha solving and stealth evasion are never allowed."
   },
   "output": {
     "defaultReport": "research-report",

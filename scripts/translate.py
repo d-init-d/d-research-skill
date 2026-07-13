@@ -34,6 +34,14 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from _ssrf_helpers import public_urlopen_with_redirects
+from resource_limits import (
+    ResourceLimitError,
+    emit_blocker_and_exit,
+    load_limits,
+    read_http_response_bounded,
+)
+
 USER_AGENT = (
     "d-research-skill/0.3.0 "
     "(https://github.com/d-init-d/d-research-skill; contact@example.com)"
@@ -144,7 +152,12 @@ def detect_language(text: str, top_n: int = 3) -> list[dict[str, Any]]:
 
 
 def _translate_libretranslate(
-    text: str, source: str, target: str, api_url: str = LIBRETRANSLATE_API
+    text: str,
+    source: str,
+    target: str,
+    api_url: str = LIBRETRANSLATE_API,
+    *,
+    _allow_loopback_fixture: bool = False,
 ) -> str:
     """Translate via LibreTranslate API."""
     data = json.dumps({
@@ -158,9 +171,16 @@ def _translate_libretranslate(
         headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
+        limits = load_limits()
+        with public_urlopen_with_redirects(
+            req,
+            timeout=limits.http_timeout_sec,
+            allow_loopback_fixture=_allow_loopback_fixture,
+        ) as resp:
+            result = json.loads(read_http_response_bounded(resp, limits))
             return result.get("translatedText", "")
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as e:
         print(f"error: LibreTranslate request failed: {e}", file=sys.stderr)
         return ""
@@ -184,10 +204,16 @@ def _translate_deepl(text: str, source: str, target: str) -> str:
         headers={"Authorization": f"DeepL-Auth-Key {key}", "Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
+        limits = load_limits()
+        with public_urlopen_with_redirects(
+            req,
+            timeout=limits.http_timeout_sec,
+        ) as resp:
+            result = json.loads(read_http_response_bounded(resp, limits))
             translations = result.get("translations", [])
             return translations[0]["text"] if translations else ""
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, IndexError, KeyError) as e:
         print(f"error: DeepL request failed: {e}", file=sys.stderr)
         return ""
@@ -203,12 +229,19 @@ def _translate_google(text: str, source: str, target: str) -> str:
     url = f"https://translation.googleapis.com/language/translate/v2?{params}"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
+        limits = load_limits()
+        with public_urlopen_with_redirects(
+            req,
+            timeout=limits.http_timeout_sec,
+        ) as resp:
+            result = json.loads(read_http_response_bounded(resp, limits))
             translations = result.get("data", {}).get("translations", [])
             return translations[0]["translatedText"] if translations else ""
+    except ResourceLimitError as exc:
+        emit_blocker_and_exit(exc)
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, IndexError, KeyError) as e:
-        print(f"error: Google Translate request failed: {e}", file=sys.stderr)
+        safe_error = str(e).replace(key, "[REDACTED]")
+        print(f"error: Google Translate request failed: {safe_error}", file=sys.stderr)
         return ""
 
 
@@ -391,13 +424,20 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         LIBRETRANSLATE_API = f"http://127.0.0.1:{port}"
         # With allow-remote, translation should succeed
         os.environ["D_RESEARCH_ALLOW_REMOTE_TRANSLATION"] = "1"
-        result = _translate_libretranslate("Hello world", "en", "vi", LIBRETRANSLATE_API)
+        result = _translate_libretranslate(
+            "Hello world",
+            "en",
+            "vi",
+            LIBRETRANSLATE_API,
+            _allow_loopback_fixture=True,
+        )
         if "[vi] Hello world" not in result:
             errors.append(f"mock translation failed: got {result!r}")
         del os.environ["D_RESEARCH_ALLOW_REMOTE_TRANSLATION"]
     finally:
         LIBRETRANSLATE_API = orig_api
         server.shutdown()
+        server.server_close()
 
     # Test 6: Remote without opt-in should be blocked by cmd_text
     import io as _io

@@ -30,11 +30,25 @@ import csv
 import datetime
 import hashlib
 import json
+import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from resource_limits import (  # type: ignore
+    ResourceLimitError,
+    add_resource_limit_arguments,
+    apply_cli_limit_overrides,
+    check_file_size,
+    check_pdf_bytes,
+    check_pdf_pages,
+    check_table_shape,
+    emit_blocker,
+    load_limits,
+    run_subprocess_bounded,
+)
 
 
 def check_binary(name: str) -> None:
@@ -97,23 +111,49 @@ def parse_pdfinfo(raw: str) -> dict:
     return result
 
 
+def _read_pdf_meta(pdf_path: Path) -> dict | None:
+    """Bound input and ``pdfinfo`` output, then validate the page count."""
+    limits = load_limits()
+    size = pdf_path.stat().st_size
+    check_pdf_bytes(size, limits)
+    check_file_size(pdf_path, limits.pdf_max_bytes, code="pdf_max_bytes")
+    proc = run_subprocess_bounded(["pdfinfo", str(pdf_path)], limits)
+    if proc.returncode != 0:
+        snippet = proc.stderr.decode("utf-8", errors="replace").strip()[:200]
+        print(
+            f"error: pdfinfo failed (exit {proc.returncode}): {snippet or 'unknown error'}",
+            file=sys.stderr,
+        )
+        return None
+    meta = parse_pdfinfo(proc.stdout.decode("utf-8", errors="replace"))
+    page_count = int(meta.get("page_count") or 0)
+    if page_count <= 0:
+        print("error: pdfinfo returned no valid page count", file=sys.stderr)
+        return None
+    check_pdf_pages(page_count, limits)
+    return meta
+
+
 def cmd_text(args: argparse.Namespace) -> int:
     """Extract full text via pdftotext. Write to stdout or --out."""
     check_binary("pdftotext")
+    check_binary("pdfinfo")
 
     pdf_path = Path(args.input)
     if not pdf_path.is_file():
         print(f"error: file not found: {pdf_path}", file=sys.stderr)
         return 1
 
+    if _read_pdf_meta(pdf_path) is None:
+        return 1
+    limits = load_limits()
+
     # pdftotext <input> - (dash means stdout)
     cmd = ["pdftotext", str(pdf_path), "-"]
-    proc = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
+    proc = run_subprocess_bounded(cmd, limits)
 
     if proc.returncode != 0:
-        snippet = proc.stderr.strip()[:200] if proc.stderr else "unknown error"
+        snippet = proc.stderr.decode("utf-8", errors="replace").strip()[:200]
         print(
             f"error: pdftotext failed (exit {proc.returncode}): {snippet}",
             file=sys.stderr,
@@ -123,9 +163,9 @@ def cmd_text(args: argparse.Namespace) -> int:
     if args.out:
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(proc.stdout, encoding="utf-8")
+        out_path.write_text(proc.stdout.decode("utf-8", errors="replace"), encoding="utf-8")
     else:
-        sys.stdout.write(proc.stdout)
+        sys.stdout.write(proc.stdout.decode("utf-8", errors="replace"))
 
     return 0
 
@@ -139,20 +179,9 @@ def cmd_meta(args: argparse.Namespace) -> int:
         print(f"error: file not found: {pdf_path}", file=sys.stderr)
         return 1
 
-    cmd = ["pdfinfo", str(pdf_path)]
-    proc = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
-
-    if proc.returncode != 0:
-        snippet = proc.stderr.strip()[:200] if proc.stderr else "unknown error"
-        print(
-            f"error: pdfinfo failed (exit {proc.returncode}): {snippet}",
-            file=sys.stderr,
-        )
+    meta = _read_pdf_meta(pdf_path)
+    if meta is None:
         return 1
-
-    meta = parse_pdfinfo(proc.stdout)
     output = json.dumps(meta, indent=2, ensure_ascii=False)
 
     if args.out:
@@ -167,6 +196,15 @@ def cmd_meta(args: argparse.Namespace) -> int:
 
 def cmd_tables(args: argparse.Namespace) -> int:
     """Extract tables via pdfplumber. Write CSVs to --out-dir."""
+    pdf_path = Path(args.input)
+    if not pdf_path.is_file():
+        print(f"error: file not found: {pdf_path}", file=sys.stderr)
+        return 1
+    check_binary("pdfinfo")
+    if _read_pdf_meta(pdf_path) is None:
+        return 1
+    limits = load_limits()
+
     try:
         import pdfplumber  # noqa: F401 — soft dependency
     except ImportError:
@@ -177,20 +215,30 @@ def cmd_tables(args: argparse.Namespace) -> int:
         )
         return 0
 
-    pdf_path = Path(args.input)
-    if not pdf_path.is_file():
-        print(f"error: file not found: {pdf_path}", file=sys.stderr)
-        return 1
-
     out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
 
+    total_rows = 0
+    total_cells = 0
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page_idx, page in enumerate(pdf.pages, start=1):
             tables = page.extract_tables()
             if not tables:
                 continue
             for table_idx, table in enumerate(tables, start=1):
+                rows = len(table)
+                width = max((len(row or []) for row in table), default=0)
+                actual_cells = sum(len(row or []) for row in table)
+                total_rows += rows
+                total_cells += actual_cells
+                check_table_shape(total_rows, width, limits)
+                if total_cells > limits.table_max_cells:
+                    raise ResourceLimitError(
+                        "table_max_cells",
+                        f"PDF table cells {total_cells} exceeds limit",
+                        limit=limits.table_max_cells,
+                        observed=total_cells,
+                    )
+                out_dir.mkdir(parents=True, exist_ok=True)
                 csv_name = f"p{page_idx}_t{table_idx}.csv"
                 csv_path = out_dir / csv_name
                 with csv_path.open("w", newline="", encoding="utf-8") as f:
@@ -272,35 +320,25 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
         print(f"error: file not found: {pdf_path}", file=sys.stderr)
         return 1
 
-    # Extract metadata via pdfinfo
-    meta_proc = subprocess.run(
-        ["pdfinfo", str(pdf_path)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    if meta_proc.returncode != 0:
-        snippet = meta_proc.stderr.strip()[:200] if meta_proc.stderr else "unknown error"
-        print(
-            f"error: pdfinfo failed (exit {meta_proc.returncode}): {snippet}",
-            file=sys.stderr,
-        )
+    meta = _read_pdf_meta(pdf_path)
+    if meta is None:
         return 1
 
-    meta = parse_pdfinfo(meta_proc.stdout)
-
     # Extract text via pdftotext
-    text_proc = subprocess.run(
+    limits = load_limits()
+    text_proc = run_subprocess_bounded(
         ["pdftotext", str(pdf_path), "-"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        limits,
     )
     if text_proc.returncode != 0:
-        snippet = text_proc.stderr.strip()[:200] if text_proc.stderr else "unknown error"
+        snippet = text_proc.stderr.decode("utf-8", errors="replace").strip()[:200]
         print(
             f"error: pdftotext failed (exit {text_proc.returncode}): {snippet}",
             file=sys.stderr,
         )
         return 1
 
-    text = text_proc.stdout
+    text = text_proc.stdout.decode("utf-8", errors="replace")
 
     # Build ledger row
     row = format_ledger_row(meta, text, args.url)
@@ -332,6 +370,27 @@ def cmd_to_ledger(args: argparse.Namespace) -> int:
 
 def cmd_self_test(args: argparse.Namespace) -> int:
     """Offline self-test using examples/fixtures/test.pdf."""
+    # Resource enforcement is tested even when Poppler is unavailable.
+    with tempfile.TemporaryDirectory(prefix="pdf_limit_selftest_") as limit_tmp:
+        oversized = Path(limit_tmp) / "oversized.pdf"
+        oversized.write_bytes(b"%PDF-oversized")
+        env_key = "D_RESEARCH_PDF_MAX_BYTES"
+        previous = os.environ.get(env_key)
+        os.environ[env_key] = "1"
+        try:
+            _read_pdf_meta(oversized)
+            print("error: PDF byte cap did not fail closed", file=sys.stderr)
+            return 1
+        except ResourceLimitError as exc:
+            if exc.code != "pdf_max_bytes":
+                print(f"error: unexpected PDF cap code: {exc.code}", file=sys.stderr)
+                return 1
+        finally:
+            if previous is None:
+                os.environ.pop(env_key, None)
+            else:
+                os.environ[env_key] = previous
+
     missing = [name for name in ("pdftotext", "pdfinfo") if not shutil.which(name)]
     if missing:
         print(
@@ -522,21 +581,45 @@ def main() -> int:
         "--out-row", required=True, help="CSV file to append the ledger row to."
     )
 
+    limit_fields = (
+        "pdf_max_pages",
+        "pdf_max_bytes",
+        "subprocess_timeout_sec",
+        "subprocess_max_output_bytes",
+        "table_max_rows",
+        "table_max_cells",
+    )
+    for command_parser in (text_p, meta_p, tables_p, ledger_p):
+        add_resource_limit_arguments(command_parser, limit_fields)
+
     # --- self-test subcommand ---
     sub.add_parser("self-test", help="Run offline self-tests.")
 
     args = p.parse_args()
 
-    if args.cmd == "text":
-        return cmd_text(args)
-    if args.cmd == "meta":
-        return cmd_meta(args)
-    if args.cmd == "tables":
-        return cmd_tables(args)
-    if args.cmd == "to-ledger":
-        return cmd_to_ledger(args)
-    if args.cmd == "self-test":
-        return cmd_self_test(args)
+    try:
+        apply_cli_limit_overrides(args)
+        if args.cmd == "text":
+            return cmd_text(args)
+        if args.cmd == "meta":
+            return cmd_meta(args)
+        if args.cmd == "tables":
+            return cmd_tables(args)
+        if args.cmd == "to-ledger":
+            return cmd_to_ledger(args)
+        if args.cmd == "self-test":
+            return cmd_self_test(args)
+    except ResourceLimitError as error:
+        output = None
+        output_is_dir = False
+        if args.cmd in {"text", "meta"}:
+            output = getattr(args, "out", None)
+        elif args.cmd == "tables":
+            output = getattr(args, "out_dir", None)
+            output_is_dir = bool(output)
+        elif args.cmd == "to-ledger":
+            output = getattr(args, "out_row", None)
+        return emit_blocker(error, output, output_is_dir=output_is_dir)
 
     p.print_help()
     return 1

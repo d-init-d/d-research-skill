@@ -53,12 +53,12 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 45 deep-dive guides (research intake, evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **portable execution gates**, **Vietnamese source discovery**, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, **register & jargon expansion**, …) plus `references/i18n/` refusal templates (en, vi).
+- `references/` — 48 deep-dive guides (research intake, evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **portable execution gates**, **Vietnamese source discovery**, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, **register & jargon expansion**, **config reference**, **script inventory**, **workflow routes**, …) plus `references/i18n/` refusal templates (en, vi).
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
-- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.0, 22 columns, optional `license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**, **register vocab log**.
-- `scripts/` — 35 small, self-contained files. 33 of them are research helpers with an offline `--self-test` (Python research utilities, 6 top-level Node scripts, plus 1 Node helper at `scripts/lib/http_cache.mjs`; `run_python.mjs` is only a wrapper); the remaining 2 are pre-commit utility scripts (`check_node_syntax.py`, `check_no_plan_files.py`) that run as checks rather than self-tests. CI runs every research helper's self-test on each PR.
-- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, and `docs/eval.md` — the offline two-tier eval suite: a 12-task regression guard plus a 52-task frontier probe (bench 2.2, 26 classes). See `scripts/run_dogfood.py` and `npm run eval:self-test`.
+- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.2, 23 columns including optional `record_type`/`license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**, **register vocab log**.
+- `scripts/` — 48 small, self-contained files (35 Python + 8 top-level Node + 5 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_contract.py`, `package_manifest_check.mjs`, `release_verify.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`) run as CI gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version; `npm run package:check` rejects untracked, sensitive, or omitted runtime files before packaging.
+- `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, `examples/evals/quality-suite.json`, and `docs/eval.md` — offline eval: 12-task regression, 52-task frontier (bench 3.0), and a 42-case held-out quality suite (development / held-out / adversarial) with multi-dimension scoring, hostile fixtures, fuzz/mutation gates (`scripts/quality_eval.py`, `npm run eval:quality`).
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
 
@@ -86,6 +86,17 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 5 | **synthesize** | Combine evidence into atomic claims; apply synthesis patterns; render citations in the required style. | `references/synthesis-patterns.md`, `references/citation-management.md`, `scripts/citation_render.py`, `scripts/citation_export.py` |
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
+
+v3.2.0-rc.3 is the final production-hardening candidate. It adds immutable
+approval fingerprints, portable output locking, canonical checklist IDs,
+fail-closed report signatures, strict eval manifests, and browser-wide
+read-only/resource budgets. Its frozen release policy transparently records
+maintainer-authorized waivers for live dogfood, independent review, and
+GitHub-verified tag signatures while retaining annotated tags, exhaustive local
+verification, exact-SHA CI, RC ancestry, archive checksums, and provenance. See
+[`docs/release-v3.2.0-rc.3.md`](docs/release-v3.2.0-rc.3.md).
+Existing v3.1.1 workspaces should follow the tested
+[`docs/upgrade-v3.1.1-to-v3.2.0.md`](docs/upgrade-v3.1.1-to-v3.2.0.md).
 
 v3.1.1 hardens the skill metadata surface by expressing the `SKILL.md`
 description as YAML block scalar syntax. The trigger text is unchanged, but
@@ -137,13 +148,13 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 9. **Data processing pipeline** — audit, clean, dedup, validate, merge. See `references/data-processing-pipeline.md`.
 10. **Data extraction toolbox** — recipe-style playbooks for HTML tables (with `scripts/extract_tables.py`), JSON-LD, embedded JSON, dataLayer, sitemaps, RSS, OAI-PMH, REST/GraphQL, PDFs, web archives. See `references/data-extraction-toolbox.md`.
 11. **PRISMA 2020 systematic reviews** — full protocol, flow diagram template (`templates/prisma-flow.json`), synthesis-pattern decision tree, worked example (`examples/systematic-review-prisma.md`). See `references/systematic-review-protocol.md` and `references/synthesis-patterns.md`.
-12. **Source quality rubric** — 5-axis deterministic scoring (type, authority, recency, methodology, independence) applied automatically by `scripts/score_source.py`. See `references/source-quality-rubric.md`.
+12. **Source quality rubric** — 5-axis deterministic scoring (type, authority, freshness, traceability, independence), separated from the three mandatory human review gates (relevance, method transparency, access quality). See `scripts/score_source.py` and `references/source-quality-rubric.md`.
 13. **Reproducibility checklist** — every deliverable can be audited against `references/reproducibility-checklist.md` before declaring "done".
 14. **Context-safe long-horizon protocol** — for tasks bigger than one model context window: create one workspace directory, write `research-plan.json`, annotate subagent slots/context budgets, render `PLAN.md` for review, require approval before dispatch, gate execution/synthesis, and write findings to disk immediately to avoid context loss. See `references/research-plan-protocol.md` and `examples/long-horizon-research-plan.md`.
 15. **Frontier search for gap-driven follow-up** — when the first pass leaves evidence gaps, obscure facts, or contested claims, build a small best-first priority queue over candidate queries / URLs / files / APIs / citations / repos / aliases / archives, score each node against the unresolved sub-question, and stop on evidence saturation. Not a literal pathfinding algorithm; no A* / Dijkstra. Maintains a `frontier-ledger.csv` and `coverage-map.json` alongside the evidence ledger. Never bypasses access controls. See `references/frontier-search.md`, `templates/frontier-ledger.csv`, and `templates/coverage-map.json`.
 16. **Fact-verification fast path** — for one-entity / one-attribute / deterministic-primary-source questions (commit SHA, package version, API limit, license clause). Skips decompose, source map, query fanout, and crawl. Hits the primary source once, quotes verbatim, files one ledger row with a one-shot independent re-check, and reports. Bails to the broad workflow on any anomaly. See `references/fact-verification.md`.
 17. **Person aggregation with a privacy boundary** — a dedicated branch for cross-source public-role lookups about a named person (maintainer, author, speaker, journalist, public figure). Anchors on one canonical source (GitHub profile, ORCID, package author, faculty page, verified byline), aggregates verified public-role claims, and **enforces an explicit privacy boundary**: home address, family, private accounts, personal contact, photos, medical / financial / legal / orientation / whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuses on minors, private individuals, and harassment / stalking / doxxing framings. Saturates at 25 ledger rows or three sources adding no new verified claims. See `references/person-aggregation.md`.
-18. **Offline eval harness** — a two-tier ground-truth suite (`examples/evals/dogfood-bench.json` for regression and `examples/evals/frontier-bench.json` for frontier probes) plus a stdlib-only harness (`scripts/run_dogfood.py`) that validates benches in CI, scores agent-produced ledgers, and compares baseline vs. candidate score artifacts. Designed as a regression detector and upgrade signal, not a leaderboard. See `docs/eval.md`.
+18. **Offline eval harness** — a two-tier ground-truth suite (`examples/evals/dogfood-bench.json` for regression and `examples/evals/frontier-bench.json` for frontier probes) plus a stdlib-only harness (`scripts/run_dogfood.py`) that validates benches in CI, verifies per-task schema-2.1 `run-result.json` files with hashed raw prompt/output/ledger provenance, scores agent-produced ledgers, and compares isolated baseline vs. candidate score artifacts. Designed as a regression detector and upgrade signal, not a leaderboard. See `docs/eval.md`.
 19. **Anti-bot fallback chain** — when a relevant public tier-1 source is blocked by Cloudflare, JavaScript challenge, captcha, 403, 429, or repeated browser/fetch failure, try exactly one lawful fallback chain: canonical API/static form, public web archive, cache/snippet if available, fetch-only/no-JS retrieval, then blocker report. Failed attempts are recorded as low-confidence process rows, not positive evidence. See `references/anti-bot-fallback.md`.
 20. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 21. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
@@ -170,7 +181,7 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 | Data processing | Clean, deduplicate, validate, merge, summarize CSV data | `scripts/data_clean.py` |
 | Data extraction | HTML tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH, PDFs | `references/data-extraction-toolbox.md`, `scripts/extract_tables.py` |
 | PRISMA reviews | PRISMA 2020 systematic-review protocol and flow template | `references/systematic-review-protocol.md`, `templates/prisma-flow.json` |
-| Source scoring | Deterministic authority/recency/methodology/independence scoring | `scripts/score_source.py` |
+| Source scoring | Deterministic type/authority/freshness/traceability/independence scoring plus explicit human review gates | `scripts/score_source.py` |
 | Long-horizon workspaces | One reproducible folder per research run with plan, ledger, notes, report | `scripts/research_plan.py init` |
 | Approval gate | Human-readable `PLAN.md` must be approved before execution | `plan:render`, `plan:approve`, `plan:gate` |
 | Subagent planning | Portable execution contract: slots, max parallel, context budgets, task assignment | `plan:configure-execution`, `plan:set-execution` |
@@ -225,7 +236,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
 │   └── translation.md                    # new — machine-translation adapter
 │
-├── references/                           # 45 deep-dive guides
+├── references/                           # 48 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources
@@ -276,7 +287,9 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── dataset-collection.md
 │   ├── evals/
 │   │   ├── dogfood-bench.json            # 12-task regression eval set
-│   │   ├── frontier-bench.json           # 52-task frontier eval set (bench 2.2, 26 classes)
+│   │   ├── frontier-bench.json           # 52-task frontier eval set (bench 3.0, 26 classes)
+│   │   ├── quality-suite.json            # 42-case held-out quality suite (dev/held-out/adversarial)
+│   │   ├── quality/                      # schema, fixtures, forward protocol
 │   │   └── fixtures/                     # deterministic empty-score fixtures
 │   ├── large-scale-crawl.md
 │   ├── long-horizon-research-plan.md     # new — plan-protocol walkthrough
@@ -311,7 +324,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── extract_tables.py                 # new — HTML tables → CSV
 │   ├── score_source.py                   # new — rubric-based source scoring
 │   ├── research_plan.py                  # new — workspace, approval, context budget, and plan manager
-│   ├── run_dogfood.py                    # new — offline eval-bench harness
+│   ├── run_dogfood.py                    # offline eval-bench harness
+│   ├── quality_eval.py                   # held-out quality suite + integrity/hostile/fuzz
 │   ├── pdf_extract.py                    # new — PDF text/meta/table extraction
 │   ├── wayback.py                        # new — Wayback Machine nearest/diff
 │   ├── wikidata.py                       # new — Wikidata search/entity/disambiguate/SPARQL
@@ -320,19 +334,27 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── report_render.py                 # new — final report generator from research workspace
 │   ├── bench_harness_check.py            # new — bench/fixture/harness consistency check (NOT an agent benchmark)
 │   ├── check_internal_refs.py            # CI guard for path-style references
-│   └── run_python.mjs                    # tiny wrapper to invoke Python
+│   └── run_python.mjs                    # Python >=3.10 launcher; supports D_RESEARCH_PYTHON
 │
 ├── agents/
 │   └── openai.yaml                       # display metadata for hosts
 │
 ├── docs/
-│   ├── UPGRADE-PLAN.md                   # internal upgrade plan (VN)
-│   └── eval.md                           # new — eval-harness usage guide
+│   ├── .archive/UPGRADE-PLAN.md          # archived internal upgrade plan (VN)
+│   ├── eval.md                           # eval-harness usage guide
+│   ├── eval-upgrade-prompt.md            # external-runner dogfood contract
+│   ├── upgrade-v3.1.1-to-v3.2.0.md       # tested workspace migration guide
+│   ├── release-v3.2.0-rc.1.md            # first RC scope and external gates
+│   ├── release-v3.2.0-rc.2.md            # second RC hardening record
+│   ├── release-v3.2.0-rc.3.md            # final RC scope and ship gates
+│   └── release-v3.2.0.md                 # stable release notes
 │
 ├── .github/
+│   ├── dependabot.yml                    # npm + GitHub Actions updates
 │   └── workflows/
-│       ├── link-check.yml                # internal-refs + lychee on every PR
-│       └── lint-and-self-test.yml        # ruff + node --check + all self-tests
+│       ├── lint-and-self-test.yml        # version matrices + full integration
+│       ├── link-check.yml                # internal and external link integrity
+│       └── release-source-archive.yml    # annotated-tag archive/SHA/provenance
 │
 ├── CONTRIBUTING.md                       # how to add references/adapters/examples/scripts
 └── .agents/
@@ -357,10 +379,34 @@ Install the D Research skill from https://github.com/d-init-d/d-research-skill.g
 
 #### Option B: Manual setup
 
-1. Add the skill to your project:
+1. Add the skill to your project. The final directory name must be
+   `d-research`, matching the skill frontmatter.
+
+   Choose the discovery root for your runtime; in every case the final path
+   must end in `d-research/SKILL.md`:
+
+| Runtime | Project-local destination | Personal destination |
+|---|---|---|
+| Agent Skills portable layout | `.agents/skills/d-research` | `~/.agents/skills/d-research` |
+| Codex | `.agents/skills/d-research` | `$CODEX_HOME/skills/d-research` (default: `~/.codex/skills/d-research`) |
+| Claude Code | `.claude/skills/d-research` | `~/.claude/skills/d-research` |
+| Grok Build | `.agents/skills/d-research` | `~/.grok/skills/d-research` |
+| OpenCode | `.opencode/skills/d-research` (also discovers `.agents/skills`) | `~/.config/opencode/skills/d-research` |
+
+   The commands below use the portable project-local destination. Substitute
+   another destination from the matrix when installing for one runtime only.
+
+   Bash:
 
 ```bash
 mkdir -p .agents/skills
+git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
+```
+
+   PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force .agents/skills | Out-Null
 git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
 ```
 
@@ -376,12 +422,16 @@ git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-rese
 cp .agents/skills/d-research/research.config.example.json research.config.json
 ```
 
+```powershell
+Copy-Item .agents/skills/d-research/research.config.example.json research.config.json
+```
+
 4. Optional: install helper-script dependencies:
 
 ```bash
 cd .agents/skills/d-research
-npm install
-npx playwright install
+npm ci
+npx --no-install playwright install chromium
 npm run self-test
 ```
 
@@ -407,8 +457,8 @@ Most agentic frameworks ingest skills by reading `SKILL.md` (and any sub-skill `
 
 ```bash
 # Clone the skill alongside your project
-git clone https://github.com/d-init-d/d-research-skill.git
-# Point your agent at d-research-skill/SKILL.md
+git clone https://github.com/d-init-d/d-research-skill.git d-research
+# Point your agent at d-research/SKILL.md
 ```
 
 **Vendor it into your project's `.agents/skills/`**
@@ -428,12 +478,12 @@ The helper scripts in `scripts/` are independent. Only install what you actually
 
 ```bash
 # For the Playwright scripts (probe / extract / crawl)
-npm install                  # installs playwright (declared in package.json)
-npx playwright install        # downloads browser binaries
+npm ci                               # installs the exact locked Playwright version
+npx --no-install playwright install chromium  # downloads the locked Chromium revision
 
 # For the Python scripts (data_clean / citation_export / evidence_ledger / research_plan / etc.)
 # Stdlib only — no pip install needed.
-python3 --version             # 3.9+ recommended
+python3 --version                    # 3.10+ required
 ```
 
 Run the bundled offline self-tests to confirm everything is wired correctly:
@@ -442,8 +492,22 @@ Run the bundled offline self-tests to confirm everything is wired correctly:
 npm run self-test
 ```
 
-`npm run self-test` is the canonical full chain. It runs every research helper's `--self-test`, the bench-harness consistency check, the internal-refs check, the decision-tree audit, and the `run_metadata` self-test. Pass criteria: exit code `0` and the final command prints
-`OK: every references/*.md is reachable from the decision tree.`
+If Python is installed outside `PATH`, set `D_RESEARCH_PYTHON` to the full
+Python 3.10+ executable path before invoking an npm command. The launcher probes
+configured and platform-default interpreters and skips broken shims.
+
+`npm run self-test` is the canonical offline helper chain. It runs every Node
+and Python helper self-test, the bench-harness consistency check, the internal
+reference and decision-tree checks, the repository contract checker, and the
+resource-limit suite. Pass criteria: exit code `0`. CI then runs the adversarial
+matrix with its embedded browser case disabled and launches the real local-only
+Chromium smoke exactly once per operating system.
+
+For a local release-style acceptance run, including its browser case:
+
+```bash
+npm run acceptance
+```
 
 If you want to isolate a failure, the most useful individual checks are:
 
@@ -478,6 +542,9 @@ python3 scripts/dedup_near.py      self-test
 python3 scripts/http_cache.py      self-test
 python3 scripts/bench_harness_check.py self-test
 python3 scripts/run_metadata.py    self-test
+python3 scripts/harvest_terms.py   self-test
+python3 scripts/resource_limits.py self-test
+python3 scripts/check_contract.py
 
 # Documentation graph health (no `--self-test`; these are checks):
 python3 scripts/check_internal_refs.py
@@ -513,7 +580,7 @@ npm run extract:tables -- --in page.html --out-dir out/
 npm run score:source -- --file evidence.csv --out scored.csv
 npm run ledger:sign -- --file evidence.csv --key-env D_RESEARCH_LEDGER_KEY
 npm run ledger:verify -- --file evidence.csv --key-env D_RESEARCH_LEDGER_KEY
-npm run eval:score-all -- --bench examples/evals/dogfood-bench.json --ledgers-dir runs/candidate/tier1-ledgers --out runs/candidate/tier1-scores.json
+npm run eval:score-all -- --bench examples/evals/dogfood-bench.json --runs-dir runs/candidate/tier1 --out runs/candidate/tier1-scores.json
 npm run eval:compare -- runs/baseline/tier1-scores.json runs/candidate/tier1-scores.json
 npm run plan:init                             # write research-plan.json from template
 npm run plan:check                            # validate schema + dep graph
@@ -550,17 +617,17 @@ directory containing the plan, human-readable review, evidence ledger,
 notes, sections, final report, and reproducibility checklist:
 
 ```bash
-python3 scripts/research_plan.py init --slug topic
+node scripts/run_python.mjs scripts/research_plan.py init --slug topic
 cd research-topic-2026-05-16
-python3 ../scripts/research_plan.py configure-execution --file research-plan.json
-python3 ../scripts/research_plan.py render --file research-plan.json
-python3 ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
-python3 ../scripts/research_plan.py approve --file research-plan.json --by "Reviewer"
-python3 ../scripts/research_plan.py gate --file research-plan.json --gate execute_ready
+node ../scripts/run_python.mjs ../scripts/research_plan.py configure-execution --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py render --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
+node ../scripts/run_python.mjs ../scripts/research_plan.py approve --file research-plan.json --by "Reviewer"
+node ../scripts/run_python.mjs ../scripts/research_plan.py gate --file research-plan.json --gate execute_ready
 ```
 
-On Windows, use `python` instead of `python3` if `python3` is not on
-PATH, or use the matching `npm run plan:*` commands.
+`run_python.mjs` selects an available Python launcher on Windows, macOS, and
+Linux. The matching `npm run plan:*` commands are equivalent.
 
 The `init` command prints the actual `workspace:` path. Agents must
 include that path in the final answer so users know where the plan,
@@ -632,8 +699,8 @@ Precedence for plan-related settings is: explicit CLI flags (for example `--work
 | `researchPlan.finalResponse.reportWorkspacePath` | `true` | Final responses must state the workspace path. |
 | `access.allowLoginWithUserPermission` | `false` | Allow login only when the user explicitly authorizes it. |
 | `access.allowPaywalledSources` | `false` | Allow paywalled sources only with explicit lawful access. |
-| `access.allowCaptchaSolving` | `false` | Captcha solving is disabled by default. |
-| `access.allowStealthEvasion` | `false` | Stealth/anti-bot evasion is disabled by default. |
+| `access.allowCaptchaSolving` | `false` | Captcha solving is **never allowed** (hard policy; config cannot enable it). |
+| `access.allowStealthEvasion` | `false` | Stealth/anti-bot evasion is **never allowed** (hard policy; config cannot enable it). |
 | `access.defaultMode` | `read-only` | Default data-access posture. |
 | `output.defaultReport` | `research-report` | Default report base name for non-plan workflows. |
 | `output.includeBlockedSources` | `true` | Include blocked sources in final outputs. |
@@ -686,7 +753,7 @@ The skill is framework-agnostic. It has been written against the conventions of:
 - Devin (root `AGENTS.md` and `.agents/skills/*/SKILL.md` sub-skills)
 - Generic agent frameworks that follow either pattern
 
-The optional scripts need Node.js 18+ (for `api_fetch.mjs` and the Playwright scripts) and Python 3.9+ (for the Python utilities). Playwright is the only npm dependency.
+The optional scripts need Node.js 18+ (for `api_fetch.mjs` and the Playwright scripts) and Python 3.10+ (for the Python utilities; matches `requires-python` in `pyproject.toml`). Playwright is the only npm dependency (pinned to an exact version in `package.json`).
 
 If you want to try this skill through ready-made agent presets, see the
 [`d-research-agent-pack`](https://github.com/d-init-d/d-research-agent-pack),

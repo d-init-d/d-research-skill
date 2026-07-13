@@ -1,0 +1,26 @@
+{
+  "nodes": [
+    {
+      "id": "A",
+      "cites": [
+        "B"
+      ],
+      "url": "https://a.example"
+    },
+    {
+      "id": "B",
+      "cites": [
+        "C"
+      ],
+      "url": "https://b.example"
+    },
+    {
+      "id": "C",
+      "cites": [
+        "A"
+      ],
+      "url": "https://c.example"
+    }
+  ],
+  "shared_claim": "The limit is 42"
+}

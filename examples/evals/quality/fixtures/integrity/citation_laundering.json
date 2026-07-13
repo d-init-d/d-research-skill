@@ -1,0 +1,23 @@
+{
+  "primary": {
+    "url": "https://primary.example/paper",
+    "claim": "X causes Y"
+  },
+  "launderers": [
+    {
+      "url": "https://blog1.example",
+      "cites": "https://primary.example/paper",
+      "presents_as": "primary"
+    },
+    {
+      "url": "https://blog2.example",
+      "cites": "https://blog1.example",
+      "presents_as": "independent"
+    },
+    {
+      "url": "https://blog3.example",
+      "cites": "https://blog2.example",
+      "presents_as": "independent"
+    }
+  ]
+}

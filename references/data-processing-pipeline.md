@@ -1,5 +1,15 @@
 # Data Processing Pipeline
 
+## Contents
+
+- [When to Use This Pipeline](#when-to-use-this-pipeline)
+- [Pipeline Stages](#pipeline-stages)
+- [Data Dictionary Template](#data-dictionary-template)
+- [Quality Report Template](#quality-report-template)
+- [Tools Reference](#tools-reference)
+- [Quick Reference Checklist](#quick-reference-checklist)
+- [See also](#see-also)
+
 Reference guide for cleaning, transforming, and analyzing extracted data. Follow this pipeline systematically after any data extraction operation.
 
 ---
@@ -697,3 +707,9 @@ Before completing any data processing task:
 - [ ] Data dictionary created
 - [ ] Quality report generated
 - [ ] All findings summarized
+
+## See also
+
+- `references/data-extraction-toolbox.md`
+- `references/deduplication.md`
+- `references/data-visualization.md`

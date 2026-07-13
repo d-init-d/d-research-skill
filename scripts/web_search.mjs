@@ -1,8 +1,190 @@
 #!/usr/bin/env node
 
 import { writeFileSync } from 'fs';
+import {
+  headersHaveCredentials,
+  publicHeadersOnly,
+  urlHasCredentials,
+} from './lib/credentials.mjs';
 
 const USER_AGENT = 'd-research-skill/0.3.0 (https://github.com/d-init-d/d-research-skill)';
+const DEFAULT_MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+let requestOverrides = {};
+
+class ResourceLimitError extends Error {
+  constructor(message, limit, observed = null) {
+    super(message);
+    this.name = 'ResourceLimitError';
+    this.exitCode = 3;
+    this.limit = limit;
+    this.observed = observed;
+  }
+}
+
+function parsePositiveInteger(value, label) {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw)) throw new Error(`${label} must be a positive integer`);
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive safe integer`);
+  }
+  return parsed;
+}
+
+function redactSecrets(value) {
+  let text = String(value ?? '');
+  for (const name of ['BRAVE_API_KEY', 'GOOGLE_CSE_KEY', 'GOOGLE_CSE_ID']) {
+    const secret = process.env[name];
+    if (secret) text = text.split(secret).join('[REDACTED]');
+  }
+  text = text.replace(/([?&](?:key|cx|token|api_key)=)[^&\s]+/gi, '$1[REDACTED]');
+  return text;
+}
+
+function activeLimits(overrides = {}) {
+  return {
+    maxBytes: overrides.maxResponseBytes ?? parsePositiveInteger(
+      process.env.D_RESEARCH_HTTP_MAX_BYTES || DEFAULT_MAX_RESPONSE_BYTES,
+      'D_RESEARCH_HTTP_MAX_BYTES'
+    ),
+    timeoutMs: overrides.timeoutMs ?? (
+      parsePositiveInteger(
+        process.env.D_RESEARCH_HTTP_TIMEOUT_SEC || (DEFAULT_TIMEOUT_MS / 1000),
+        'D_RESEARCH_HTTP_TIMEOUT_SEC'
+      ) * 1000
+    )
+  };
+}
+
+async function readResponseTextBounded(response, maxBytes) {
+  const contentLength = response.headers?.get?.('content-length');
+  if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
+    throw new ResourceLimitError(
+      `HTTP response Content-Length ${contentLength} exceeds limit ${maxBytes}`,
+      maxBytes,
+      Number(contentLength)
+    );
+  }
+
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    const observed = Buffer.byteLength(text, 'utf8');
+    if (observed > maxBytes) {
+      throw new ResourceLimitError(
+        `HTTP response body exceeds limit ${maxBytes}`,
+        maxBytes,
+        observed
+      );
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let observed = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      observed += value.byteLength;
+      if (observed > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new ResourceLimitError(
+          `HTTP response body exceeds limit ${maxBytes}`,
+          maxBytes,
+          observed
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  const body = Buffer.concat(chunks.map(chunk => Buffer.from(chunk)));
+  return body.toString('utf8');
+}
+
+function validateHttpUrl(value, base = undefined) {
+  let parsed;
+  try {
+    parsed = base ? new URL(value, base) : new URL(value);
+  } catch {
+    throw new Error('redirect Location is not a valid URL');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`redirect scheme is not allowed: ${parsed.protocol}`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('URL userinfo is not allowed');
+  }
+  return parsed;
+}
+
+async function fetchWithManualRedirects(url, options, timeoutMs) {
+  let current = validateHttpUrl(url);
+  let headers = { ...(options.headers || {}) };
+  let credentialed = headersHaveCredentials(headers) || urlHasCredentials(current.href);
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetch(current.href, {
+      ...options,
+      headers,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!REDIRECT_STATUSES.has(response.status)) return response;
+
+    const location = response.headers?.get?.('location');
+    try {
+      await response.body?.cancel?.('manual redirect');
+    } catch {
+      /* ignore response cleanup failure */
+    }
+    if (!location) {
+      throw new Error(`redirect without Location from ${current.origin}`);
+    }
+    if (hop >= MAX_REDIRECTS) {
+      throw new Error(`too many redirects (>${MAX_REDIRECTS})`);
+    }
+
+    const next = validateHttpUrl(location, current.href);
+    const crossOrigin = current.origin !== next.origin;
+    if (
+      crossOrigin &&
+      (credentialed || headersHaveCredentials(headers) || urlHasCredentials(next.href))
+    ) {
+      throw new Error(`credentialed cross-origin redirect blocked: ${next.origin}`);
+    }
+    if (current.protocol === 'https:' && next.protocol !== 'https:') {
+      throw new Error('HTTPS redirect downgrade blocked');
+    }
+    if (crossOrigin) headers = publicHeadersOnly(headers);
+    credentialed = credentialed || urlHasCredentials(next.href);
+    current = next;
+  }
+  throw new Error(`too many redirects (>${MAX_REDIRECTS})`);
+}
+
+async function fetchTextBounded(url, options = {}, overrides = requestOverrides) {
+  const limits = activeLimits(overrides);
+  const response = await fetchWithManualRedirects(url, options, limits.timeoutMs);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  return readResponseTextBounded(response, limits.maxBytes);
+}
+
+async function fetchJsonBounded(url, options = {}, overrides = requestOverrides) {
+  const text = await fetchTextBounded(url, options, overrides);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON response: ${error.message}`);
+  }
+}
 
 // ─── CLI Parser ──────────────────────────────────────────────────────────────
 
@@ -12,6 +194,8 @@ function parseArgs(argv) {
     query: null,
     limit: 10,
     out: null,
+    maxResponseBytes: null,
+    timeoutMs: null,
     selfTest: false
   };
 
@@ -22,11 +206,17 @@ function parseArgs(argv) {
     } else if (arg === '--query' && i + 1 < argv.length) {
       args.query = argv[++i];
     } else if (arg === '--limit' && i + 1 < argv.length) {
-      args.limit = parseInt(argv[++i], 10);
+      args.limit = parsePositiveInteger(argv[++i], '--limit');
     } else if (arg === '--out' && i + 1 < argv.length) {
       args.out = argv[++i];
     } else if (arg === '--self-test') {
       args.selfTest = true;
+    } else if (arg === '--max-response-bytes' && i + 1 < argv.length) {
+      args.maxResponseBytes = parsePositiveInteger(argv[++i], '--max-response-bytes');
+    } else if (arg === '--timeout-ms' && i + 1 < argv.length) {
+      args.timeoutMs = parsePositiveInteger(argv[++i], '--timeout-ms');
+    } else {
+      throw new Error(`Unknown or incomplete option: ${arg}`);
     }
   }
 
@@ -37,15 +227,9 @@ function parseArgs(argv) {
 
 async function searchDuckDuckGo(query, limit) {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  const response = await fetch(url, {
+  const html = await fetchTextBounded(url, {
     headers: { 'User-Agent': USER_AGENT }
   });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  const html = await response.text();
   const results = [];
 
   // Parse result links: look for class="result__a" href and text
@@ -88,15 +272,9 @@ async function searchDuckDuckGo(query, limit) {
 async function searchSearXNG(query, limit) {
   const instance = process.env.SEARXNG_INSTANCE || 'https://searx.be';
   const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json`;
-  const response = await fetch(url, {
+  const data = await fetchJsonBounded(url, {
     headers: { 'User-Agent': USER_AGENT }
   });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  const data = await response.json();
   if (!data || !Array.isArray(data.results)) {
     throw new Error('Unexpected response format: missing results array');
   }
@@ -118,18 +296,12 @@ async function searchBrave(query, limit) {
   }
 
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${limit}`;
-  const response = await fetch(url, {
+  const data = await fetchJsonBounded(url, {
     headers: {
       'User-Agent': USER_AGENT,
       'X-Subscription-Token': apiKey
     }
   });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  const data = await response.json();
   if (!data || !data.web || !Array.isArray(data.web.results)) {
     throw new Error('Unexpected response format: missing web.results array');
   }
@@ -160,15 +332,9 @@ async function searchGoogleCSE(query, limit) {
 
   const num = Math.min(limit, 10); // Google CSE max 10 per request
   const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${encodeURIComponent(cseKey)}&cx=${encodeURIComponent(cseId)}&num=${num}`;
-  const response = await fetch(url, {
+  const data = await fetchJsonBounded(url, {
     headers: { 'User-Agent': USER_AGENT }
   });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  const data = await response.json();
   if (!data || !Array.isArray(data.items)) {
     // Google CSE returns no items array when there are zero results
     if (data && data.searchInformation && data.searchInformation.totalResults === '0') {
@@ -195,7 +361,8 @@ async function runFallbackChain(query, limit) {
     const results = await searchDuckDuckGo(query, limit);
     return results;
   } catch (err) {
-    const msg = `[duckduckgo] ${err.message}`;
+    if (err instanceof ResourceLimitError) throw err;
+    const msg = `[duckduckgo] ${redactSecrets(err.message)}`;
     console.error(msg);
     failures.push(msg);
   }
@@ -205,7 +372,8 @@ async function runFallbackChain(query, limit) {
     const results = await searchSearXNG(query, limit);
     return results;
   } catch (err) {
-    const msg = `[searxng] ${err.message}`;
+    if (err instanceof ResourceLimitError) throw err;
+    const msg = `[searxng] ${redactSecrets(err.message)}`;
     console.error(msg);
     failures.push(msg);
   }
@@ -216,7 +384,8 @@ async function runFallbackChain(query, limit) {
       const results = await searchBrave(query, limit);
       return results;
     } catch (err) {
-      const msg = `[brave] ${err.message}`;
+      if (err instanceof ResourceLimitError) throw err;
+      const msg = `[brave] ${redactSecrets(err.message)}`;
       console.error(msg);
       failures.push(msg);
     }
@@ -228,7 +397,8 @@ async function runFallbackChain(query, limit) {
       const results = await searchGoogleCSE(query, limit);
       return results;
     } catch (err) {
-      const msg = `[google-cse] ${err.message}`;
+      if (err instanceof ResourceLimitError) throw err;
+      const msg = `[google-cse] ${redactSecrets(err.message)}`;
       console.error(msg);
       failures.push(msg);
     }
@@ -247,6 +417,8 @@ async function runFallbackChain(query, limit) {
 async function runSelfTest() {
   let passed = 0;
   let failed = 0;
+  const originalFetch = globalThis.fetch;
+  const originalEnv = { ...process.env };
 
   function assert(condition, label) {
     if (condition) {
@@ -257,9 +429,108 @@ async function runSelfTest() {
     }
   }
 
-  // Save original fetch and env
-  const originalFetch = globalThis.fetch;
-  const originalEnv = { ...process.env };
+  try {
+    parsePositiveInteger('12x', '--limit');
+    assert(false, 'strict integer parser rejects trailing junk');
+  } catch {
+    assert(true, 'strict integer parser rejects trailing junk');
+  }
+
+  try {
+    await readResponseTextBounded(
+      { headers: { get: () => '20' }, text: async () => 'small' },
+      10
+    );
+    assert(false, 'Content-Length cap is enforced');
+  } catch (error) {
+    assert(error instanceof ResourceLimitError, 'Content-Length cap is enforced');
+  }
+
+  process.env.GOOGLE_CSE_KEY = 'self-test-secret';
+  assert(
+    !redactSecrets('https://example.test/?key=self-test-secret').includes('self-test-secret'),
+    'query secrets are redacted'
+  );
+
+  // Credential headers are retained only for same-origin hops. A cross-origin
+  // redirect is rejected before the destination receives a request.
+  process.env.BRAVE_API_KEY = 'brave-redirect-secret';
+  let redirectCalls = [];
+  globalThis.fetch = async (url, options) => {
+    redirectCalls.push({ url: String(url), headers: { ...(options.headers || {}) }, redirect: options.redirect });
+    if (redirectCalls.length === 1) {
+      return {
+        ok: false,
+        status: 302,
+        headers: { get: (name) => name.toLowerCase() === 'location' ? '/same-origin' : null },
+        body: { cancel: async () => {} },
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ web: { results: [] } }),
+    };
+  };
+  try {
+    await searchBrave('redirect test', 1);
+    assert(redirectCalls.length === 2, 'same-origin redirect is followed manually');
+    assert(
+      redirectCalls.every((call) => call.redirect === 'manual'),
+      'every redirect hop uses manual mode'
+    );
+    assert(
+      redirectCalls[1]?.headers?.['X-Subscription-Token'] === 'brave-redirect-secret',
+      'credential header is preserved on same-origin redirect'
+    );
+  } catch (error) {
+    assert(false, `same-origin credential redirect succeeds: ${error.message}`);
+  }
+
+  redirectCalls = [];
+  globalThis.fetch = async (url, options) => {
+    redirectCalls.push({ url: String(url), headers: { ...(options.headers || {}) } });
+    return {
+      ok: false,
+      status: 302,
+      headers: { get: (name) => name.toLowerCase() === 'location' ? 'https://redirect.invalid/stolen' : null },
+      body: { cancel: async () => {} },
+    };
+  };
+  try {
+    await searchBrave('redirect test', 1);
+    assert(false, 'credentialed cross-origin redirect is blocked');
+  } catch (error) {
+    assert(
+      redirectCalls.length === 1 && /credentialed cross-origin redirect blocked/.test(error.message),
+      'credentialed cross-origin redirect is blocked before destination request'
+    );
+    assert(
+      !error.message.includes('brave-redirect-secret'),
+      'cross-origin redirect error does not expose credential'
+    );
+  }
+
+  let loopCalls = 0;
+  globalThis.fetch = async () => {
+    loopCalls++;
+    return {
+      ok: false,
+      status: 302,
+      headers: { get: (name) => name.toLowerCase() === 'location' ? '/loop' : null },
+      body: { cancel: async () => {} },
+    };
+  };
+  try {
+    await fetchTextBounded('https://loop.example/start');
+    assert(false, 'redirect loop is bounded');
+  } catch (error) {
+    assert(
+      loopCalls === MAX_REDIRECTS + 1 && /too many redirects/.test(error.message),
+      'redirect loop is bounded'
+    );
+  }
 
   // Mock HTML for DuckDuckGo
   const mockDdgHtml = `
@@ -509,6 +780,10 @@ async function runSelfTest() {
 
 async function main() {
   const args = parseArgs(process.argv);
+  requestOverrides = {
+    maxResponseBytes: args.maxResponseBytes,
+    timeoutMs: args.timeoutMs
+  };
 
   if (args.selfTest) {
     await runSelfTest();
@@ -517,7 +792,7 @@ async function main() {
 
   if (!args.query) {
     console.error('Error: --query is required');
-    console.error('Usage: web_search.mjs --query "<q>" [--engine duckduckgo|searxng|brave|google-cse] [--limit N] [--out <file>]');
+    console.error('Usage: web_search.mjs --query "<q>" [--engine duckduckgo|searxng|brave|google-cse] [--limit N] [--max-response-bytes N] [--timeout-ms N] [--out <file>]');
     console.error('       web_search.mjs --self-test');
     process.exit(1);
   }
@@ -544,7 +819,8 @@ async function main() {
           process.exit(1);
       }
     } catch (err) {
-      console.error(`[${args.engine}] ${err.message}`);
+      if (err instanceof ResourceLimitError) throw err;
+      console.error(`[${args.engine}] ${redactSecrets(err.message)}`);
       process.exit(1);
     }
   } else {
@@ -562,6 +838,18 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error(`Error: ${err.message}`);
+  if (err instanceof ResourceLimitError) {
+    console.error(JSON.stringify({
+      error: 'resource_limit',
+      code: 'http_response_bytes',
+      message: redactSecrets(err.message),
+      limit: err.limit,
+      observed: err.observed,
+      incomplete: true,
+      complete: false
+    }));
+    process.exit(3);
+  }
+  console.error(`Error: ${redactSecrets(err.message)}`);
   process.exit(1);
 });

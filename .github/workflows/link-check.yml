@@ -27,11 +27,13 @@ jobs:
     name: backticked internal refs
     runs-on: ubuntu-latest
     steps:
+      # actions/checkout@v7.0.0
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      # actions/setup-python@v6.3.0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.12"
 
@@ -45,11 +47,13 @@ jobs:
     name: lychee (markdown link integrity)
     runs-on: ubuntu-latest
     steps:
+      # actions/checkout@v7.0.0
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      # lycheeverse/lychee-action@v2.9.0
       - name: Run lychee
-        uses: lycheeverse/lychee-action@v2
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8
         with:
           # Scan every markdown file in the repo.
           # --no-progress: cleaner CI logs
@@ -67,11 +71,13 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
+      # actions/checkout@v7.0.0
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      # lycheeverse/lychee-action@v2.9.0
       - name: Run lychee against external URLs
-        uses: lycheeverse/lychee-action@v2
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8
         with:
           # External-only sweep: lower throughput, retries, and a generous
           # timeout to absorb transient flakes. This job is informational

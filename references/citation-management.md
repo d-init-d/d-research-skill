@@ -1,5 +1,17 @@
 # Citation Management
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Citation Data Model](#citation-data-model)
+- [BibTeX Export](#bibtex-export)
+- [RIS Export](#ris-export)
+- [Inline Citation Formats](#inline-citation-formats)
+- [DOI Enrichment](#doi-enrichment)
+- [Workflow](#workflow)
+- [Quality Checks](#quality-checks)
+- [See also](#see-also)
+
 This skill handles bibliographic references for academic writing, ensuring consistent formatting, proper metadata, and export to standard formats.
 
 ## When to Use
@@ -201,6 +213,11 @@ Available style aliases (short name → official CSL): `apa`, `apa7`,
 python3 scripts/citation_render.py list-styles
 ```
 
+An official CSL repository identifier may also be supplied directly when it is
+a lowercase alphanumeric slug separated by single hyphens. Paths, URL syntax,
+dot segments, encoded separators, and arbitrary cache filenames are rejected;
+use an existing local `.csl` path for custom files.
+
 If the agent is offline or downloads are disabled, the script will
 refuse to fetch a CSL file unless `--no-download` is omitted; in fully
 offline mode the script can still emit the BibTeX-as-prose default
@@ -232,15 +249,22 @@ curl "https://api.crossref.org/works/10.1234/example.doi"
 - `message.page` → pages
 - `message.abstract` → abstract
 
-**Enrichment from CrossRef**:
+**DOI enrichment with bounded provider fallback**:
 
-The bundled `scripts/citation_export.py` exposes an `enrich` subcommand that queries CrossRef for a single DOI (stdlib only, no `requests` dependency):
+The bundled `scripts/citation_export.py` exposes an `enrich` subcommand that
+queries CrossRef first and uses DataCite only when CrossRef returns 404/410 or a
+syntactically successful record without usable title metadata (stdlib only, no
+`requests` dependency):
 
 ```bash
 python3 scripts/citation_export.py enrich --doi 10.1234/example.doi
 ```
 
-It prints a JSON object with title, authors, year, journal, volume, issue, pages, and DOI extracted from the CrossRef `message` payload. Use it inline or wrap it in a loop to enrich every row in your evidence ledger before exporting:
+It prints a normalized JSON object with available title, authors, year,
+journal, volume, issue, pages, DOI, and resolver metadata. CrossRef
+HTTP/network/parse/resource-limit failures do not silently fall through to
+DataCite; they remain non-zero errors. Use the command inline or wrap it in a
+loop to enrich every row in your evidence ledger before exporting:
 
 ```bash
 # Pseudocode: enrich each DOI then re-export
@@ -352,3 +376,9 @@ if __name__ == "__main__":
     for err in validate_citations(sys.argv[1]):
         print(err)
 ```
+
+## See also
+
+- `adapters/citation-resolver.md`
+- `references/citation-graph.md`
+- `references/source-quality-rubric.md`

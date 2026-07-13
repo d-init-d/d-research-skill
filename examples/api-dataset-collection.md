@@ -1,50 +1,107 @@
-```markdown
-# Example: Collecting AI Research Papers Dataset
+---
+example_status: illustrative
+---
 
-## User Request
-"Collect a dataset of AI research papers from 2024-2026 using OpenAlex API, including title, authors, DOI, citation count, and abstract."
+# Example: collecting an OpenAlex paper dataset
 
-## Agent Behavior
+This example demonstrates the artifact contract and control flow. It does not
+claim that a live collection was run, and it deliberately contains no invented
+row counts or coverage percentage.
 
-### Step 1: Define Unit of Observation
-- **Unit**: One research paper (single work/publication)
-- **Granularity**: Each row = one publication record
+## Request
 
-### Step 2: Define Fields and Output Format
-| Field | Type | Source | Notes |
-|-------|------|--------|-------|
-| title | string | title | |
-| authors | string[] | authorships.display_name | Flatten to semicolon-separated |
-| doi | string | doi | |
-| citation_count | integer | cited_by_count | |
-| abstract | string | abstract_inverted_index | Reconstitute to plain text |
+Collect public OpenAlex works about artificial intelligence published from
+2024 through the actual run date. Return title, authors, DOI, citation count,
+publication date, type, and abstract when present.
 
-### Step 3: Call OpenAlex /works Endpoint
+## Intake and unit of observation
+
+- Shape: `dataset_collection` + `academic_research`
+- Unit: one OpenAlex work per row
+- Identity key: `openalex_id`; DOI is a secondary deduplication key
+- Freshness boundary: record the real run timestamp; never query future dates
+- Access: public API, read-only, rate-limit headers respected
+- Completion claim: prohibited unless pagination and coverage gates pass
+
+## Output schema
+
+The data file is UTF-8 CSV with this exact header:
+
+```csv
+openalex_id,title,authors,doi,cited_by_count,publication_date,work_type,abstract,source_url,date_accessed
 ```
-GET https://api.openalex.org/works?
-  filter=from_publication_date:2024-01-01,to_publication_date:2026-12-31,concepts.id:C29428257
-  &select=title,authorships,doi,cited_by_count,abstract_inverted_index
-  &per_page=200
+
+Supporting artifacts use the committed templates:
+
+- `templates/data-dictionary.csv`
+- `templates/data-package.json`
+- `templates/api-request-log.csv`
+- `templates/evidence-ledger.csv` (23-column canonical ledger)
+
+The data dictionary declares the source field, type, cleaning rule, and
+missingness computed from the final CSV. `missingness_pct` is calculated from
+actual rows; it is never estimated in prose.
+
+## Collection sequence
+
+1. Probe the API and record status/rate-limit headers.
+2. Build request parameters with a publication-date upper bound equal to the
+   run date.
+3. Fetch with cursor pagination and a conservative page/body cap.
+4. Write every request to `api-request-log.csv`, including cursor and status.
+5. Checkpoint the last committed cursor before requesting the next page.
+6. Normalize authors to a semicolon-separated display string.
+7. Reconstruct an abstract only when the source provides an inverted index.
+8. Normalize DOI values, but retain works without a DOI under `openalex_id`.
+9. Deduplicate first by `openalex_id`, then flag DOI collisions for review.
+10. Validate row types, URL schemes, date bounds, and package metadata.
+
+Example command shape:
+
+```bash
+node scripts/api_fetch.mjs \
+  --url "https://api.openalex.org/works" \
+  --params '{"search":"artificial intelligence","filter":"from_publication_date:2024-01-01","per-page":100}' \
+  --pagination cursor \
+  --cursor-key meta.next_cursor \
+  --max-pages 10 \
+  --out research-output/raw/openalex.json
 ```
 
-### Step 4: Paginate with Cursor
-- Extract `meta.next_cursor` from each response
-- Loop until cursor is null or rate limit hit
-- Store 2,847 papers across 15 pages
+The initial `--max-pages` value is a bounded pilot, not a completeness target.
+Raise it only after checking rate limits, response size, and the collection
+scope. If a page fails, the command must return incomplete metadata unless the
+caller explicitly accepts partial output.
 
-### Step 5: Process and Clean
-- Decode `abstract_inverted_index` to full text
-- Flatten `authorships` array to semicolon-separated string
-- Validate DOI format; skip 23 malformed records
-- Remove duplicates by DOI: 12 removed
+## Evidence and reporting
 
-### Step 6: Export Outputs
-- `ai_papers_2024_2026.csv` — 2,812 rows
-- `data_dictionary.md` — field definitions and provenance
-- `evidence_ledger.json` — API calls, timestamps, row counts
+Dataset rows are data, not automatically evidence claims. Important statements
+about scope, counts, exclusions, or field quality receive claim rows in
+`evidence-ledger.csv`; operational failures use `record_type=process` or
+`record_type=blocker`.
 
-### Step 7: Report
-- **Coverage**: Papers with OpenAlex concept "artificial intelligence" published 2024-2026
-- **Limitations**: Excludes non-indexed repositories, preprints without DOIs; ~85% recall
-- **Output**: 2,812 papers saved to `/datasets/`
+The final report derives, rather than hand-types:
+
+- total rows from parsed CSV records;
+- unique OpenAlex IDs and DOI collision counts;
+- page/request counts from `api-request-log.csv`;
+- date minimum/maximum from validated values;
+- field missingness from `data-dictionary.csv`; and
+- coverage gaps from stopped cursors, failed requests, and excluded records.
+
+Acceptable wording is “collected N validated rows within the declared API/query
+boundary.” Do not say “all AI papers” or assign a recall percentage without an
+independent coverage study.
+
+## Verification
+
+```bash
+python scripts/data_clean.py validate \
+  --file research-output/data/ai-papers.csv \
+  --schema research-output/data/ai-papers.schema.json
+python scripts/evidence_ledger.py validate \
+  --file evidence-ledger.csv
 ```
+
+Finish with the reproducibility and execution gates in
+`references/reproducibility-checklist.md` and `references/execution-gates.md`.

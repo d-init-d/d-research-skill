@@ -1,5 +1,16 @@
 # Specialized Data Sources
 
+## Contents
+
+- [Financial and Market Data](#financial-and-market-data)
+- [Patent and IP Data](#patent-and-ip-data)
+- [Legal and Regulatory](#legal-and-regulatory)
+- [Government and Statistics](#government-and-statistics)
+- [Social Media and News (Public Data Only)](#social-media-and-news-public-data-only)
+- [Geospatial Data](#geospatial-data)
+- [General Research Tips](#general-research-tips)
+- [See also](#see-also)
+
 This guide covers specialized data sources organized by domain, with API endpoints, access patterns, and workflow recommendations for comprehensive research tasks.
 
 ## Financial and Market Data
@@ -302,3 +313,9 @@ Formats: Shapefile, GeoPackage, R (spatial) formats
 4. **Respect terms**: Verify permitted uses before commercial application
 5. **Document methodology**: Note any cleaning, filtering, or transformation applied
 6. **Multiple sources**: Cross-validate critical findings with independent sources
+
+## See also
+
+- `references/academic-databases.md`
+- `references/api-access-workflow.md`
+- `references/safety-and-access-policy.md`
