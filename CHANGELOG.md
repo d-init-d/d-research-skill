@@ -90,8 +90,8 @@ installed-skill readiness gaps found after rc.1 preparation.
   search redirects now have explicit credential isolation; remaining fixed
   archive/academic endpoints retain a documented accepted-risk rationale.
 - **L-02:** GitHub Actions pin comments aligned to exact release tags that contain
-  the immutable 40-character SHAs (`checkout@v4.3.1`, `setup-python@v5.6.0`,
-  `setup-node@v4.4.0`, `upload-artifact@v4.6.2`, `lychee-action@v2.9.0`,
+  the immutable 40-character SHAs (`checkout@v7.0.0`, `setup-python@v6.3.0`,
+  `setup-node@v6.4.0`, `upload-artifact@v4.6.2`, `lychee-action@v2.9.0`,
   `attest-build-provenance@v2.4.0`).
 - npm package dry-runs are tracked-only and fail closed on local, sensitive, or
   evidence artifacts; explicit package exclusions keep generated Python bytecode
