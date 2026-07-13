@@ -8,9 +8,9 @@
       "adapters_markdown": 9,
       "examples_markdown": 9,
       "scripts_python": 35,
-      "scripts_node_top_level": 7,
+      "scripts_node_top_level": 8,
       "scripts_node_lib": 5,
-      "scripts_total": 47,
+      "scripts_total": 48,
       "templates_files": 14,
       "evidence_ledger_columns": 23
     },
@@ -21,6 +21,7 @@
       "README.vi.md",
       "docs/upgrade-v3.1.1-to-v3.2.0.md",
       "scripts/check_contract.py",
+      "scripts/package_manifest_check.mjs",
       "scripts/release_verify.py",
       "scripts/lib/browser_limits.mjs",
       "scripts/lib/browser_ssrf.mjs",
@@ -38,7 +39,7 @@
       "`references/` — 48 deep-dive guides",
       "# 48 deep-dive guides",
       "23 columns",
-      "47 small, self-contained files"
+      "48 small, self-contained files"
     ],
     "installation_contract": {
       "final_directory": "d-research",

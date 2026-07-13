@@ -36,12 +36,16 @@ Production/Stable) implementing remaining High/Medium plan items:
 
 ## Post-candidate transport/cache hard-fixes (this branch)
 
-Independent verification closed three regressions before dogfood:
+Independent verification closed four regressions before dogfood:
 
 - **F-06** bounded social transport (streaming pinned HTTPS; no unbounded
   `resp.read()` before `social_max_bytes`)
 - **F-07** generation cache body lifecycle + purge (Python + Node)
 - **F-08** `body_file` path containment (no absolute/traversal/symlink escape)
+- **F-09** package-boundary containment: explicit npm runtime allowlist plus
+  `npm run package:check` prevents untracked local MCP/browser state, release
+  evidence, credential-like files, Python caches, or incomplete runtime trees
+  from entering a release tarball
 
 Low findings:
 

@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **F-07 lineage:** Clean branch `grok/v3.2.0-stable-clean` is rooted at
   `661230a` and does **not** contain synthetic dogfood commits `8f61a7e` /
   `a7d28a0` in ancestry.
+- **Package boundary:** npm packaging now uses an explicit runtime allowlist;
+  `npm run package:check` rejects untracked files, local MCP/browser artifacts,
+  release evidence, credential-like files, Python caches, and omitted tracked
+  runtime files before a tarball can pass CI.
 
 ### Security
 
@@ -61,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the immutable 40-character SHAs (`checkout@v4.3.1`, `setup-python@v5.6.0`,
   `setup-node@v4.4.0`, `upload-artifact@v4.6.2`, `lychee-action@v2.9.0`,
   `attest-build-provenance@v2.4.0`).
+- npm package dry-runs are tracked-only and fail closed on local, sensitive, or
+  evidence artifacts; `.npmignore` provides defense-in-depth exclusions.
 
 ## [3.2.0-rc.1] - 2026-07-10
 

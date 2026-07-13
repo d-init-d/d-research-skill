@@ -15,6 +15,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via Crossref with DataCite fallback
 - `scripts/resource_limits.py`: conservative HTTP/file/Excel/PDF/OCR/subprocess/table/Wayback/social caps; structured incomplete blockers on violation
 - `scripts/check_contract.py`: dynamic version/config/path/count/CLI contract checks for release readiness
+- `scripts/package_manifest_check.mjs`: fail-closed npm tarball validation; rejects untracked/local/sensitive artifacts and missing tracked runtime files
 - `scripts/release_verify.py`: offline validation of exact-SHA GitHub Actions success, annotated GitHub-verified tag objects, and exact-commit reviewer approvals bound to the promotion SHA256
 - `scripts/_ssrf_helpers.py`: shared public-host / SSRF guard helpers (Python; DNS-pinned open for social)
 - `scripts/content_sanitize.py`: production HTML/visible-text extraction, secret redaction, hostile-source processing, safe download names (used by multi_extract + quality eval)
@@ -52,6 +53,7 @@ The scripts are optional. If dependencies are unavailable, follow the workflow m
 ## Verification entry points
 
 - `npm run self-test:node`: offline Node helper self-tests; CI runs this on Node 18/20/22.
+- `npm run package:check`: dry-run the npm tarball and require a tracked-only, secret-free, complete runtime manifest.
 - `npm run self-test:python`: offline Python helper and contract checks through the portable Node-to-Python wrapper (includes `quality_eval.py self-test`).
 - `npm run eval:quality`: held-out quality suite offline self-test (validate + integrity + hostile + fuzz + mutation + degraded + perf).
 - `npm run self-test`: complete offline Node + Python helper suite.

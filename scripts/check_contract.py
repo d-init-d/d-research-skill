@@ -464,6 +464,38 @@ def check_versions(root: Path = ROOT) -> list[str]:
     engines = pkg.get("engines") or {}
     if engines.get("node") != ">=18":
         errors.append('package.json engines.node must be ">=18"')
+
+    expected_package_files = {
+        "SKILL.md",
+        "AGENTS.md",
+        "README.md",
+        "README.vi.md",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "LICENSE",
+        "adapters/*.md",
+        "agents/*.yaml",
+        "docs/**/*.md",
+        "examples/**/*",
+        "references/**/*.md",
+        "references/i18n/*.json",
+        "scripts/*.py",
+        "scripts/*.mjs",
+        "scripts/lib/*.mjs",
+        "templates/*",
+        "pyproject.toml",
+        "research.config.example.json",
+    }
+    package_files = pkg.get("files")
+    if not isinstance(package_files, list) or set(package_files) != expected_package_files:
+        errors.append("package.json files must match the canonical publish allowlist")
+    scripts = pkg.get("scripts") or {}
+    if scripts.get("package:check") != "node scripts/package_manifest_check.mjs":
+        errors.append("package.json package:check must run package_manifest_check.mjs")
+    if "npm run package:check" not in str(scripts.get("self-test:node", "")):
+        errors.append("package manifest validation must be part of self-test:node")
+    if not (root / ".npmignore").is_file():
+        errors.append("missing .npmignore defense-in-depth exclusions")
     return errors
 
 

@@ -1,0 +1,14 @@
+.playwright-mcp/
+mcps/
+release-evidence/
+node_modules/
+research-output/
+.env
+.env.*
+*.log
+*.tgz
+**/__pycache__/**
+**/*.py[cod]
+**/.pytest_cache/**
+**/.ruff_cache/**
+**/.mypy_cache/**
