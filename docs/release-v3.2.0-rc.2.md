@@ -21,6 +21,26 @@ closes the independently reproduced gaps found after rc.1 preparation:
   manual redirects and reject cross-origin leakage before the next request.
 - Python HTTPS connects require the normalized peer to belong to the
   DNS-validated address set before TLS.
+- Node and Python use one deterministic IPv6 public-destination policy:
+  IPv4-mapped addresses use the embedded IPv4 policy, addresses outside
+  `2000::/3` fail closed, and translation/non-public GUA ranges are blocked.
+  The policy is independent of version-drifting runtime address tables.
+- Node `fetchPublicHttp` omits TLS SNI for IP literals, retains DNS SNI, and
+  always binds `Host` from the validated URL (caller `Host`/`HOST` stripped on
+  every hop; IPv6 brackets and non-default ports retained). Connected peers are
+  canonicalized before DNS-set membership. Self-tests exercise immediate and
+  delayed (`connecting` then `connect`) production socket peer gates. Malformed
+  peer, bracket/scope/whitespace variants, and IPv6 fallback forms fail closed.
+  Abnormal upstream statuses that
+  cannot construct a Fetch `Response` (e.g. 600) reject the promise without
+  process crash; null-body/HEAD responses drain their network message and cap
+  observable bytes without rejecting valid `HEAD`/`304` representation lengths.
+  Their TCP connections are retired because Node hides post-header bytes for
+  parser-defined null-body responses.
+- Python `_pinned_https_open` uses the same URL-derived Host rule (bracketed
+  IPv6 authority) and a shared `_assert_connected_peer` on both production and
+  the injectable test transport (which must supply `peer_ip`). Explicit port
+  `0` remains distinct from the default HTTPS port in transport and origin logic.
 - Failed atomic Python cache publication returns failure rather than a phantom
   cache key; purge-all also fails on real locked artifacts or enumeration
   errors while ignoring only confirmed Windows directory tombstones.

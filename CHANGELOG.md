@@ -48,7 +48,7 @@ installed-skill readiness gaps found after rc.1 preparation.
   HTML text path), not evaluator-local helpers as the sole SUT.
 - **F-05 / direct HTTP SSRF:** `api_fetch.mjs` uses connection-bound
   `fetchPublicHttp` (validate DNS → connect to validated IP → peer re-check;
-  Host/SNI preserved). Rebinding / mixed DNS / peer mismatch covered in
+  URL-derived Host + DNS SNI). Rebinding / mixed DNS / peer mismatch covered in
   `ssrf_guards.mjs` self-test.
 - **Browser SSRF:** arbitrary browser URLs are fail-closed by default (not
   accepted-risk). Local fixture loopback only via
@@ -82,9 +82,66 @@ installed-skill readiness gaps found after rc.1 preparation.
   synthesis terminal tasks, and enforce exact release outputs/claim coverage.
 - **Cache publish semantics:** Python cache writes no longer report a successful
   key when atomic publication fails.
+- **Deterministic cross-runtime SSRF IPv6 policy:** Node and Python share an
+  explicit policy rather than runtime-dependent address tables. IPv4-mapped
+  destinations use the embedded IPv4 policy; IPv6 fails closed outside
+  `2000::/3`; translation prefixes and non-public GUA ranges (`2001::/23`,
+  `2001:db8::/32`, `2002::/16`, `3fff::/20`) are blocked. Hermetic matrices
+  cover compressed, expanded, mapped, malformed, and public control forms on
+  supported runtimes.
+- **Node HTTPS SNI and peer verification:** IP literals omit SNI while DNS
+  names preserve it; IPv6 `Host` headers retain brackets and non-default ports.
+  Connected peers are canonicalized across IPv4, mapped IPv4, and equivalent
+  IPv6 spellings, then checked against the DNS-validated set. Tests emit the
+  production `socket` event and execute the real peer gate instead of injecting
+  expected error text. Missing or malformed peers fail closed.
+- **URL-derived Host binding (Host rebinding blocker):** Node `fetchPublicHttp`
+  and Python `_pinned_https_open` strip every caller-provided case-insensitive
+  `Host` key and always set exactly one RFC-correct `Host` from the validated
+  current URL hop (IPv6 bracketed; non-default ports retained). Hostile
+  `Host`/`HOST` values cannot select an internal virtual host after a public
+  connect. Hermetic tests cover DNS, IPv4, IPv6±port, and multi-casing overrides.
+- **Explicit port fidelity (Python):** port `0` is no longer collapsed to the
+  default HTTPS port during pinned connect or redirect-origin comparison; the
+  transport and URL-derived `Host` now use the same explicit authority.
+- **Python preflight and seam cleanup:** malformed/out-of-range URL ports fail
+  before DNS, and rejected/wrong-arity injected transports close returned
+  response/connection resources instead of leaking test sockets.
+- **Shared production peer validation (Python test seam):** `_assert_connected_peer`
+  is the single fail-closed gate on both production connect and
+  `_TEST_PINNED_TRANSPORT`. The injectable transport must return
+  `(response, connection, peer_ip)`; wrong arity, missing, malformed, private,
+  or mismatched peers reject. Canonical IPv6 and IPv4-mapped equivalence is
+  covered through the production assertion path.
+- **Node delayed-connect coverage:** self-tests exercise
+  `socket.connecting === true` then the `connect` event so production
+  `assertConnectedPeer` runs on both immediate and delayed connect branches.
+- **Strict connected-peer syntax:** peer and DNS-set membership no longer
+  repairs whitespace, bracketed authorities, or IPv6 scope identifiers before
+  comparison. Malformed/scoped values fail closed; valid public IPv4, IPv6,
+  and IPv4-mapped equivalence remains supported.
+- **Abnormal HTTP status crash hardening:** nonstandard upstream statuses
+  (e.g. `600`) that throw inside Fetch `Response` construction now reject the
+  `fetchPublicHttp` promise, destroy/drain the message safely, and never escape
+  as an uncaught exception. Null-body 204/205/304 responses explicitly drain
+  their underlying message before resolution so sockets do not remain busy,
+  abort remains effective, and observable protocol-violating bodies still obey
+  byte caps. Because Node deliberately hides bytes after HEAD/204/304, all
+  HEAD/204/205/304 connections are retired instead of returned to the pool.
+  `HEAD`/`304` representation `Content-Length` metadata no longer triggers a
+  false body-cap rejection. Normal status behavior is retained.
+- **Abort listener lifecycle:** connection-bound fetches remove per-request
+  abort listeners on rejection, null-body completion, body end/error/close,
+  cancellation, and resource-limit termination, preventing retained request
+  and socket closures when a signal is reused.
 
 ### Security
 
+- Node public-destination parsing now rejects IPv4-compatible private IPv6,
+  dummy/site-local/SRv6/reserved space, invalid zero-width `::` compression,
+  and non-canonical dotted tails with leading-zero octets. DNS pinning, peer
+  membership, TLS identity, URL-derived Host binding, and redirect gates remain
+  fail-closed.
 - Inventory `docs/ssrf-helper-inventory.md` updated: browser arbitrary seeds are
   **Protected (fail-closed)**, not accepted-risk. Translation, embedding, and
   search redirects now have explicit credential isolation; remaining fixed
