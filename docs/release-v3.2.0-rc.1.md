@@ -10,8 +10,12 @@ Production/Stable) implementing remaining High/Medium plan items:
 - API/robots/credential isolation
 - Social snapshot 1.1 (Wayback lookup-only by default)
 - Scoring v2: `automated_band` / `review_status` / `final_reviewed_confidence`
-- Eval schema 2.0: canonical per-task run manifests, multipart assertions,
+- Eval run-result/score schema 2.1: canonical per-task manifests, hashed raw
+  prompt/output/ledger provenance, unique run/session IDs, multipart assertions,
   source recall, assertion accuracy, safety result, and honest run-status counts
+- Promotion run-manifest schema 1.1: exact candidate SHA, unique run/session
+  IDs, strict finite JSON metrics, hashed consumed artifacts, live-provenance
+  declaration, blind-label checks, and candidate-bound deterministic logs
 - Citation Crossref to DataCite fallback, BibTeX escape, year normalization
 - Resource limits (HTTP/Excel/PDF/OCR/subprocess/table/Wayback/social)
   with environment and per-command CLI overrides; violations fail closed with
@@ -82,7 +86,8 @@ the versioned evidence directory.
 
 1. Commit the RC candidate. Run Tier 1 and Tier 2 once at the `v3.1.1` tag and
    once at that exact candidate commit, using one identical agent/model/tool
-   configuration. Every task must have a schema-2.0 `run-result.json` and
+   configuration. Every task must have a schema-2.1 `run-result.json`, hashed
+   raw prompt/output/ledger artifacts, unique run/session identities, and
    `not_run` must be zero.
 2. Generate these four score files with `scripts/run_dogfood.py score-all` and
    place them under `release-evidence/v3.2.0/`: Tier-1 baseline, Tier-1
@@ -95,12 +100,14 @@ the versioned evidence directory.
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "release_version": "3.2.0",
   "baseline_version": "3.1.1",
   "candidate_version": "3.2.0-rc.1",
   "baseline_skill_commit": "40-character lowercase commit SHA for v3.1.1",
   "candidate_skill_commit": "40-character lowercase candidate commit SHA",
+  "candidate_tag": "v3.2.0-rc.1",
+  "candidate_tag_object_sha": "40-character annotated RC tag-object SHA",
   "generated_at": "timezone-aware RFC3339 timestamp",
   "tiers": {
     "tier1": {
@@ -116,29 +123,59 @@ the versioned evidence directory.
 }
 ```
 
-5. After an independent reviewer checks the comparisons, create the sign-off.
-   Its `promotion_manifest_sha256` must be the SHA256 of the final, unchanged
-   `promotion.json`:
+5. Create the sign-off declaration before the final stable commit. Its
+   `promotion_manifest_sha256` must be the SHA256 of the final, unchanged
+   `promotion.json`. Declare the PR and independent GitHub reviewer that will
+   attest the exact final commit:
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "release_version": "3.2.0",
   "decision": "approved",
   "reviewer": {"name": "reviewer name", "role": "reviewer role"},
   "reviewed_at": "timezone-aware RFC3339 timestamp after generated_at",
-  "promotion_manifest_sha256": "sha256:64-lowercase-hex"
+  "promotion_manifest_sha256": "sha256:64-lowercase-hex",
+  "attestation": {
+    "type": "github_verified_pull_request_review",
+    "repository": "d-init-d/d-research-skill",
+    "pull_request_number": 7,
+    "reviewer_login": "independent-reviewer-login"
+  }
 }
 ```
 
-6. Commit the evidence and stable metadata, then run the contract against the
-   same commits that the release workflow will resolve:
+6. Commit the evidence and stable metadata. The stable commit may differ from
+   the dogfooded RC only in the field-level version/classifier transformation,
+   release notes, README version text, and versioned release evidence.
+   `package.json` scripts/dependencies, the npm lock graph, and pyproject build
+   backend/requirements/dependencies remain frozen. Run both post-RC checks:
+
+```bash
+git diff --name-only "$(git rev-parse 'refs/tags/v3.2.0-rc.1^{commit}')" HEAD > changed.txt
+python scripts/check_contract.py --validate-post-rc-paths changed.txt --release-version 3.2.0
+python scripts/check_contract.py \
+  --validate-post-rc-metadata "$(git rev-parse 'refs/tags/v3.2.0-rc.1^{commit}')" \
+  --release-version 3.2.0
+```
+
+7. Push the final commit and require the full `lint-and-self-test.yml` workflow
+   to finish successfully on that exact SHA. The PR author cannot approve their
+   own promotion. The declared reviewer must submit an `APPROVED` GitHub review
+   on the exact final commit, with this line in the review body:
+
+```text
+D-Research-Promotion-SHA256: sha256:64-lowercase-hex
+```
+
+8. Run the contract against the same refs that the release workflow resolves:
 
 ```bash
 python scripts/check_contract.py \
   --release-tag v3.2.0 \
   --candidate-commit "$(git rev-parse 'refs/tags/v3.2.0-rc.1^{commit}')" \
-  --baseline-commit "$(git rev-parse 'refs/tags/v3.1.1^{commit}')"
+  --baseline-commit "$(git rev-parse 'refs/tags/v3.1.1^{commit}')" \
+  --candidate-tag-object "$(git rev-parse 'refs/tags/v3.2.0-rc.1^{tag}')"
 ```
 
 The score hashes, score-level `skill_commit` values, promotion commits,
@@ -155,5 +192,14 @@ git push origin v3.2.0-rc.1
 
 Do not use a lightweight tag. A tag whose signature GitHub cannot verify is
 rejected before any release artifact is built.
+
+The source-archive workflow verifies both the RC and stable annotated tag
+objects through GitHub's authenticated API, then queries Actions for a
+successful full-CI run at the exact release SHA and queries the declared PR for
+the exact-commit approval. It refuses missing, failing, mismatched, paginated,
+or malformed API results before upload or provenance attestation. The remaining
+trust boundary is GitHub's authenticated API, repository membership metadata,
+and account security; the repository does not treat an HMAC or a reviewer name
+string as independent approval.
 
 See `CHANGELOG.md` for Added / Changed / Fixed / Compatibility.

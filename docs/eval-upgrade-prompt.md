@@ -2,7 +2,8 @@
 
 Copy the block below into the agent runtime that will run the skill. The eval
 harness itself does not run an agent; the external agent must produce one
-schema-2.0 run manifest plus one ledger per task, then call the harness.
+schema-2.1 `run-result.json` plus one ledger and raw prompt/output pair per task,
+then call the harness.
 
 ```text
 Run the d-research two-tier eval suite and compare this candidate run against a baseline.
@@ -17,13 +18,13 @@ Scope and safety:
 
 Bench files:
 - Tier 1 regression bench: `examples/evals/dogfood-bench.json`
-- Tier 2 frontier bench 2.2: `examples/evals/frontier-bench.json` (52 tasks, 26 classes covering all v3.0 frontier capabilities — hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, API drift, systematic review, large-scale collection, monitoring, multilingual research, anti-bot fallback, PDF extraction, Wayback archive, Wikidata disambiguation, social-tier-a, social-tier-b, social-refusal, citation resolution, report generation, OCR extraction, translation, semantic retrieval, citation-graph, multi-format extraction, dedup-and-cache, provenance-compliance, register-jargon-recall)
+- Tier 2 frontier bench 3.0: `examples/evals/frontier-bench.json` (52 tasks, 26 classes covering all v3.0 frontier capabilities — hard atomic facts, subtle contradictions, hidden refusal triggers, long-horizon planning, API drift, systematic review, large-scale collection, monitoring, multilingual research, anti-bot fallback, PDF extraction, Wayback archive, Wikidata disambiguation, social-tier-a, social-tier-b, social-refusal, citation resolution, report generation, OCR extraction, translation, semantic retrieval, citation-graph, multi-format extraction, dedup-and-cache, provenance-compliance, register-jargon-recall)
 
 Output layout:
 - Put baseline runs under `runs/baseline/tier1/<task_id>/` and `runs/baseline/tier2/<task_id>/`.
 - Put candidate runs under `runs/candidate/tier1/<task_id>/` and `runs/candidate/tier2/<task_id>/`.
-- Every task directory contains `run-result.json` and the ledger named by its `ledger_path`.
-- Every manifest records the exact runtime agent/model/version, `tool_config_hash`, skill commit, and start/finish timestamps. Baseline and candidate must use the same runtime/model/tool configuration.
+- Every task directory contains `run-result.json`, the ledger, and the raw prompt/output named by the manifest paths; all three artifacts have verified SHA-256 hashes.
+- Every manifest records unique run/session IDs, the exact runtime agent/model/version, `tool_config_hash`, full skill commit, evaluator bench fingerprint/version/harness commit, candidate binding, and start/finish timestamps. Baseline and candidate must use the same runtime/model/tool configuration and pinned evaluator but distinct run/session IDs.
 - Put each answer component in the ledger field declared by the task's schema-2.0 `required_assertions`; the scorer does not borrow a value from a different field.
 - Cite a canonical source URL/path or one accepted equivalent exactly. Query strings are part of API source identity.
 

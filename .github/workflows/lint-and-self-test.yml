@@ -63,6 +63,7 @@ jobs:
             bench_harness_check.py
             run_metadata.py
             harvest_terms.py
+            release_verify.py
             resource_limits.py
           )
           python scripts/_ssrf_helpers.py

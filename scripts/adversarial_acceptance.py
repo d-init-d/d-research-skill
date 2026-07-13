@@ -405,7 +405,7 @@ def case_16_empty_dogfood_zero_pass() -> None:
         else:
             tasks = data.get("tasks")
             counts = data.get("counts")
-            ok = ok and data.get("schema_version") == "2.0"
+            ok = ok and data.get("schema_version") == "2.1"
             ok = ok and isinstance(tasks, list) and len(tasks) == 12
             ok = ok and isinstance(counts, dict)
             if isinstance(counts, dict):
@@ -444,7 +444,16 @@ def case_20_cache_variants() -> None:
     r = run_py([str(SCRIPTS / "http_cache.py"), "self-test"])
     r2 = run_node([str(SCRIPTS / "lib" / "http_cache.mjs"), "--self-test"])
     ok = r.returncode == 0 and r2.returncode == 0
-    record("20_range_vary_cache_variants", ok)
+    detail = f"python_rc={r.returncode} node_rc={r2.returncode}"
+    if not ok:
+        diagnostic = " | ".join(
+            part.strip()[-300:]
+            for part in (r.stdout, r.stderr, r2.stdout, r2.stderr)
+            if part.strip()
+        )
+        if diagnostic:
+            detail += f" diagnostic={diagnostic}"
+    record("20_range_vary_cache_variants", ok, detail)
 
 
 def case_21_social_localhost_verify_fail() -> None:

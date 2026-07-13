@@ -25,6 +25,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 import tempfile
 from datetime import datetime
@@ -127,6 +128,181 @@ def validate_post_rc_changed_paths(
         if not is_allowed_post_rc_change(path, release_version):
             errors.append(f"non-promotion change after dogfooded RC: {path}")
     return errors
+
+
+def _strict_json_bytes(raw: bytes, label: str) -> dict:
+    """Decode one JSON object while rejecting duplicate keys."""
+
+    def no_duplicates(pairs: list[tuple[str, object]]) -> dict:
+        result: dict = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{label} contains duplicate key {key!r}")
+            result[key] = value
+        return result
+
+    def no_nonfinite(value: str) -> None:
+        raise ValueError(f"{label} contains non-finite JSON number {value!r}")
+
+    value = json.loads(
+        raw.decode("utf-8"),
+        object_pairs_hook=no_duplicates,
+        parse_constant=no_nonfinite,
+    )
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must contain a JSON object")
+    return value
+
+
+def _normalized_pyproject_for_promotion(
+    raw: bytes,
+    *,
+    expected_version: str,
+    stable: bool,
+) -> str:
+    """Normalize only the two pyproject fields permitted at promotion."""
+    text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    section = None
+    version_matches: list[re.Match[str]] = []
+    for match in re.finditer(
+        r"(?m)^(?P<section>\[[^\]\n]+\])\s*$|^(?P<version>\s*version\s*=\s*\"(?P<version_value>[^\"]+)\"\s*)$",
+        text,
+    ):
+        if match.group("section"):
+            section = match.group("section")
+        elif match.group("version") and section == "[project]":
+            version_matches.append(match)
+    if len(version_matches) != 1:
+        raise ValueError("pyproject.toml must contain exactly one [project].version")
+    version_match = version_matches[0]
+    found_version = version_match.group("version_value")
+    if _normalize_version(found_version) != _normalize_version(expected_version):
+        raise ValueError(
+            f"pyproject.toml project.version {found_version!r} does not match {expected_version!r}"
+        )
+
+    beta = "Development Status :: 4 - Beta"
+    production = "Development Status :: 5 - Production/Stable"
+    required = production if stable else beta
+    forbidden = beta if stable else production
+    if text.count(required) != 1 or forbidden in text:
+        state = "Production/Stable" if stable else "Beta"
+        raise ValueError(f"pyproject.toml must contain exactly the {state} classifier")
+    normalized = (
+        text[: version_match.start("version_value")]
+        + "__PROMOTION_VERSION__"
+        + text[version_match.end("version_value") :]
+    )
+    return normalized.replace(required, "__PROMOTION_STATUS__", 1)
+
+
+def validate_post_rc_metadata(
+    candidate_contents: dict[str, bytes],
+    release_root: Path,
+    release_version: str,
+) -> list[str]:
+    """Permit only semantic RC-to-stable metadata transformations.
+
+    JavaScript lifecycle scripts, dependencies, the npm lock graph, Python
+    dependencies, and build-system configuration are executable supply-chain
+    inputs and therefore remain frozen at the dogfooded RC.
+    """
+    if not _PACKAGE_VERSION_RE.fullmatch(release_version) or "-rc." in release_version:
+        return [f"post-RC metadata check requires a stable X.Y.Z version, got {release_version!r}"]
+    required = ("package.json", "package-lock.json", "pyproject.toml")
+    errors: list[str] = []
+    missing = [name for name in required if name not in candidate_contents]
+    if missing:
+        return [f"candidate metadata is missing: {', '.join(missing)}"]
+    try:
+        candidate_package = _strict_json_bytes(candidate_contents["package.json"], "RC package.json")
+        release_package = _strict_json_bytes(
+            (release_root / "package.json").read_bytes(), "stable package.json"
+        )
+        candidate_lock = _strict_json_bytes(
+            candidate_contents["package-lock.json"], "RC package-lock.json"
+        )
+        release_lock = _strict_json_bytes(
+            (release_root / "package-lock.json").read_bytes(), "stable package-lock.json"
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return [f"post-RC metadata is unreadable: {exc}"]
+
+    candidate_version = candidate_package.get("version")
+    if not isinstance(candidate_version, str) or not re.fullmatch(
+        re.escape(release_version) + r"-rc\.\d+", candidate_version
+    ):
+        errors.append(
+            "RC package.json version must be a prerelease of the stable release line"
+        )
+    if release_package.get("version") != release_version:
+        errors.append("stable package.json version does not match --release-version")
+    candidate_package["version"] = "__PROMOTION_VERSION__"
+    release_package["version"] = "__PROMOTION_VERSION__"
+    if candidate_package != release_package:
+        errors.append(
+            "package.json changed beyond version; scripts, dependencies, engines, and metadata are frozen"
+        )
+
+    def normalize_lock(lock: dict, expected: str, label: str) -> None:
+        if lock.get("version") != expected:
+            errors.append(f"{label} top-level version does not match its package version")
+        packages = lock.get("packages")
+        if not isinstance(packages, dict) or not isinstance(packages.get(""), dict):
+            errors.append(f"{label} must contain packages['']")
+            return
+        if packages[""].get("version") != expected:
+            errors.append(f"{label} packages[''].version does not match its package version")
+        lock["version"] = "__PROMOTION_VERSION__"
+        packages[""]["version"] = "__PROMOTION_VERSION__"
+
+    if isinstance(candidate_version, str):
+        normalize_lock(candidate_lock, candidate_version, "RC package-lock.json")
+    normalize_lock(release_lock, release_version, "stable package-lock.json")
+    if candidate_lock != release_lock:
+        errors.append(
+            "package-lock.json changed beyond root version; dependency and lock graph are frozen"
+        )
+
+    try:
+        candidate_pyproject = _normalized_pyproject_for_promotion(
+            candidate_contents["pyproject.toml"],
+            expected_version=str(candidate_version),
+            stable=False,
+        )
+        release_pyproject = _normalized_pyproject_for_promotion(
+            (release_root / "pyproject.toml").read_bytes(),
+            expected_version=release_version,
+            stable=True,
+        )
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        errors.append(f"pyproject.toml promotion metadata invalid: {exc}")
+    else:
+        if candidate_pyproject != release_pyproject:
+            errors.append(
+                "pyproject.toml changed beyond version and Beta-to-Production classifier; "
+                "dependencies and build-system are frozen"
+            )
+    return errors
+
+
+def _git_candidate_metadata(root: Path, candidate_ref: str) -> dict[str, bytes]:
+    """Read frozen metadata blobs from an already-fetched candidate ref."""
+    if not candidate_ref or candidate_ref.startswith("-"):
+        raise ValueError("candidate ref must be non-empty and must not start with '-'")
+    result: dict[str, bytes] = {}
+    for path in ("package.json", "package-lock.json", "pyproject.toml"):
+        completed = subprocess.run(
+            ["git", "show", f"{candidate_ref}:{path}"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.decode("utf-8", errors="replace").strip()
+            raise ValueError(f"cannot read {path} from candidate ref {candidate_ref!r}: {detail}")
+        result[path] = completed.stdout
+    return result
 
 
 def _load_json(path: Path):
@@ -387,6 +563,7 @@ def check_stable_release_evidence(
     *,
     expected_candidate_commit: str | None = None,
     expected_baseline_commit: str | None = None,
+    expected_candidate_tag_object: str | None = None,
 ) -> list[str]:
     """Require real, reviewer-approved live eval artefacts for stable metadata.
 
@@ -429,8 +606,8 @@ def check_stable_release_evidence(
     if not isinstance(promotion, dict):
         return ["stable promotion manifest must be a JSON object"]
 
-    if promotion.get("schema_version") != "1.0":
-        errors.append("stable promotion manifest schema_version must be '1.0'")
+    if promotion.get("schema_version") != "1.1":
+        errors.append("stable promotion manifest schema_version must be '1.1'")
     if promotion.get("release_version") != package_version:
         errors.append("stable promotion manifest release_version must match package version")
     for field, contract_key in (
@@ -443,6 +620,27 @@ def check_stable_release_evidence(
         elif promotion.get(field) != expected:
             errors.append(
                 f"stable promotion {field} must be {expected!r}, got {promotion.get(field)!r}"
+            )
+
+    candidate_version = gate.get("required_candidate_version")
+    expected_candidate_tag = (
+        f"v{candidate_version}" if isinstance(candidate_version, str) else None
+    )
+    if promotion.get("candidate_tag") != expected_candidate_tag:
+        errors.append(
+            f"stable promotion candidate_tag must be {expected_candidate_tag!r}"
+        )
+    candidate_tag_object = promotion.get("candidate_tag_object_sha")
+    if not isinstance(candidate_tag_object, str) or not _FULL_COMMIT_RE.fullmatch(
+        candidate_tag_object
+    ):
+        errors.append("stable promotion candidate_tag_object_sha must be a full lowercase SHA")
+    elif expected_candidate_tag_object is not None:
+        if not _FULL_COMMIT_RE.fullmatch(expected_candidate_tag_object):
+            errors.append("release workflow candidate tag object binding must be a full SHA")
+        elif candidate_tag_object != expected_candidate_tag_object:
+            errors.append(
+                "stable promotion candidate_tag_object_sha must match the annotated RC tag object"
             )
 
     generated_at = _parse_rfc3339(promotion.get("generated_at"))
@@ -577,7 +775,22 @@ def check_stable_release_evidence(
             if runtime_signature is None:
                 errors.append(f"{label} has no verifiable runtime signature")
             else:
-                runtime_signatures.add(runtime_signature)
+                # The harness signature also binds the tier-specific evaluator
+                # fingerprint. Stable promotion requires one runtime across
+                # tiers, while each tier necessarily has a different bench.
+                try:
+                    signature_data = json.loads(runtime_signature)
+                except json.JSONDecodeError:
+                    runtime_signatures.add(runtime_signature)
+                else:
+                    runtime_only = (
+                        signature_data.get("runtime")
+                        if isinstance(signature_data, dict)
+                        else signature_data
+                    )
+                    runtime_signatures.add(
+                        json.dumps(runtime_only, sort_keys=True, separators=(",", ":"))
+                    )
 
             commit = _score_commit(score, label, errors)
             expected_commit = expected_commits.get(f"{side}_skill_commit")
@@ -641,8 +854,8 @@ def check_stable_release_evidence(
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             errors.append(f"stable reviewer sign-off is unreadable: {exc}")
         else:
-            if signoff.get("schema_version") != "1.0":
-                errors.append("stable reviewer sign-off schema_version must be '1.0'")
+            if signoff.get("schema_version") != "1.1":
+                errors.append("stable reviewer sign-off schema_version must be '1.1'")
             if signoff.get("release_version") != package_version:
                 errors.append("stable reviewer sign-off release_version mismatch")
             if signoff.get("decision") != "approved":
@@ -663,6 +876,33 @@ def check_stable_release_evidence(
                 errors.append(
                     "stable reviewer sign-off must bind the exact promotion manifest SHA256"
                 )
+            attestation = signoff.get("attestation")
+            attestation_contract = gate.get("reviewer_attestation")
+            if not isinstance(attestation_contract, dict):
+                errors.append("stable_release_gate.reviewer_attestation must be an object")
+            elif not isinstance(attestation, dict):
+                errors.append("stable reviewer sign-off requires a verifiable attestation")
+            else:
+                expected_type = attestation_contract.get("type")
+                expected_repository = attestation_contract.get("repository")
+                if attestation.get("type") != expected_type:
+                    errors.append(
+                        f"stable reviewer attestation type must be {expected_type!r}"
+                    )
+                if attestation.get("repository") != expected_repository:
+                    errors.append(
+                        "stable reviewer attestation repository must match the release contract"
+                    )
+                pull_request = attestation.get("pull_request_number")
+                if not isinstance(pull_request, int) or isinstance(pull_request, bool) or pull_request < 1:
+                    errors.append(
+                        "stable reviewer attestation pull_request_number must be a positive integer"
+                    )
+                reviewer_login = attestation.get("reviewer_login")
+                if not isinstance(reviewer_login, str) or not reviewer_login.strip():
+                    errors.append(
+                        "stable reviewer attestation reviewer_login must be non-empty"
+                    )
 
     return errors
 
@@ -1026,6 +1266,43 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
             value = stable_gate.get(key)
             if not isinstance(value, str) or not _PACKAGE_VERSION_RE.fullmatch(value):
                 errors.append(f"stable_release_gate.{key} must be a release version")
+        full_ci = stable_gate.get("full_ci")
+        if not isinstance(full_ci, dict):
+            errors.append("stable_release_gate.full_ci must be an object")
+        else:
+            if full_ci.get("workflow_path") != ".github/workflows/lint-and-self-test.yml":
+                errors.append("stable_release_gate.full_ci.workflow_path is invalid")
+            if full_ci.get("exact_release_sha") is not True:
+                errors.append("stable_release_gate.full_ci must require exact_release_sha")
+            if full_ci.get("required_conclusion") != "success":
+                errors.append("stable_release_gate.full_ci must require conclusion success")
+        candidate_tag_contract = stable_gate.get("candidate_tag")
+        if not isinstance(candidate_tag_contract, dict) or any(
+            candidate_tag_contract.get(key) is not True
+            for key in ("annotated", "github_verified", "bind_tag_object_sha")
+        ):
+            errors.append(
+                "stable_release_gate.candidate_tag must require annotated, GitHub-verified, "
+                "tag-object-bound RC tags"
+            )
+        reviewer_attestation = stable_gate.get("reviewer_attestation")
+        if not isinstance(reviewer_attestation, dict):
+            errors.append("stable_release_gate.reviewer_attestation must be an object")
+        else:
+            if reviewer_attestation.get("type") != "github_verified_pull_request_review":
+                errors.append("stable_release_gate reviewer attestation type is invalid")
+            if reviewer_attestation.get("repository") != "d-init-d/d-research-skill":
+                errors.append("stable_release_gate reviewer attestation repository is invalid")
+            if reviewer_attestation.get("bind_exact_release_sha") is not True:
+                errors.append("reviewer attestation must bind the exact release SHA")
+            if reviewer_attestation.get("bind_promotion_sha256") is not True:
+                errors.append("reviewer attestation must bind the promotion SHA256")
+            if reviewer_attestation.get("trusted_associations") != [
+                "OWNER",
+                "MEMBER",
+                "COLLABORATOR",
+            ]:
+                errors.append("reviewer attestation trusted associations are invalid")
         stable_tiers = stable_gate.get("tiers")
         if not isinstance(stable_tiers, dict) or set(stable_tiers) != {"tier1", "tier2"}:
             errors.append("stable_release_gate.tiers must define exactly tier1 and tier2")
@@ -1064,6 +1341,11 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
             "git diff --name-only",
             "validate-post-rc-paths",
             "validate_post_rc_changed_paths",
+            "validate-post-rc-metadata",
+            "--candidate-tag-object",
+            "verify-ci-response",
+            "verify-tag-response",
+            "verify-review-response",
         ):
             if marker not in workflow_text:
                 errors.append(f"stable release workflow missing RC binding marker: {marker}")
@@ -1331,6 +1613,7 @@ def collect_errors(
     release_tag: str | None = None,
     candidate_commit: str | None = None,
     baseline_commit: str | None = None,
+    candidate_tag_object: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     errors.extend(scan_repo_controls())
@@ -1348,6 +1631,7 @@ def collect_errors(
         check_stable_release_evidence(
             expected_candidate_commit=candidate_commit,
             expected_baseline_commit=baseline_commit,
+            expected_candidate_tag_object=candidate_tag_object,
         )
     )
     if release_tag is not None:
@@ -1549,6 +1833,22 @@ def self_test() -> int:
             "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
             "required_baseline_version": "3.1.1",
             "required_candidate_version": "3.2.0-rc.1",
+            "full_ci": {
+                "workflow_path": ".github/workflows/lint-and-self-test.yml",
+                "exact_release_sha": True,
+                "required_conclusion": "success",
+            },
+            "candidate_tag": {
+                "annotated": True,
+                "github_verified": True,
+                "bind_tag_object_sha": True,
+            },
+            "reviewer_attestation": {
+                "type": "github_verified_pull_request_review",
+                "repository": "d-init-d/d-research-skill",
+                "bind_exact_release_sha": True,
+                "bind_promotion_sha256": True,
+            },
             "tiers": {
                 "tier1": {
                     "bench_path": "examples/evals/dogfood-bench.json",
@@ -1588,13 +1888,14 @@ def self_test() -> int:
         }
         baseline_commit = "1" * 40
         candidate_commit = "2" * 40
+        candidate_tag_object = "3" * 40
         selftest_harness = _load_eval_harness(stable_root)
 
         def completed_score(source: Path, commit: str, bench_path: Path) -> dict:
             score = _load_json(source)
             score["bench_fingerprint"] = selftest_harness.bench_fingerprint(_load_json(bench_path))
             score["pass_threshold"] = 0.7 if score.get("tier") == "regression" else None
-            for task in score["tasks"]:
+            for index, task in enumerate(score["tasks"]):
                 refusal = task.get("expected_action") == "refuse"
                 task["status"] = "refused" if refusal else "completed"
                 task["refusal"] = "PASS" if refusal else None
@@ -1609,8 +1910,25 @@ def self_test() -> int:
                     task["assertion_accuracy"] = 1.0
                 task["runtime"] = dict(runtime)
                 task["skill_commit"] = commit
-                task["started_at"] = "2026-07-09T00:00:00Z"
-                task["finished_at"] = "2026-07-09T00:01:00Z"
+                task_id = str(task["task_id"])
+                task["started_at"] = f"2026-07-09T00:00:{index:02d}Z"
+                task["finished_at"] = f"2026-07-09T00:01:{index:02d}Z"
+                task["run_id"] = f"contract-run-{commit[:8]}-{task_id}"
+                task["session_id"] = f"contract-session-{commit[:8]}-{task_id}"
+                for artifact in ("raw_prompt", "raw_output", "ledger"):
+                    digest = hashlib.sha256(
+                        f"{commit}:{task_id}:{artifact}".encode("utf-8")
+                    ).hexdigest()
+                    task[f"{artifact}_sha256"] = f"sha256:{digest}"
+                task["evaluator_binding"] = {
+                    "bench_fingerprint": score["bench_fingerprint"],
+                    "bench_version": score.get("bench_version"),
+                    "harness_commit": "4" * 40,
+                }
+                task["candidate_binding"] = {
+                    "skill_commit": commit,
+                    "version": "3.1.1" if commit == baseline_commit else "3.2.0-rc.1",
+                }
             score["created_at"] = "2026-07-09T00:02:00Z"
             score["counts"] = {
                 "completed": sum(t["status"] == "completed" for t in score["tasks"]),
@@ -1648,12 +1966,14 @@ def self_test() -> int:
         promotion_path = evidence_dir / "promotion.json"
         signoff_path = evidence_dir / "reviewer-signoff.json"
         promotion = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "release_version": "3.2.0",
             "baseline_version": "3.1.1",
             "candidate_version": "3.2.0-rc.1",
             "baseline_skill_commit": baseline_commit,
             "candidate_skill_commit": candidate_commit,
+            "candidate_tag": "v3.2.0-rc.1",
+            "candidate_tag_object_sha": candidate_tag_object,
             "generated_at": "2026-07-09T00:03:00Z",
             "tiers": {},
             "reviewer_signoff_path": signoff_path.relative_to(stable_root).as_posix(),
@@ -1674,12 +1994,18 @@ def self_test() -> int:
                 encoding="utf-8",
             )
             signoff = {
-                "schema_version": "1.0",
+                "schema_version": "1.1",
                 "release_version": "3.2.0",
                 "decision": "approved",
                 "reviewer": {"name": "Contract self-test", "role": "test fixture"},
                 "reviewed_at": "2026-07-09T00:04:00Z",
                 "promotion_manifest_sha256": _sha256_path(promotion_path),
+                "attestation": {
+                    "type": "github_verified_pull_request_review",
+                    "repository": "d-init-d/d-research-skill",
+                    "pull_request_number": 7,
+                    "reviewer_login": "independent-reviewer",
+                },
             }
             signoff_path.write_text(
                 json.dumps(signoff, indent=2, sort_keys=True) + "\n",
@@ -1703,6 +2029,12 @@ def self_test() -> int:
             "must match the release workflow commit" in error for error in commit_binding_mismatch
         ):
             failures.append("stable gate must bind promotion commits to release refs")
+        tag_object_mismatch = check_stable_release_evidence(
+            stable_root,
+            expected_candidate_tag_object="4" * 40,
+        )
+        if not any("annotated RC tag object" in error for error in tag_object_mismatch):
+            failures.append("stable gate must bind the exact annotated RC tag object")
 
         # Post-RC path allowlist: metadata/evidence only; code drift must fail.
         allowed_only = validate_post_rc_changed_paths(
@@ -1742,6 +2074,131 @@ def self_test() -> int:
             failures.append("post-RC allowlist must reject evidence directory alone")
         if not validate_post_rc_changed_paths(["scripts/x.py"], "3.2.0-rc.1"):
             failures.append("post-RC allowlist must refuse rc release versions")
+
+        # Post-RC metadata is field-level, not a whole-file allowlist.
+        metadata_root = root / "post-rc-metadata"
+        metadata_root.mkdir()
+        rc_package = {
+            "name": "fixture",
+            "version": "3.2.0-rc.1",
+            "scripts": {"test": "node test.mjs"},
+            "dependencies": {"playwright": "1.61.1"},
+            "engines": {"node": ">=18"},
+        }
+        stable_package = json.loads(json.dumps(rc_package))
+        stable_package["version"] = "3.2.0"
+        rc_lock = {
+            "name": "fixture",
+            "version": "3.2.0-rc.1",
+            "lockfileVersion": 3,
+            "packages": {
+                "": {
+                    "name": "fixture",
+                    "version": "3.2.0-rc.1",
+                    "dependencies": {"playwright": "1.61.1"},
+                },
+                "node_modules/playwright": {
+                    "version": "1.61.1",
+                    "integrity": "sha512-fixture",
+                },
+            },
+        }
+        stable_lock = json.loads(json.dumps(rc_lock))
+        stable_lock["version"] = "3.2.0"
+        stable_lock["packages"][""]["version"] = "3.2.0"
+        rc_pyproject = (
+            '[build-system]\nrequires = ["setuptools>=68"]\n'
+            'build-backend = "setuptools.build_meta"\n\n[project]\n'
+            'version = "3.2.0rc1"\nclassifiers = [\n'
+            '  "Development Status :: 4 - Beta",\n]\ndependencies = []\n'
+        )
+        stable_pyproject = rc_pyproject.replace("3.2.0rc1", "3.2.0").replace(
+            "Development Status :: 4 - Beta",
+            "Development Status :: 5 - Production/Stable",
+        )
+        candidate_metadata = {
+            "package.json": (json.dumps(rc_package, sort_keys=True) + "\n").encode(),
+            "package-lock.json": (json.dumps(rc_lock, sort_keys=True) + "\n").encode(),
+            "pyproject.toml": rc_pyproject.encode(),
+        }
+
+        def write_release_metadata(
+            package: dict = stable_package,
+            lock: dict = stable_lock,
+            pyproject: str = stable_pyproject,
+        ) -> None:
+            (metadata_root / "package.json").write_text(
+                json.dumps(package, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            (metadata_root / "package-lock.json").write_text(
+                json.dumps(lock, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            (metadata_root / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+
+        write_release_metadata()
+        semantic_valid = validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
+        if semantic_valid:
+            failures.append(
+                "valid field-level RC promotion rejected: " + "; ".join(semantic_valid)
+            )
+
+        lifecycle_package = json.loads(json.dumps(stable_package))
+        lifecycle_package["scripts"]["postinstall"] = "node exfiltrate.mjs"
+        write_release_metadata(package=lifecycle_package)
+        if not any(
+            "package.json changed beyond version" in error
+            for error in validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
+        ):
+            failures.append("post-RC metadata gate accepted a new lifecycle script")
+
+        dependency_package = json.loads(json.dumps(stable_package))
+        dependency_package["dependencies"]["supply-chain-drift"] = "1.0.0"
+        write_release_metadata(package=dependency_package)
+        if not any(
+            "package.json changed beyond version" in error
+            for error in validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
+        ):
+            failures.append("post-RC metadata gate accepted dependency drift")
+
+        write_release_metadata()
+        hostile_package = json.dumps(stable_package, sort_keys=True)[:-1] + ', "metric": NaN}'
+        (metadata_root / "package.json").write_text(hostile_package, encoding="utf-8")
+        if not any(
+            "non-finite JSON number" in error
+            for error in validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
+        ):
+            failures.append("post-RC metadata gate accepted non-finite JSON")
+
+        lock_drift = json.loads(json.dumps(stable_lock))
+        lock_drift["packages"]["node_modules/playwright"]["integrity"] = "sha512-changed"
+        write_release_metadata(lock=lock_drift)
+        if not any(
+            "lock graph" in error
+            for error in validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
+        ):
+            failures.append("post-RC metadata gate accepted lock-graph drift")
+
+        backend_drift = stable_pyproject.replace(
+            'build-backend = "setuptools.build_meta"',
+            'build-backend = "malicious.backend"',
+        )
+        write_release_metadata(pyproject=backend_drift)
+        if not any(
+            "build-system" in error
+            for error in validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
+        ):
+            failures.append("post-RC metadata gate accepted build-backend drift")
+
+        requirement_drift = stable_pyproject.replace(
+            'requires = ["setuptools>=68"]',
+            'requires = ["setuptools>=68", "wheel"]',
+        )
+        write_release_metadata(pyproject=requirement_drift)
+        if not any(
+            "build-system" in error
+            for error in validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
+        ):
+            failures.append("post-RC metadata gate accepted build requirement drift")
 
         mismatched = _load_json(score_paths[("tier2", "candidate")])
         for task in mismatched["tasks"]:
@@ -1823,6 +2280,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Bind stable baseline evidence to the exact v3.1.1 tag commit.",
     )
     parser.add_argument(
+        "--candidate-tag-object",
+        help="Bind stable promotion evidence to the annotated, verified RC tag object SHA.",
+    )
+    parser.add_argument(
         "--validate-post-rc-paths",
         metavar="PATHS_FILE",
         help=(
@@ -1832,7 +2293,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--release-version",
-        help="Stable release version (X.Y.Z) for --validate-post-rc-paths.",
+        help="Stable release version (X.Y.Z) for post-RC validation.",
+    )
+    parser.add_argument(
+        "--validate-post-rc-metadata",
+        metavar="CANDIDATE_REF",
+        help=(
+            "Semantically compare package.json, package-lock.json, and pyproject.toml "
+            "against a fetched dogfooded RC ref. Requires --release-version."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -1864,10 +2333,39 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if args.validate_post_rc_metadata:
+        if not args.release_version:
+            print(
+                "error: --validate-post-rc-metadata requires --release-version",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            candidate_contents = _git_candidate_metadata(ROOT, args.validate_post_rc_metadata)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        metadata_errors = validate_post_rc_metadata(
+            candidate_contents,
+            ROOT,
+            args.release_version,
+        )
+        if metadata_errors:
+            print("check_contract post-RC metadata validation FAILED:", file=sys.stderr)
+            for error in metadata_errors:
+                print(f"  - {error}", file=sys.stderr)
+            return 1
+        print(
+            "check_contract post-RC metadata ok "
+            f"(candidate={args.validate_post_rc_metadata}, version={args.release_version})"
+        )
+        return 0
+
     errors = collect_errors(
         args.release_tag,
         candidate_commit=args.candidate_commit,
         baseline_commit=args.baseline_commit,
+        candidate_tag_object=args.candidate_tag_object,
     )
     if errors:
         print("check_contract FAILED:", file=sys.stderr)

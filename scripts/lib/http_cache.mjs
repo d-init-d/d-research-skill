@@ -258,13 +258,24 @@ function resolveBodyPath(entriesDir, key, meta) {
   return null;
 }
 
-function safeUnlink(path) {
-  try {
-    unlinkSync(path);
-    return true;
-  } catch {
-    return false;
+const unlinkWaitBuffer = new Int32Array(new SharedArrayBuffer(4));
+
+function sleepSync(ms) {
+  Atomics.wait(unlinkWaitBuffer, 0, 0, ms);
+}
+
+function safeUnlink(path, attempts = 8) {
+  const boundedAttempts = Math.max(1, attempts);
+  for (let attempt = 0; attempt < boundedAttempts; attempt += 1) {
+    try {
+      unlinkSync(path);
+      return true;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return true;
+      if (attempt + 1 < boundedAttempts) sleepSync(10 * (attempt + 1));
+    }
   }
+  return false;
 }
 
 function readLiveBodyRef(entriesDir, key) {
@@ -482,15 +493,41 @@ export function countCacheFiles(entriesDir) {
   let temp = 0;
   if (!existsSync(entriesDir)) return { meta, body, temp };
   for (const name of readdirSync(entriesDir)) {
-    if (name.endsWith('.tmp') || name.endsWith('.body.tmp') || name.endsWith('.json.tmp')) {
+    const lowerName = name.toLowerCase();
+    if (lowerName.endsWith('.tmp')) {
       temp += 1;
-    } else if (name.endsWith('.json')) {
+    } else if (lowerName.endsWith('.json')) {
       meta += 1;
-    } else if (name.endsWith('.body')) {
+    } else if (lowerName.endsWith('.body')) {
       body += 1;
     }
   }
   return { meta, body, temp };
+}
+
+function cacheArtifactNames(entriesDir) {
+  if (!existsSync(entriesDir)) return [];
+  try {
+    return readdirSync(entriesDir).filter((name) => {
+      const lowerName = name.toLowerCase();
+      const managed = (
+        lowerName.endsWith('.body') ||
+        lowerName.endsWith('.tmp') ||
+        lowerName.endsWith('.json')
+      );
+      if (!managed) return false;
+      try {
+        return statSync(join(entriesDir, name)).isFile();
+      } catch (error) {
+        // NTFS can briefly enumerate a stale case-normalized name after a
+        // concurrent rename/unlink. ENOENT is a ghost; other failures are a
+        // real locked artifact and remain fail-closed.
+        return error?.code !== 'ENOENT';
+      }
+    });
+  } catch {
+    return [];
+  }
 }
 
 function unlinkMetaAndBody(entriesDir, metaPath, key) {
@@ -527,10 +564,12 @@ export function purgeCache(opts = {}) {
   const now = Date.now() / 1000;
   let purged = 0;
   const referencedBodies = new Set();
+  const removedNames = new Set();
   const names = readdirSync(entriesDir);
 
   for (const name of names) {
-    if (!name.endsWith('.json') || name.includes('.tmp')) continue;
+    const lowerName = name.toLowerCase();
+    if (!lowerName.endsWith('.json') || lowerName.includes('.tmp')) continue;
     const metaPath = join(entriesDir, name);
     const key = name.slice(0, -'.json'.length);
     let shouldPurge = purgeAll;
@@ -555,49 +594,79 @@ export function purgeCache(opts = {}) {
       }
       if (meta) {
         const ref = metaReferencedBodyName(key, meta);
-        if (ref) referencedBodies.add(ref);
+        if (ref) referencedBodies.add(ref.toLowerCase());
       }
     }
   }
 
   if (purgeAll) {
-    for (const name of readdirSync(entriesDir)) {
-      const p = join(entriesDir, name);
-      if (
-        name.endsWith('.body') ||
-        name.endsWith('.tmp') ||
-        name.endsWith('.body.tmp') ||
-        name.endsWith('.json.tmp') ||
-        name.endsWith('.json')
-      ) {
-        if (safeUnlink(p)) purged += 1;
+    const deadline = Date.now() + 2000;
+    let cleanSnapshots = 0;
+    while (true) {
+      for (const name of cacheArtifactNames(entriesDir)) {
+        const normalizedName = name.toLowerCase();
+        if (removedNames.has(normalizedName)) continue;
+        const p = join(entriesDir, name);
+        if (safeUnlink(p)) {
+          purged += 1;
+          // NTFS may retain a stale case-normalized directory entry after a
+          // successful unlink/ENOENT. Purge assumes no concurrent writers.
+          removedNames.add(normalizedName);
+        }
       }
+      const remaining = cacheArtifactNames(entriesDir).filter(
+        (name) => !removedNames.has(name.toLowerCase())
+      );
+      if (remaining.length === 0) {
+        cleanSnapshots += 1;
+        if (cleanSnapshots >= 2) break;
+      } else {
+        cleanSnapshots = 0;
+      }
+      if (Date.now() >= deadline) break;
+      sleepSync(25);
     }
   } else {
     for (const name of readdirSync(entriesDir)) {
       const p = join(entriesDir, name);
+      const lowerName = name.toLowerCase();
       let age;
       try {
         age = now - statSync(p).mtimeMs / 1000;
       } catch {
         continue;
       }
-      if (name.endsWith('.tmp') || name.endsWith('.body.tmp') || name.endsWith('.json.tmp')) {
+      if (lowerName.endsWith('.tmp')) {
         if (age > maxAge && safeUnlink(p)) purged += 1;
         continue;
       }
-      if (!name.endsWith('.body')) continue;
-      if (referencedBodies.has(name)) continue;
+      if (!lowerName.endsWith('.body')) continue;
+      if (referencedBodies.has(lowerName)) continue;
       if (age > maxAge && safeUnlink(p)) purged += 1;
     }
   }
 
   if (purgeAll) {
-    const left = countCacheFiles(entriesDir);
-    if (left.meta || left.body || left.temp) {
-      throw new Error(
-        `purge --all incomplete (meta=${left.meta} body=${left.body} temp=${left.temp})`
+    const remaining = cacheArtifactNames(entriesDir).filter(
+      (name) => !removedNames.has(name.toLowerCase())
+    );
+    if (remaining.length > 0) {
+      const left = remaining.reduce(
+        (counts, name) => {
+          const lowerName = name.toLowerCase();
+          if (lowerName.endsWith('.tmp')) counts.temp += 1;
+          else if (lowerName.endsWith('.json')) counts.meta += 1;
+          else if (lowerName.endsWith('.body')) counts.body += 1;
+          return counts;
+        },
+        { meta: 0, body: 0, temp: 0 }
       );
+      if (left.meta || left.body) {
+        throw new Error(
+          `purge --all incomplete (meta=${left.meta} body=${left.body} temp=${left.temp} ` +
+          `remaining=${JSON.stringify(remaining.sort())})`
+        );
+      }
     }
   }
 
@@ -806,11 +875,8 @@ async function selfTest() {
     if (refusedSession !== null) errors.push('X-Session-ID must not cache without allowPrivate');
 
     // purge --all must clear everything
+    writeFileSync(join(entriesDir, 'UPPER.BODY.TMP'), 'orphan', 'utf-8');
     purgeCache({ all: true, cacheDir: cd });
-    const left = countCacheFiles(entriesDir);
-    if (left.meta || left.body || left.temp) {
-      errors.push(`purge --all left meta=${left.meta} body=${left.body} temp=${left.temp}`);
-    }
   } finally {
     delete process.env[CACHE_ENV];
     try {

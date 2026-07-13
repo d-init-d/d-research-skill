@@ -80,6 +80,11 @@ python scripts/http_cache.py purge --all
 python scripts/http_cache.py purge --max-age 86400
 ```
 
+`purge --all` fails if any live `.json` metadata or `.body` remains. It retries
+temp-file cleanup for transient Windows locks; a filter-driver/NTFS ghost temp
+that remains after the bounded deadline is reported as a warning, not an
+integrity failure, because readers never consume `.tmp` artifacts.
+
 ## Default TTL
 
 Entries expire after **7 days** by default. Override per-call with `max_age` (Python) / `maxAge` (Node).

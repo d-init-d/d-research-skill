@@ -15,6 +15,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via Crossref with DataCite fallback
 - `scripts/resource_limits.py`: conservative HTTP/file/Excel/PDF/OCR/subprocess/table/Wayback/social caps; structured incomplete blockers on violation
 - `scripts/check_contract.py`: dynamic version/config/path/count/CLI contract checks for release readiness
+- `scripts/release_verify.py`: offline validation of exact-SHA GitHub Actions success, annotated GitHub-verified tag objects, and exact-commit reviewer approvals bound to the promotion SHA256
 - `scripts/_ssrf_helpers.py`: shared public-host / SSRF guard helpers (Python; DNS-pinned open for social)
 - `scripts/content_sanitize.py`: production HTML/visible-text extraction, secret redaction, hostile-source processing, safe download names (used by multi_extract + quality eval)
 - `scripts/lib/ssrf_guards.mjs`: shared public-host / SSRF guards + **connection-bound** `fetchPublicHttp` (Node; used by `api_fetch.mjs`)
@@ -42,7 +43,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/http_cache.py`: get-key / stats / purge / self-test — shared HTTP cache (opt-in via `D_RESEARCH_HTTP_CACHE_PATH`); see `references/http-cache.md`
 - `scripts/lib/http_cache.mjs`: Node ESM helper used by `api_fetch.mjs` for the same shared cache layout
 - `scripts/bench_harness_check.py`: check / check-all / orphans / self-test — bench/fixture/harness consistency check. **NOT an agent benchmark** — only catches bench data regressions
-- `scripts/quality_eval.py`: validate / list / integrity / hostile / fuzz / mutation / perf-compare / degraded / promotion-report / promotion-anti-spoof / self-test / triple — held-out research-quality suite, artifact-verified promotion gate (fail-closed), citation/date integrity, production-path hostile checks via `content_sanitize`. See `examples/evals/quality-suite.json` and `docs/eval.md`
+- `scripts/quality_eval.py`: validate / list / integrity / hostile / fuzz / mutation / perf-compare / degraded / promotion-report / promotion-anti-spoof / self-test / triple — held-out research-quality suite, fail-closed enforcement of every promotion threshold, exact candidate/CI binding, integrity-covered evaluation and deterministic-run artifacts, citation/date integrity, and production-path hostile checks via `content_sanitize`. See `examples/evals/quality-suite.json` and `docs/eval.md`
 - `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE); see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 

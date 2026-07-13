@@ -144,6 +144,12 @@ Do not promote v3.2.0 stable solely because this migration passes. Stable still
 requires green Ubuntu/Windows CI, live Tier-1/Tier-2 dogfood against v3.1.1 with
 identical runtime/model/tool configuration, committed score/run metadata, and
 reviewer sign-off. Stable release validation binds the candidate evidence to
-the exact dogfooded RC-tag commit and baseline evidence to the exact `v3.1.1`
-tag commit; copying otherwise valid artifacts from another revision fails
-closed. Code changes after the dogfooded RC require a new RC and a fresh run.
+the exact dogfooded RC tag commit and annotated, GitHub-verified tag-object SHA;
+it binds baseline evidence to the exact `v3.1.1` tag commit. It also requires a
+successful full-CI workflow for the exact stable SHA and an independent GitHub
+PR approval whose review body binds the promotion-manifest SHA256. The release
+workflow rejects self-review, untrusted reviewer associations, missing or
+paginated API results, and any executable metadata drift (npm lifecycle scripts,
+dependencies/lock graph, or Python build backend/requirements). Copying otherwise
+valid artifacts from another revision fails closed. Code changes after the
+dogfooded RC require a new RC and a fresh run.

@@ -25,6 +25,7 @@ import importlib.util
 import io
 import ipaddress
 import json
+import math
 import os
 import random
 import re
@@ -33,6 +34,7 @@ import sys
 import tempfile
 import time
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -44,9 +46,26 @@ QUALITY_ROOT = ROOT / "examples" / "evals" / "quality"
 FIXTURES = QUALITY_ROOT / "fixtures"
 
 SUITE_SCHEMA_VERSION = "1.0"
+RUN_MANIFEST_SCHEMA_VERSION = "1.1"
 CASE_ID_RE = re.compile(r"^(DEV|HO|ADV)-[0-9]{3}$")
 PARTITIONS = ("development", "held_out", "adversarial")
 FUZZ_SEED = 0xD4E5_A1C4
+
+PROMOTION_THRESHOLD_SPECS: dict[str, tuple[str, str]] = {
+    "critical_safety_pass_rate": ("critical_safety_pass_rate", "min"),
+    "release_integrity_pass_rate": ("release_integrity_pass_rate", "min"),
+    "path_credential_pass_rate": ("path_credential_pass_rate", "min"),
+    "fabricated_citations_allowed": ("fabricated_citations_in_heldout", "max"),
+    "route_selection_accuracy_min": ("route_selection_accuracy", "min"),
+    "required_gate_accuracy_min": ("required_gate_accuracy", "min"),
+    "citation_correctness_min": ("citation_correctness", "min"),
+    "important_claim_coverage_min": ("important_claim_coverage", "min"),
+    "held_out_completion_min": ("held_out_completion", "min"),
+    "min_quality_gains_vs_baseline": ("quality_gains_vs_baseline", "min"),
+    "deterministic_triple_runs": ("deterministic_triple_runs_succeeded", "min"),
+}
+PROMOTION_THRESHOLD_METADATA = {"notes"}
+TRIPLE_SUCCESS_MARKER = "OK: quality_eval self-test passed."
 
 # Production sanitization (system-under-test for hostile checks)
 _CONTENT_MOD: Any = None
@@ -155,13 +174,76 @@ def report_render() -> Any:
     return _load_module("d_report_render_qe", SCRIPTS / "report_render.py")
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        value[key] = item
+    return value
+
+
+def _reject_nonfinite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON number {value!r}")
+
+
+def _load_strict_json(path: Path) -> Any:
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_json_keys,
+        parse_constant=_reject_nonfinite_json,
+    )
+
+
 def load_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _load_strict_json(path)
 
 
 # ---------------------------------------------------------------------------
 # Suite validation
 # ---------------------------------------------------------------------------
+
+
+def validate_promotion_thresholds(value: Any) -> list[str]:
+    """Validate the complete fail-closed promotion-threshold contract."""
+    if not isinstance(value, dict):
+        return ["promotion_thresholds must be an object"]
+
+    errors: list[str] = []
+    keys = set(value)
+    required = set(PROMOTION_THRESHOLD_SPECS)
+    for key in sorted(required - keys):
+        errors.append(f"promotion_thresholds missing {key}")
+    for key in sorted(keys - required - PROMOTION_THRESHOLD_METADATA):
+        errors.append(f"promotion_thresholds unsupported key {key}")
+
+    integer_keys = {"fabricated_citations_allowed", "deterministic_triple_runs"}
+    rate_keys = required - {
+        "fabricated_citations_allowed",
+        "min_quality_gains_vs_baseline",
+        "deterministic_triple_runs",
+    }
+    for key in sorted(required & keys):
+        threshold = value[key]
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+            errors.append(f"promotion_thresholds {key} must be numeric")
+            continue
+        if not math.isfinite(float(threshold)):
+            errors.append(f"promotion_thresholds {key} must be finite")
+            continue
+        if key in integer_keys and not isinstance(threshold, int):
+            errors.append(f"promotion_thresholds {key} must be an integer")
+        if key in rate_keys and not 0.0 <= float(threshold) <= 1.0:
+            errors.append(f"promotion_thresholds {key} must be between 0 and 1")
+        if key == "fabricated_citations_allowed" and int(threshold) < 0:
+            errors.append("promotion_thresholds fabricated_citations_allowed must be >= 0")
+        if key == "min_quality_gains_vs_baseline" and float(threshold) < 0:
+            errors.append("promotion_thresholds min_quality_gains_vs_baseline must be >= 0")
+        if key == "deterministic_triple_runs" and int(threshold) < 1:
+            errors.append("promotion_thresholds deterministic_triple_runs must be >= 1")
+    if "notes" in value and not isinstance(value["notes"], str):
+        errors.append("promotion_thresholds notes must be a string")
+    return errors
 
 
 def validate_suite(suite: dict[str, Any], schema: dict[str, Any] | None = None) -> list[str]:
@@ -264,22 +346,7 @@ def validate_suite(suite: dict[str, Any], schema: dict[str, Any] | None = None) 
     if missing_themes:
         errors.append(f"themes not covered by any case: {sorted(missing_themes)}")
 
-    thr = suite.get("promotion_thresholds") or {}
-    for k in (
-        "critical_safety_pass_rate",
-        "release_integrity_pass_rate",
-        "path_credential_pass_rate",
-        "fabricated_citations_allowed",
-        "route_selection_accuracy_min",
-        "required_gate_accuracy_min",
-        "citation_correctness_min",
-        "important_claim_coverage_min",
-        "held_out_completion_min",
-        "min_quality_gains_vs_baseline",
-        "deterministic_triple_runs",
-    ):
-        if k not in thr:
-            errors.append(f"promotion_thresholds missing {k}")
+    errors.extend(validate_promotion_thresholds(suite.get("promotion_thresholds")))
 
     if schema is not None:
         for req in schema.get("required") or []:
@@ -1585,34 +1652,44 @@ def run_fuzz(seed: int = FUZZ_SEED, rounds: int = 64) -> list[tuple[str, bool, s
     results.append(("cache_key_stable_no_secret", key_ok, f"rounds={rounds}"))
 
     # sign → verify; tamper fails
-    with tempfile.TemporaryDirectory() as td:
-        ledger = Path(td) / "evidence-ledger.csv"
-        header = (
-            "claim_id,claim,sub_question,source_title,source_url,source_type,"
-            "date_published,date_accessed,access_method,evidence,quote_or_anchor,"
-            "contradiction,confidence,notes,archive_url,content_hash,snapshot_status,"
-            "verifiability,verifiability_note,license_spdx,robots_status,"
-            "prov_activity_id,record_type\n"
-        )
-        row = (
-            'C1,"fact","sq","T","https://example.com",official,2024-01-01,2026-01-01,'
-            'fetch,"ev","q",none,high,"",,,,,,"",not_checked,prov:1,claim\n'
-        )
-        ledger.write_text(header + row, encoding="utf-8")
-        os.environ["D_RESEARCH_LEDGER_KEY_FUZZ"] = "fuzz-test-key-not-for-prod"
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            rc1 = el.sign_ledger(ledger, "D_RESEARCH_LEDGER_KEY_FUZZ", None)
-            rc2 = el.verify_ledger(ledger, "D_RESEARCH_LEDGER_KEY_FUZZ", None)
-            ledger.write_text(header + row.replace("fact", "TAMPERED"), encoding="utf-8")
-            rc3 = el.verify_ledger(ledger, "D_RESEARCH_LEDGER_KEY_FUZZ", None)
-        results.append(
-            (
-                "sign_verify_tamper",
-                rc1 == 0 and rc2 == 0 and rc3 != 0,
-                f"sign={rc1} verify={rc2} tamper={rc3}",
+    ledger_key_name = "D_RESEARCH_LEDGER_KEY_FUZZ"
+    old_ledger_key = os.environ.get(ledger_key_name)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            ledger = Path(td) / "evidence-ledger.csv"
+            header = (
+                "claim_id,claim,sub_question,source_title,source_url,source_type,"
+                "date_published,date_accessed,access_method,evidence,quote_or_anchor,"
+                "contradiction,confidence,notes,archive_url,content_hash,snapshot_status,"
+                "verifiability,verifiability_note,license_spdx,robots_status,"
+                "prov_activity_id,record_type\n"
             )
-        )
+            row = (
+                'C1,"fact","sq","T","https://example.com",official,2024-01-01,2026-01-01,'
+                'fetch,"ev","q",none,high,"",,,,,,"",not_checked,prov:1,claim\n'
+            )
+            ledger.write_text(header + row, encoding="utf-8")
+            os.environ[ledger_key_name] = "fuzz-test-key-not-for-prod"
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                rc1 = el.sign_ledger(ledger, ledger_key_name, None)
+                rc2 = el.verify_ledger(ledger, ledger_key_name, None)
+                ledger.write_text(
+                    header + row.replace("fact", "TAMPERED"), encoding="utf-8"
+                )
+                rc3 = el.verify_ledger(ledger, ledger_key_name, None)
+            results.append(
+                (
+                    "sign_verify_tamper",
+                    rc1 == 0 and rc2 == 0 and rc3 != 0,
+                    f"sign={rc1} verify={rc2} tamper={rc3}",
+                )
+            )
+    finally:
+        if old_ledger_key is None:
+            os.environ.pop(ledger_key_name, None)
+        else:
+            os.environ[ledger_key_name] = old_ledger_key
 
     # migrate → validate preserves tasks
     v1 = load_json(FIXTURES / "plan" / "v1-minimal.json")
@@ -1678,44 +1755,53 @@ def run_fuzz(seed: int = FUZZ_SEED, rounds: int = 64) -> list[tuple[str, bool, s
             )
         )
 
-    # cache purge --all leaves no orphans
-    with tempfile.TemporaryDirectory() as td:
-        cd = Path(td)
-        os.environ["D_RESEARCH_HTTP_CACHE_PATH"] = str(cd)
-        for i in range(3):
-            hc.put(
-                "GET",
-                f"https://example.com/p/{i}",
-                200,
-                {"content-type": "text/plain"},
-                f"body-{i}".encode(),
-                request_headers={"accept": "text/plain"},
-                cache_dir=cd,
+    # cache purge --all leaves no orphans. Windows indexers can briefly retain
+    # directory handles after every file has been removed.
+    cache_path_name = "D_RESEARCH_HTTP_CACHE_PATH"
+    old_cache_path = os.environ.get(cache_path_name)
+    try:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            cd = Path(td)
+            os.environ[cache_path_name] = str(cd)
+            for i in range(3):
+                hc.put(
+                    "GET",
+                    f"https://example.com/p/{i}",
+                    200,
+                    {"content-type": "text/plain"},
+                    f"body-{i}".encode(),
+                    request_headers={"accept": "text/plain"},
+                    cache_dir=cd,
+                )
+            # overwrite same URL to create generation churn
+            for _ in range(3):
+                hc.put(
+                    "GET",
+                    "https://example.com/p/0",
+                    200,
+                    {"content-type": "text/plain"},
+                    b"newer",
+                    request_headers={"accept": "text/plain"},
+                    cache_dir=cd,
+                )
+            ns = argparse.Namespace(cache_path=str(cd), all=True, max_age=None)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                rc_purge = hc.cmd_purge(ns)
+            entries = cd / "entries"
+            left = list(entries.iterdir()) if entries.is_dir() else []
+            results.append(
+                (
+                    "cache_purge_no_orphans",
+                    rc_purge == 0 and len(left) == 0,
+                    f"rc={rc_purge} left={[path.name for path in left]}",
+                )
             )
-        # overwrite same URL to create generation churn
-        for _ in range(3):
-            hc.put(
-                "GET",
-                "https://example.com/p/0",
-                200,
-                {"content-type": "text/plain"},
-                b"newer",
-                request_headers={"accept": "text/plain"},
-                cache_dir=cd,
-            )
-        ns = argparse.Namespace(cache_path=str(cd), all=True, max_age=None)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            rc_purge = hc.cmd_purge(ns)
-        entries = cd / "entries"
-        left = list(entries.iterdir()) if entries.is_dir() else []
-        results.append(
-            (
-                "cache_purge_no_orphans",
-                rc_purge == 0 and len(left) == 0,
-                f"rc={rc_purge} left={len(left)}",
-            )
-        )
+    finally:
+        if old_cache_path is None:
+            os.environ.pop(cache_path_name, None)
+        else:
+            os.environ[cache_path_name] = old_cache_path
 
     mal_ok = True
     try:
@@ -1764,6 +1850,10 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
     for n, ok, d in r1:
         print(f"  [{'PASS' if ok else 'FAIL'}] {n} - {d}")
     print(f"  [{'PASS' if same else 'FAIL'}] seed_reproducible seed={seed:#x}")
+    if not same:
+        for first, second in zip(r1, r2):
+            if (first[0], first[1]) != (second[0], second[1]):
+                print(f"    mismatch: first={first} second={second}")
     if failed or not same:
         print("FAIL: fuzz")
         return 1
@@ -1955,7 +2045,7 @@ def _workload_once() -> dict[str, Any]:
     hc = http_cache()
     urls = [f"https://example.com/item/{i}" for i in range(40)]
     seen: set[str] = set()
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         cache_dir = Path(td)
         for i, url in enumerate(urls):
             k = hc.cache_key("GET", url, request_key="accept=application/json")
@@ -2324,6 +2414,7 @@ def cmd_degraded(args: argparse.Namespace) -> int:
 RUN_MANIFEST_REQUIRED = (
     "schema_version",
     "run_id",
+    "session_id",
     "role",
     "run_kind",
     "candidate_sha",
@@ -2343,6 +2434,76 @@ RUN_MANIFEST_REQUIRED = (
 
 ALLOWED_ROLES = {"A", "B", "C"}
 ALLOWED_RUN_KINDS = {"forward", "held_out", "dogfood"}
+
+
+def _strict_json_object(path: Path, label: str) -> dict[str, Any]:
+    """Load one JSON object while rejecting duplicate keys at any depth."""
+    try:
+        data = _load_strict_json(path)
+    except ValueError as exc:
+        raise ValueError(f"{label}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{label} must contain a JSON object")
+    return data
+
+
+EVALUATION_RATE_FIELDS = frozenset(
+    {
+        "route_selection_accuracy",
+        "required_gate_accuracy",
+        "citation_correctness",
+        "important_claim_coverage",
+        "critical_safety_pass_rate",
+        "release_integrity_pass_rate",
+        "path_credential_pass_rate",
+    }
+)
+
+
+def _validate_promotion_evaluation(value: dict[str, Any]) -> list[str]:
+    """Reject metric values that could spoof comparisons or averaging."""
+    errors: list[str] = []
+    for key in sorted(EVALUATION_RATE_FIELDS):
+        if key not in value:
+            continue
+        metric = value[key]
+        if isinstance(metric, bool) or not isinstance(metric, (int, float)):
+            errors.append(f"{key} must be a finite number between 0 and 1")
+            continue
+        if not math.isfinite(float(metric)) or not 0.0 <= float(metric) <= 1.0:
+            errors.append(f"{key} must be a finite number between 0 and 1")
+
+    fabricated = value.get("fabricated_citations")
+    if fabricated is not None and (
+        isinstance(fabricated, bool)
+        or not isinstance(fabricated, int)
+        or fabricated < 0
+    ):
+        errors.append("fabricated_citations must be a non-negative integer")
+
+    gain = value.get("quality_gain_vs_baseline")
+    if gain is not None and (
+        isinstance(gain, bool)
+        or not isinstance(gain, (int, float))
+        or not math.isfinite(float(gain))
+    ):
+        errors.append("quality_gain_vs_baseline must be a finite number")
+    return errors
+
+
+def _parse_rfc3339(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
 
 
 def _sha256_file(path: Path) -> str:
@@ -2390,20 +2551,37 @@ def validate_run_manifest(
     if manifest_path.stat().st_size == 0:
         return None, [f"empty file: {manifest_path}"]
     try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        data = _strict_json_object(manifest_path, "run manifest")
     except Exception as exc:
         return None, [f"invalid JSON {manifest_path}: {exc}"]
-    if not isinstance(data, dict):
-        return None, [f"manifest not object: {manifest_path}"]
     for key in RUN_MANIFEST_REQUIRED:
         if key not in data:
             errors.append(f"missing field {key}")
     if errors:
         return None, errors
+    if data.get("schema_version") != RUN_MANIFEST_SCHEMA_VERSION:
+        errors.append(
+            f"schema_version must be {RUN_MANIFEST_SCHEMA_VERSION!r}"
+        )
+    for identity_key in ("run_id", "session_id"):
+        identity = data.get(identity_key)
+        if not isinstance(identity, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}", identity
+        ):
+            errors.append(f"{identity_key} has invalid format")
     if data.get("role") not in ALLOWED_ROLES:
         errors.append(f"invalid role {data.get('role')!r}")
     if data.get("run_kind") not in ALLOWED_RUN_KINDS:
         errors.append(f"invalid run_kind {data.get('run_kind')!r}")
+    for text_key in ("skill_version", "agent_runtime", "model"):
+        if not isinstance(data.get(text_key), str) or not data.get(text_key, "").strip():
+            errors.append(f"{text_key} must be a non-empty string")
+    if not isinstance(data.get("tool_availability"), dict):
+        errors.append("tool_availability must be an object")
+    if not isinstance(data.get("exit_status"), (str, int)) or isinstance(
+        data.get("exit_status"), bool
+    ):
+        errors.append("exit_status must be a string or integer")
     cand = str(data.get("candidate_sha") or "")
     if not re.fullmatch(r"[0-9a-f]{40}", cand):
         errors.append("candidate_sha must be 40-char lowercase hex")
@@ -2411,51 +2589,172 @@ def validate_run_manifest(
         errors.append(
             f"candidate_sha mismatch: manifest={cand} expected={expected_candidate_sha}"
         )
-    # Paths
-    for field in ("prompt_path", "raw_output_path"):
-        p = _resolve_under(artifacts_root, str(data.get(field) or ""))
-        if p is None or not p.is_file() or p.stat().st_size == 0:
-            errors.append(f"missing or empty {field}")
-    art_paths = data.get("artifact_paths") or []
-    if not isinstance(art_paths, list):
+    # Every artifact consumed by the evaluator must be declared and hashed. Keep
+    # the two sets identical so a producer cannot smuggle unhashed score data or
+    # hashes for data that reviewers did not know was in scope.
+    art_paths_raw = data.get("artifact_paths") or []
+    if not isinstance(art_paths_raw, list):
         errors.append("artifact_paths must be list")
-        art_paths = []
-    for ap in art_paths:
-        p = _resolve_under(artifacts_root, str(ap))
-        if p is None or not p.exists():
-            errors.append(f"missing artifact {ap}")
-    # Hash recompute
+        art_paths_raw = []
+    artifact_paths: set[str] = set()
+    for raw_path in art_paths_raw:
+        rel = str(raw_path or "")
+        if not rel:
+            errors.append("artifact_paths contains empty path")
+            continue
+        if Path(rel).is_absolute() or rel.startswith(("/", "\\")) or re.match(
+            r"^[A-Za-z]:", rel
+        ):
+            errors.append(f"artifact path must be relative: {rel}")
+            continue
+        if rel in artifact_paths:
+            errors.append(f"duplicate artifact path {rel}")
+            continue
+        artifact_paths.add(rel)
+        p = _resolve_under(artifacts_root, rel)
+        if p is None or not p.is_file():
+            errors.append(f"missing artifact {rel}")
+
     hashes = data.get("integrity_hashes") or {}
     if not isinstance(hashes, dict) or not hashes:
         errors.append("integrity_hashes required")
+        hashes = {}
+    hash_paths = {str(rel) for rel in hashes}
+    for rel in sorted(artifact_paths - hash_paths):
+        errors.append(f"artifact missing integrity hash: {rel}")
+    for rel in sorted(hash_paths - artifact_paths):
+        errors.append(f"hash path not declared in artifact_paths: {rel}")
+    for rel, expected_hash in hashes.items():
+        rel = str(rel)
+        p = _resolve_under(artifacts_root, rel)
+        if p is None or not p.is_file():
+            errors.append(f"hash path missing: {rel}")
+            continue
+        actual = _sha256_file(p)
+        if actual != str(expected_hash):
+            errors.append(f"hash mismatch for {rel}: {actual} != {expected_hash}")
+
+    consumed_paths: dict[str, str] = {
+        "prompt_path": str(data.get("prompt_path") or ""),
+        "raw_output_path": str(data.get("raw_output_path") or ""),
+    }
+    evaluation_path = str(data.get("evaluation_path") or "")
+    if evaluation_path:
+        consumed_paths["evaluation_path"] = evaluation_path
+    for field, rel in consumed_paths.items():
+        p = _resolve_under(artifacts_root, rel)
+        if p is None or not p.is_file() or p.stat().st_size == 0:
+            errors.append(f"missing or empty {field}")
+        if rel not in artifact_paths:
+            errors.append(f"{field} not covered by artifact_paths")
+        if rel not in hash_paths:
+            errors.append(f"{field} missing integrity hash")
+    if evaluation_path:
+        evaluation_file = _resolve_under(artifacts_root, evaluation_path)
+        if evaluation_file is not None and evaluation_file.is_file():
+            try:
+                evaluation = _strict_json_object(evaluation_file, "evaluation_path")
+                evaluation_errors = _validate_promotion_evaluation(evaluation)
+                errors.extend(
+                    f"evaluation_path {error}" for error in evaluation_errors
+                )
+                if not evaluation_errors:
+                    data["_validated_evaluation"] = evaluation
+            except Exception as exc:
+                errors.append(f"evaluation_path invalid JSON: {exc}")
+
+    # A deterministic run is represented by a hashed result JSON plus its
+    # hashed log. The result binds the log and exit outcome to this candidate.
+    triple_refs = data.get("triple_run_results") or []
+    if not isinstance(triple_refs, list):
+        errors.append("triple_run_results must be a list")
+        triple_refs = []
+    validated_triples: list[dict[str, Any]] = []
+    for raw_result_path in triple_refs:
+        result_rel = str(raw_result_path or "")
+        prefix = f"triple_run_results[{result_rel or '?'}]"
+        if result_rel not in artifact_paths or result_rel not in hash_paths:
+            errors.append(f"{prefix} result must be declared and hashed")
+            continue
+        result_path = _resolve_under(artifacts_root, result_rel)
+        try:
+            result = (
+                _strict_json_object(result_path, prefix) if result_path else None
+            )
+        except Exception as exc:
+            errors.append(f"{prefix} invalid JSON: {exc}")
+            continue
+        if not isinstance(result, dict):
+            errors.append(f"{prefix} must contain a JSON object")
+            continue
+        run_index = result.get("run_index")
+        exit_code = result.get("exit_code")
+        success_marker = result.get("success_marker")
+        result_candidate = str(result.get("candidate_sha") or "")
+        log_rel = str(result.get("log_path") or "")
+        valid_result = True
+        if result.get("schema_version") != "1.0":
+            errors.append(f"{prefix} schema_version must be '1.0'")
+            valid_result = False
+        if result_candidate != cand:
+            errors.append(f"{prefix} candidate_sha mismatch")
+            valid_result = False
+        if isinstance(run_index, bool) or not isinstance(run_index, int) or run_index < 1:
+            errors.append(f"{prefix} run_index must be a positive integer")
+            valid_result = False
+        if isinstance(exit_code, bool) or exit_code != 0:
+            errors.append(f"{prefix} exit_code must be 0")
+            valid_result = False
+        if success_marker != TRIPLE_SUCCESS_MARKER:
+            errors.append(f"{prefix} success_marker mismatch")
+            valid_result = False
+        if log_rel not in artifact_paths or log_rel not in hash_paths:
+            errors.append(f"{prefix} log must be declared and hashed")
+            valid_result = False
+        log_path = _resolve_under(artifacts_root, log_rel)
+        if log_path is None or not log_path.is_file() or log_path.stat().st_size == 0:
+            errors.append(f"{prefix} log missing or empty")
+            valid_result = False
+        elif TRIPLE_SUCCESS_MARKER not in log_path.read_text(encoding="utf-8", errors="replace"):
+            errors.append(f"{prefix} log missing verified success marker")
+            valid_result = False
+        if valid_result:
+            validated_triples.append(result)
+    data["_validated_triple_runs"] = validated_triples
+    provenance = data.get("provenance")
+    if not isinstance(provenance, dict):
+        errors.append("provenance must be an object")
     else:
-        for rel, expected_hash in hashes.items():
-            p = _resolve_under(artifacts_root, str(rel))
-            if p is None or not p.is_file():
-                errors.append(f"hash path missing: {rel}")
-                continue
-            actual = _sha256_file(p)
-            if actual != str(expected_hash):
-                errors.append(f"hash mismatch for {rel}: {actual} != {expected_hash}")
-    # Timestamps
-    started = str(data.get("started_at") or "")
-    completed = str(data.get("completed_at") or "")
-    if not started or not completed:
-        errors.append("timestamps required")
+        if not isinstance(provenance.get("source"), str) or not provenance.get(
+            "source", ""
+        ).strip():
+            errors.append("provenance.source must be non-empty")
+        if not isinstance(provenance.get("live"), bool):
+            errors.append("provenance.live must be boolean")
+
+    started = _parse_rfc3339(data.get("started_at"))
+    completed = _parse_rfc3339(data.get("completed_at"))
+    if started is None or completed is None:
+        errors.append("timestamps must be timezone-aware RFC3339")
     elif completed < started:
         errors.append("completed_at before started_at")
-    # Blind evaluator: role C must not leak candidate/baseline labels in raw output
+
+    # Blind evaluator: role C must not leak candidate/baseline labels in raw output.
     if data.get("role") == "C" and data.get("run_kind") == "forward":
         out_p = _resolve_under(artifacts_root, str(data.get("raw_output_path") or ""))
         if out_p and out_p.is_file():
             blob = out_p.read_text(encoding="utf-8", errors="replace").lower()
-            for leak in ("candidate_sha", "baseline_label", "this is the candidate", "this is baseline"):
-                if leak in blob and "blind" not in blob:
-                    # Soft note only if explicit label leakage phrases
-                    if "baseline" in leak or "candidate" in leak:
-                        if re.search(r"\b(candidate|baseline)\s*(branch|build|label)\b", blob):
-                            errors.append("role C blind protocol label leakage")
-                            break
+            explicit_leak = any(
+                leak in blob
+                for leak in (
+                    "candidate_sha",
+                    "baseline_label",
+                    "this is the candidate",
+                    "this is baseline",
+                )
+            ) or bool(re.search(r"\b(candidate|baseline)\s*(branch|build|label)\b", blob))
+            if explicit_leak:
+                errors.append("role C blind protocol label leakage")
     if errors:
         return None, errors
     return data, []
@@ -2466,7 +2765,7 @@ def load_findings_ledger(path: Path | None) -> tuple[int | None, list[str]]:
     if path is None or not path.is_file():
         return None, ["findings_ledger_missing"]
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = _load_strict_json(path)
     except Exception as exc:
         return None, [f"findings_ledger_invalid: {exc}"]
     findings = data.get("findings") if isinstance(data, dict) else data
@@ -2483,11 +2782,15 @@ def load_findings_ledger(path: Path | None) -> tuple[int | None, list[str]]:
     return n, []
 
 
-def load_ci_evidence(path: Path | None) -> tuple[bool | None, list[str]]:
+def load_ci_evidence(
+    path: Path | None,
+    *,
+    expected_candidate_sha: str | None,
+) -> tuple[bool | None, list[str]]:
     if path is None or not path.is_file():
         return None, ["ci_evidence_missing"]
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = _load_strict_json(path)
     except Exception as exc:
         return None, [f"ci_evidence_invalid: {exc}"]
     if not isinstance(data, dict):
@@ -2496,7 +2799,15 @@ def load_ci_evidence(path: Path | None) -> tuple[bool | None, list[str]]:
     if conclusion not in {"success", "green", "passed", "pass"}:
         return False, [f"ci_not_green:{conclusion or 'empty'}"]
     head = str(data.get("head_sha") or data.get("candidate_sha") or "")
-    return True, [] if head else ["ci_evidence_missing_head_sha"]
+    if not head:
+        return False, ["ci_evidence_missing_head_sha"]
+    if expected_candidate_sha is None:
+        return False, ["ci_evidence_candidate_sha_not_bound"]
+    if head != expected_candidate_sha:
+        return False, [
+            f"ci_evidence_head_sha_mismatch:{head}!={expected_candidate_sha}"
+        ]
+    return True, []
 
 
 def compute_metrics_from_runs(
@@ -2516,7 +2827,8 @@ def compute_metrics_from_runs(
         "important_claim_coverage": None,
         "held_out_completion": None,
         "quality_gains_vs_baseline": None,
-        "deterministic_triple_runs_passed": None,
+        "deterministic_triple_runs_succeeded": 0,
+        "deterministic_triple_runs_passed": False,
         "unresolved_high_medium": None,
         "independent_forward_tests": None,
         "valid_forward_roles": [],
@@ -2526,7 +2838,6 @@ def compute_metrics_from_runs(
 
     forward = [m for m in manifests if m.get("run_kind") == "forward"]
     held = [m for m in manifests if m.get("run_kind") == "held_out"]
-    dogfood = [m for m in manifests if m.get("run_kind") == "dogfood"]
 
     roles = sorted({m.get("role") for m in forward if m.get("role") in ALLOWED_ROLES})
     metrics["valid_forward_roles"] = roles
@@ -2535,23 +2846,19 @@ def compute_metrics_from_runs(
         metrics["independent_forward_tests"] = len(forward)
 
     # Evaluation JSON files
-    scores: list[dict[str, Any]] = []
+    scores: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for m in manifests:
         eval_rel = m.get("evaluation_path")
         if not eval_rel:
             continue
-        p = _resolve_under(artifacts_root, str(eval_rel))
-        if p is None or not p.is_file():
-            continue
-        try:
-            scores.append(json.loads(p.read_text(encoding="utf-8")))
-        except Exception:
-            continue
+        evaluation = m.get("_validated_evaluation")
+        if isinstance(evaluation, dict):
+            scores.append((m, evaluation))
 
     if scores:
         def avg(key: str) -> float | None:
             vals = []
-            for s in scores:
+            for _, s in scores:
                 if key in s and s[key] is not None:
                     try:
                         vals.append(float(s[key]))
@@ -2567,7 +2874,9 @@ def compute_metrics_from_runs(
         metrics["release_integrity_pass_rate"] = avg("release_integrity_pass_rate")
         metrics["path_credential_pass_rate"] = avg("path_credential_pass_rate")
         fab = []
-        for s in scores:
+        for manifest, s in scores:
+            if manifest.get("run_kind") != "held_out":
+                continue
             if "fabricated_citations" in s and s["fabricated_citations"] is not None:
                 fab.append(int(s["fabricated_citations"]))
         if fab:
@@ -2577,33 +2886,35 @@ def compute_metrics_from_runs(
         done = sum(1 for m in held if str(m.get("exit_status")).lower() in {"ok", "0", "success", "passed"})
         metrics["held_out_completion"] = done / len(held)
 
-    # quality gains from dogfood score pairs if present
+    # Quality gains come only from integrity-validated dogfood evaluations.
     gains = []
-    for m in dogfood:
-        eval_rel = m.get("evaluation_path")
-        if not eval_rel:
-            continue
-        p = _resolve_under(artifacts_root, str(eval_rel))
-        if p is None:
+    for manifest, evaluation in scores:
+        if manifest.get("run_kind") != "dogfood":
             continue
         try:
-            s = json.loads(p.read_text(encoding="utf-8"))
-            if "quality_gain_vs_baseline" in s:
-                gains.append(float(s["quality_gain_vs_baseline"]))
-        except Exception:
+            if "quality_gain_vs_baseline" in evaluation:
+                gains.append(float(evaluation["quality_gain_vs_baseline"]))
+        except (TypeError, ValueError):
             continue
     if gains:
         metrics["quality_gains_vs_baseline"] = sum(gains) / len(gains)
 
-    # Triple: three identical self-test log hashes under artifacts if provided
-    triple_logs = list(artifacts_root.glob("**/triple-run-*.log"))
-    if len(triple_logs) >= 3:
-        hashes = {_sha256_file(p) for p in triple_logs[:3]}
-        # Presence of three successful logs is enough; content equality optional
-        metrics["deterministic_triple_runs_passed"] = all(
-            p.stat().st_size > 0 for p in triple_logs[:3]
+    # Only candidate-bound, hashed result+log pairs validated by the manifest
+    # count. Unique run indexes prevent one successful log from being replayed.
+    triple_ids = {
+        (str(result["candidate_sha"]), int(result["run_index"]))
+        for manifest in manifests
+        for result in manifest.get("_validated_triple_runs", [])
+    }
+    triple_count = len(triple_ids)
+    metrics["deterministic_triple_runs_succeeded"] = triple_count
+    try:
+        required_triples = int(
+            (suite.get("promotion_thresholds") or {}).get("deterministic_triple_runs")
         )
-        _ = hashes
+    except (TypeError, ValueError):
+        required_triples = 1
+    metrics["deterministic_triple_runs_passed"] = triple_count >= required_triples
 
     return metrics
 
@@ -2622,10 +2933,19 @@ def build_promotion_report(
     Boolean CLI self-attestation flags are intentionally ignored.
     """
     thr = suite.get("promotion_thresholds") or {}
-    validation_errors: list[str] = []
+    validation_errors = [
+        f"threshold_contract:{error}"
+        for error in validate_promotion_thresholds(suite.get("promotion_thresholds"))
+    ]
     manifests: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
+    seen_sessions: set[str] = set()
     seen_roles: set[str] = set()
+
+    if expected_candidate_sha is not None and not re.fullmatch(
+        r"[0-9a-f]{40}", expected_candidate_sha
+    ):
+        validation_errors.append("expected_candidate_sha_must_be_40_char_lowercase_hex")
 
     if artifacts_root is None or not artifacts_root.is_dir():
         validation_errors.append("forward_artifacts_dir_missing")
@@ -2662,6 +2982,11 @@ def build_promotion_report(
                 validation_errors.append(f"duplicate_run_id:{rid}")
                 continue
             seen_ids.add(rid)
+            session_id = str(data["session_id"])
+            if session_id in seen_sessions:
+                validation_errors.append(f"duplicate_session_id:{session_id}")
+                continue
+            seen_sessions.add(session_id)
             role = str(data["role"])
             if data.get("run_kind") == "forward":
                 if role in seen_roles:
@@ -2669,13 +2994,34 @@ def build_promotion_report(
                 seen_roles.add(role)
             manifests.append(data)
 
+        declared_artifacts = {
+            str(path)
+            for manifest in manifests
+            for path in manifest.get("artifact_paths", [])
+        }
+        for triple_log in artifacts_root.rglob("triple-run-*.log"):
+            rel = triple_log.relative_to(artifacts_root).as_posix()
+            if rel not in declared_artifacts:
+                validation_errors.append(f"undeclared_triple_log:{rel}")
+
+    if require_live:
+        for manifest in manifests:
+            provenance = manifest.get("provenance")
+            if not isinstance(provenance, dict) or provenance.get("live") is not True:
+                validation_errors.append(
+                    f"non_live_manifest:{manifest.get('run_id', '<unknown>')}"
+                )
+
     measured = compute_metrics_from_runs(manifests, artifacts_root or Path("."), suite)
 
     unresolved, fl_errs = load_findings_ledger(findings_ledger_path)
     validation_errors.extend(fl_errs)
     measured["unresolved_high_medium"] = unresolved
 
-    ci_ok, ci_errs = load_ci_evidence(ci_evidence_path)
+    ci_ok, ci_errs = load_ci_evidence(
+        ci_evidence_path,
+        expected_candidate_sha=expected_candidate_sha,
+    )
     validation_errors.extend(ci_errs)
 
     # Triple from artifacts only (never CLI flag)
@@ -2699,6 +3045,7 @@ def build_promotion_report(
         "important_claim_coverage",
         "held_out_completion",
         "quality_gains_vs_baseline",
+        "deterministic_triple_runs_succeeded",
         "unresolved_high_medium",
         "independent_forward_tests",
     ]
@@ -2724,28 +3071,26 @@ def build_promotion_report(
     if require_live and not any(m.get("run_kind") == "dogfood" for m in manifests):
         blockers.append("genuine_dogfood_missing")
 
-    # Threshold checks when metrics present
-    def thr_fail(key: str, measured_key: str | None = None) -> bool:
-        mk = measured_key or key
-        if key not in thr or measured.get(mk) is None:
-            return False
+    # Enforce every declared threshold through the canonical mapping. Unknown
+    # keys are validation errors above, so no threshold can be silently ignored.
+    for threshold_key, (metric_key, comparison) in PROMOTION_THRESHOLD_SPECS.items():
+        threshold = thr.get(threshold_key)
+        actual = measured.get(metric_key)
+        if threshold is None or actual is None:
+            continue
         try:
-            return float(measured[mk]) < float(thr[key])
+            threshold_value = float(threshold)
+            actual_value = float(actual)
         except (TypeError, ValueError):
-            return True
-
-    for k in (
-        "critical_safety_pass_rate",
-        "route_selection_accuracy",
-        "citation_correctness",
-        "important_claim_coverage",
-        "held_out_completion",
-    ):
-        if thr_fail(k):
-            blockers.append(f"threshold_not_met:{k}")
-
-    if measured.get("fabricated_citations_in_heldout") not in (None, 0):
-        blockers.append("fabricated_citations_nonzero")
+            blockers.append(f"threshold_invalid:{threshold_key}")
+            continue
+        failed = (
+            actual_value < threshold_value
+            if comparison == "min"
+            else actual_value > threshold_value
+        )
+        if failed:
+            blockers.append(f"threshold_not_met:{threshold_key}")
 
     claim = "RC_QUALITY_INFRA_ONLY"
     if not blockers and not validation_errors and not null_metrics:
@@ -2807,11 +3152,431 @@ def cmd_promotion_report(args: argparse.Namespace) -> int:
     return 0 if doc["claim"] == "PROMOTION_READY_CANDIDATE" else 1
 
 
+def _write_promotion_test_fixture(
+    root: Path,
+    *,
+    candidate_sha: str,
+    metric_overrides: dict[str, float] | None = None,
+    fabricated_citations: int = 0,
+    quality_gain: float = 3.0,
+    held_exit_status: str = "ok",
+    triple_count: int = 3,
+    triple_log_mode: str = "valid",
+) -> tuple[Path, Path]:
+    """Create a complete local promotion fixture for hostile regression tests."""
+    overrides = metric_overrides or {}
+    runs = (
+        ("forward-a", "A", "forward", "ok"),
+        ("forward-b", "B", "forward", "ok"),
+        ("forward-c", "C", "forward", "ok"),
+        ("held-out-a", "A", "held_out", held_exit_status),
+        ("dogfood-b", "B", "dogfood", "ok"),
+    )
+
+    for sequence, (directory, role, run_kind, exit_status) in enumerate(runs, start=1):
+        run_dir = root / directory
+        run_dir.mkdir(parents=True)
+        prompt = run_dir / "prompt.txt"
+        output = run_dir / "output.txt"
+        evaluation_path = run_dir / "evaluation.json"
+        prompt.write_text(f"promotion fixture prompt {directory}\n", encoding="utf-8")
+        output.write_text(f"promotion fixture output {directory} blind\n", encoding="utf-8")
+        evaluation: dict[str, Any] = {
+            "route_selection_accuracy": 1.0,
+            "required_gate_accuracy": 1.0,
+            "citation_correctness": 1.0,
+            "important_claim_coverage": 1.0,
+            "critical_safety_pass_rate": 1.0,
+            "release_integrity_pass_rate": 1.0,
+            "path_credential_pass_rate": 1.0,
+            "fabricated_citations": fabricated_citations if run_kind == "held_out" else 0,
+        }
+        evaluation.update(overrides)
+        if run_kind == "dogfood":
+            evaluation["quality_gain_vs_baseline"] = quality_gain
+        evaluation_path.write_text(json.dumps(evaluation), encoding="utf-8")
+
+        def rel(path: Path) -> str:
+            return path.relative_to(root).as_posix()
+
+        artifacts = [rel(prompt), rel(output), rel(evaluation_path)]
+        triple_results: list[str] = []
+        if directory == "forward-a":
+            for run_index in range(1, triple_count + 1):
+                log = run_dir / f"triple-run-{run_index}.log"
+                if triple_log_mode == "empty":
+                    log.write_text("", encoding="utf-8")
+                elif triple_log_mode == "fake":
+                    log.write_text("arbitrary non-empty log\n", encoding="utf-8")
+                else:
+                    log.write_text(
+                        f"run={run_index} candidate={candidate_sha}\n{TRIPLE_SUCCESS_MARKER}\n",
+                        encoding="utf-8",
+                    )
+                result_path = run_dir / f"triple-run-{run_index}.json"
+                result_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": "1.0",
+                            "candidate_sha": candidate_sha,
+                            "run_index": run_index,
+                            "exit_code": 0,
+                            "success_marker": TRIPLE_SUCCESS_MARKER,
+                            "log_path": rel(log),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                artifacts.extend((rel(log), rel(result_path)))
+                triple_results.append(rel(result_path))
+
+        manifest = {
+            "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
+            "run_id": f"fixture-{sequence}-{directory}",
+            "session_id": f"session-{sequence}-{directory}",
+            "role": role,
+            "run_kind": run_kind,
+            "candidate_sha": candidate_sha,
+            "baseline_sha": "b" * 40,
+            "skill_version": "3.2.0-rc.1",
+            "agent_runtime": "promotion-hostile-self-test",
+            "model": "fixture",
+            "tool_availability": {},
+            "prompt_path": rel(prompt),
+            "raw_output_path": rel(output),
+            "artifact_paths": artifacts,
+            "started_at": f"2026-07-11T00:0{sequence}:00Z",
+            "completed_at": f"2026-07-11T00:0{sequence}:30Z",
+            "exit_status": exit_status,
+            "integrity_hashes": {
+                artifact: _sha256_file(root / artifact) for artifact in artifacts
+            },
+            "evaluation_path": rel(evaluation_path),
+            "triple_run_results": triple_results,
+            "provenance": {"source": "promotion_hostile_self_test", "live": True},
+        }
+        (run_dir / "run-manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+    ci_path = root / "ci-evidence.json"
+    ci_path.write_text(
+        json.dumps({"conclusion": "success", "head_sha": candidate_sha}),
+        encoding="utf-8",
+    )
+    findings_path = root / "findings.json"
+    findings_path.write_text(json.dumps({"findings": []}), encoding="utf-8")
+    return ci_path, findings_path
+
+
 def run_promotion_anti_spoof_tests() -> list[tuple[str, bool, str]]:
     """Mandatory anti-spoof regressions for promotion gate."""
     results: list[tuple[str, bool, str]] = []
     suite = load_json(DEFAULT_SUITE)
     fake_sha = "a" * 40
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+        root = Path(td)
+        ci_path, findings_path = _write_promotion_test_fixture(
+            root, candidate_sha=fake_sha
+        )
+        doc = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "complete_hashed_fixture_can_promote",
+                doc["claim"] == "PROMOTION_READY_CANDIDATE",
+                f"claim={doc['claim']} blockers={doc['blockers_for_promotion']}",
+            )
+        )
+
+        ci_path.write_text(
+            json.dumps({"conclusion": "success", "head_sha": "c" * 40}),
+            encoding="utf-8",
+        )
+        wrong_ci = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "wrong_ci_sha_cannot_promote",
+                wrong_ci["claim"] != "PROMOTION_READY_CANDIDATE"
+                and any(
+                    "ci_evidence_head_sha_mismatch" in error
+                    for error in wrong_ci["validation_errors"]
+                ),
+                str(wrong_ci["validation_errors"]),
+            )
+        )
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+        root = Path(td)
+        ci_path, findings_path = _write_promotion_test_fixture(
+            root, candidate_sha=fake_sha
+        )
+        manifest_path = root / "dogfood-b" / "run-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["provenance"]["live"] = False
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        non_live = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "non_live_dogfood_cannot_promote",
+                non_live["claim"] != "PROMOTION_READY_CANDIDATE"
+                and any(
+                    error.startswith("non_live_manifest:")
+                    for error in non_live["validation_errors"]
+                ),
+                str(non_live["validation_errors"]),
+            )
+        )
+
+    for case_name, mutate_manifest, expected_error in (
+        (
+            "wrong_manifest_schema",
+            lambda manifest: manifest.__setitem__("schema_version", "1.0"),
+            "schema_version must be",
+        ),
+        (
+            "duplicate_session",
+            lambda manifest: manifest.__setitem__(
+                "session_id", "session-1-forward-a"
+            ),
+            "duplicate_session_id:",
+        ),
+    ):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ci_path, findings_path = _write_promotion_test_fixture(
+                root, candidate_sha=fake_sha
+            )
+            manifest_path = root / "forward-b" / "run-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            mutate_manifest(manifest)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            invalid_manifest = build_promotion_report(
+                suite=suite,
+                artifacts_root=root,
+                expected_candidate_sha=fake_sha,
+                ci_evidence_path=ci_path,
+                findings_ledger_path=findings_path,
+            )
+            results.append(
+                (
+                    f"{case_name}_cannot_promote",
+                    invalid_manifest["claim"] != "PROMOTION_READY_CANDIDATE"
+                    and any(
+                        expected_error in error
+                        for error in invalid_manifest["validation_errors"]
+                    ),
+                    str(invalid_manifest["validation_errors"][:3]),
+                )
+            )
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        ci_path, findings_path = _write_promotion_test_fixture(
+            root, candidate_sha=fake_sha
+        )
+        manifest_path = root / "forward-c" / "run-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        output_path = root / str(manifest["raw_output_path"])
+        output_path.write_text(
+            "This is the candidate branch, but the evaluator is blind.\n",
+            encoding="utf-8",
+        )
+        manifest["integrity_hashes"][manifest["raw_output_path"]] = _sha256_file(
+            output_path
+        )
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        leaked = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "blind_label_leak_cannot_promote_even_with_blind_word",
+                leaked["claim"] != "PROMOTION_READY_CANDIDATE"
+                and any(
+                    "blind protocol label leakage" in error
+                    for error in leaked["validation_errors"]
+                ),
+                str(leaked["validation_errors"]),
+            )
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        ci_path, findings_path = _write_promotion_test_fixture(
+            root, candidate_sha=fake_sha
+        )
+        manifest_path = root / "forward-b" / "run-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        evaluation_path = str(manifest["evaluation_path"])
+        manifest["integrity_hashes"].pop(evaluation_path)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        missing_eval_hash = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "missing_evaluation_hash_cannot_promote",
+                missing_eval_hash["claim"] != "PROMOTION_READY_CANDIDATE"
+                and any(
+                    "evaluation_path missing integrity hash" in error
+                    for error in missing_eval_hash["validation_errors"]
+                ),
+                str(missing_eval_hash["validation_errors"][:4]),
+            )
+        )
+
+    for case_name, hostile_metric in (
+        ("nonfinite_evaluation_metric", float("nan")),
+        ("out_of_range_evaluation_metric", 2.0),
+    ):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ci_path, findings_path = _write_promotion_test_fixture(
+                root,
+                candidate_sha=fake_sha,
+                metric_overrides={"route_selection_accuracy": hostile_metric},
+            )
+            invalid_metric = build_promotion_report(
+                suite=suite,
+                artifacts_root=root,
+                expected_candidate_sha=fake_sha,
+                ci_evidence_path=ci_path,
+                findings_ledger_path=findings_path,
+            )
+            results.append(
+                (
+                    f"{case_name}_cannot_promote",
+                    invalid_metric["claim"] != "PROMOTION_READY_CANDIDATE"
+                    and any(
+                        "evaluation_path" in error
+                        for error in invalid_metric["validation_errors"]
+                    ),
+                    str(invalid_metric["validation_errors"][:3]),
+                )
+            )
+
+    for log_mode in ("empty", "fake"):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ci_path, findings_path = _write_promotion_test_fixture(
+                root,
+                candidate_sha=fake_sha,
+                triple_log_mode=log_mode,
+            )
+            triple_doc = build_promotion_report(
+                suite=suite,
+                artifacts_root=root,
+                expected_candidate_sha=fake_sha,
+                ci_evidence_path=ci_path,
+                findings_ledger_path=findings_path,
+            )
+            results.append(
+                (
+                    f"{log_mode}_triple_logs_cannot_promote",
+                    triple_doc["claim"] != "PROMOTION_READY_CANDIDATE"
+                    and any(
+                        "log missing" in error
+                        for error in triple_doc["validation_errors"]
+                    ),
+                    str(triple_doc["validation_errors"][:4]),
+                )
+            )
+
+    threshold_scenarios: list[tuple[str, dict[str, Any]]] = [
+        ("critical_safety_pass_rate", {"metric_overrides": {"critical_safety_pass_rate": 0.0}}),
+        ("release_integrity_pass_rate", {"metric_overrides": {"release_integrity_pass_rate": 0.0}}),
+        ("path_credential_pass_rate", {"metric_overrides": {"path_credential_pass_rate": 0.0}}),
+        ("route_selection_accuracy_min", {"metric_overrides": {"route_selection_accuracy": 0.0}}),
+        ("required_gate_accuracy_min", {"metric_overrides": {"required_gate_accuracy": 0.0}}),
+        ("citation_correctness_min", {"metric_overrides": {"citation_correctness": 0.0}}),
+        ("important_claim_coverage_min", {"metric_overrides": {"important_claim_coverage": 0.0}}),
+        ("held_out_completion_min", {"held_exit_status": "failed"}),
+        ("min_quality_gains_vs_baseline", {"quality_gain": 2.0}),
+        ("fabricated_citations_allowed", {"fabricated_citations": 1}),
+        ("deterministic_triple_runs", {"triple_count": 2}),
+    ]
+    for threshold_key, fixture_kwargs in threshold_scenarios:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ci_path, findings_path = _write_promotion_test_fixture(
+                root,
+                candidate_sha=fake_sha,
+                **fixture_kwargs,
+            )
+            threshold_doc = build_promotion_report(
+                suite=suite,
+                artifacts_root=root,
+                expected_candidate_sha=fake_sha,
+                ci_evidence_path=ci_path,
+                findings_ledger_path=findings_path,
+            )
+            expected_blocker = f"threshold_not_met:{threshold_key}"
+            results.append(
+                (
+                    f"threshold_{threshold_key}_cannot_be_bypassed",
+                    threshold_doc["claim"] != "PROMOTION_READY_CANDIDATE"
+                    and expected_blocker in threshold_doc["blockers_for_promotion"],
+                    str(threshold_doc["blockers_for_promotion"]),
+                )
+            )
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        ci_path, findings_path = _write_promotion_test_fixture(
+            root, candidate_sha=fake_sha
+        )
+        suite_with_unknown_threshold = {
+            **suite,
+            "promotion_thresholds": {
+                **suite["promotion_thresholds"],
+                "unhandled_quality_min": 0.5,
+            },
+        }
+        unknown_threshold = build_promotion_report(
+            suite=suite_with_unknown_threshold,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "unknown_declared_threshold_cannot_be_ignored",
+                unknown_threshold["claim"] != "PROMOTION_READY_CANDIDATE"
+                and any(
+                    "unsupported key unhandled_quality_min" in error
+                    for error in unknown_threshold["validation_errors"]
+                ),
+                str(unknown_threshold["validation_errors"][:3]),
+            )
+        )
 
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -2887,8 +3652,9 @@ def run_promotion_anti_spoof_tests() -> list[tuple[str, bool, str]]:
         prompt.write_text("prompt", encoding="utf-8")
         output.write_text("output", encoding="utf-8")
         manifest = {
-            "schema_version": "1.0",
-            "run_id": "run-1",
+            "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
+            "run_id": "run-test-0001",
+            "session_id": "session-test-0001",
             "role": "A",
             "run_kind": "forward",
             "candidate_sha": fake_sha,
@@ -2973,7 +3739,11 @@ def run_promotion_anti_spoof_tests() -> list[tuple[str, bool, str]]:
     # Valid structural fixture passes structural validation only (not live dogfood)
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        for role, rid in (("A", "run-a"), ("B", "run-b"), ("C", "run-c")):
+        for role, rid in (
+            ("A", "run-role-a-0001"),
+            ("B", "run-role-b-0001"),
+            ("C", "run-role-c-0001"),
+        ):
             d = root / f"agent-{role.lower()}"
             d.mkdir()
             prompt = d / "prompt.txt"
@@ -2997,8 +3767,9 @@ def run_promotion_anti_spoof_tests() -> list[tuple[str, bool, str]]:
                 encoding="utf-8",
             )
             man = {
-                "schema_version": "1.0",
+                "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
                 "run_id": rid,
+                "session_id": f"session-role-{role.lower()}-0001",
                 "role": role,
                 "run_kind": "forward",
                 "candidate_sha": fake_sha,

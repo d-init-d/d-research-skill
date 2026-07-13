@@ -24,7 +24,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from run_dogfood import validate_bench
+from run_dogfood import (
+    normalize_url_for_match,
+    validate_bench,
+    value_matches,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVALS_DIR = REPO_ROOT / "examples" / "evals"
@@ -83,6 +87,7 @@ def check_bench(bench_path: Path, *, strict: bool = False) -> tuple[list[str], l
         # Check each source path exists (skip URLs). Schema 2.0 requires
         # {canonical, equivalents} objects; schema 1.0 retains plain strings.
         source_contents: list[str] = []
+        source_identities: set[str] = set()
         for src in sources:
             if isinstance(src, dict):
                 candidates = [src.get("canonical"), *(src.get("equivalents") or [])]
@@ -92,9 +97,25 @@ def check_bench(bench_path: Path, *, strict: bool = False) -> tuple[list[str], l
                 if not item:
                     continue
                 s = str(item)
-                if s.startswith("http://") or s.startswith("https://"):
+                legacy_absolute = (
+                    bench.get("schema_version") == "1.0" and Path(s).is_absolute()
+                )
+                normalized = (
+                    s if legacy_absolute else normalize_url_for_match(s, repo_roots=(REPO_ROOT,))
+                )
+                if not normalized:
+                    errors.append(
+                        f"{task_id}: source identity is invalid, outside the repo, "
+                        f"or contains traversal: {s}"
+                    )
                     continue
-                src_path = REPO_ROOT / s
+                source_identities.add(normalized)
+                if normalized.startswith("http://") or normalized.startswith("https://"):
+                    continue
+                if legacy_absolute:
+                    src_path = Path(s)
+                else:
+                    src_path = REPO_ROOT / normalized
                 if not src_path.is_file():
                     errors.append(
                         f"{task_id}: ground_truth_sources path not found: {s}"
@@ -109,6 +130,41 @@ def check_bench(bench_path: Path, *, strict: bool = False) -> tuple[list[str], l
                             f"{task_id}: could not read source file: {s}"
                         )
 
+        if bench.get("schema_version") == "2.0":
+            for assertion in task.get("required_assertions") or []:
+                if not isinstance(assertion, dict):
+                    continue
+                declared = assertion.get("fields")
+                fields = (
+                    list(declared)
+                    if isinstance(declared, list)
+                    else [assertion.get("field")]
+                )
+                values = assertion.get("required_values") or []
+                if "source_url" in fields:
+                    for value in values:
+                        identity = normalize_url_for_match(
+                            str(value), repo_roots=(REPO_ROOT,)
+                        )
+                        if identity not in source_identities:
+                            errors.append(
+                                f"{task_id}.{assertion.get('id')}: source_url assertion "
+                                f"value is not a declared source identity: {value}"
+                            )
+                if "quote_or_anchor" in fields and source_contents:
+                    match_contract = {
+                        "match_mode": assertion.get("match_mode", "substring"),
+                        "case_sensitive": assertion.get("case_sensitive", True),
+                    }
+                    for value in values:
+                        if not any(
+                            value_matches(content, str(value), match_contract)
+                            for content in source_contents
+                        ):
+                            errors.append(
+                                f"{task_id}.{assertion.get('id')}: quote_or_anchor "
+                                f"value not found in any declared local source: {value!r}"
+                            )
         # Schema 1.0 used one legacy expected_answer substring. Schema 2.0 uses
         # multipart required_assertions and is structurally checked by the
         # canonical validator above; do not keep a second, contradictory source
