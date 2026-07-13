@@ -60,7 +60,7 @@ extraction = [
     "lxml>=5.0",
 ]
 dev = [
-    "ruff==0.15.13",
+    "ruff==0.15.21",
     "pre-commit>=3.6",
 ]
 
