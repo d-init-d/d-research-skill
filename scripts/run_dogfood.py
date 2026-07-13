@@ -2538,7 +2538,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             },
             "candidate_binding": {
                 "skill_commit": "b" * 40,
-                "version": "3.2.0-rc.1",
+                "version": "3.2.0-rc.2",
             },
         }
         manifest_path = refusal_dir / "run-result.json"

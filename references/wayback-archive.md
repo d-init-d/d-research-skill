@@ -1,5 +1,15 @@
 # Wayback Machine Archive
 
+## Contents
+
+- [CDX API reference](#cdx-api-reference)
+- [Availability API](#availability-api)
+- [Save Page Now etiquette](#save-page-now-etiquette)
+- [Diff workflow](#diff-workflow)
+- [Integration with anti-bot fallback chain](#integration-with-anti-bot-fallback-chain)
+- [Self-test](#self-test)
+- [See also](#see-also)
+
 Use this file when you need to retrieve, compare, or archive web page
 snapshots via the Internet Archive's Wayback Machine. The script
 `scripts/wayback.py` wraps the CDX API, Availability API, and Save Page

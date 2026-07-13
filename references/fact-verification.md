@@ -14,7 +14,9 @@ All five must be true:
 4. The user has **not** asked for trends, comparisons, history, opinions, or context beyond the bare fact.
 5. The bare answer fits in a sentence or short quote.
 
-If any condition is false, fall back to `SKILL.md` "If the user asks for a broad research answer." When in doubt, do not use this branch — the cost of the full workflow is small; the cost of a wrong fast answer is high.
+If any condition is false, fall back to the broad-research branch in
+`references/workflow-routes.md`. When in doubt, do not use this branch — the
+cost of the full workflow is small; the cost of a wrong fast answer is high.
 
 ## Tool priority for atomic facts
 

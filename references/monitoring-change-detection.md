@@ -1,5 +1,15 @@
 # Monitoring and Change Detection
 
+## Contents
+
+- [When to Use Change Detection](#when-to-use-change-detection)
+- [Monitoring Workflow](#monitoring-workflow)
+- [Change Detection Methods](#change-detection-methods)
+- [Diff Output Format](#diff-output-format)
+- [Use Cases](#use-cases)
+- [Key Practices](#key-practices)
+- [Compare via Wayback snapshots](#compare-via-wayback-snapshots)
+
 Change detection enables agents to track modifications across web sources, APIs, and datasets over time. This reference covers the complete workflow and methods for building reliable monitoring systems.
 
 ## When to Use Change Detection

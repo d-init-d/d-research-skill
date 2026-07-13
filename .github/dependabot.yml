@@ -1,4 +1,4 @@
-# Dependabot: npm lockfile + GitHub Actions pins
+# Dependabot: npm lockfile, Python metadata, and GitHub Actions pins
 version: 2
 updates:
   - package-ecosystem: npm
@@ -18,3 +18,12 @@ updates:
     labels:
       - dependencies
       - github-actions
+
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python

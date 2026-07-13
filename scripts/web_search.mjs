@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 
 import { writeFileSync } from 'fs';
+import {
+  headersHaveCredentials,
+  publicHeadersOnly,
+  urlHasCredentials,
+} from './lib/credentials.mjs';
 
 const USER_AGENT = 'd-research-skill/0.3.0 (https://github.com/d-init-d/d-research-skill)';
 const DEFAULT_MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 let requestOverrides = {};
 
 class ResourceLimitError extends Error {
@@ -100,12 +107,70 @@ async function readResponseTextBounded(response, maxBytes) {
   return body.toString('utf8');
 }
 
+function validateHttpUrl(value, base = undefined) {
+  let parsed;
+  try {
+    parsed = base ? new URL(value, base) : new URL(value);
+  } catch {
+    throw new Error('redirect Location is not a valid URL');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`redirect scheme is not allowed: ${parsed.protocol}`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('URL userinfo is not allowed');
+  }
+  return parsed;
+}
+
+async function fetchWithManualRedirects(url, options, timeoutMs) {
+  let current = validateHttpUrl(url);
+  let headers = { ...(options.headers || {}) };
+  let credentialed = headersHaveCredentials(headers) || urlHasCredentials(current.href);
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetch(current.href, {
+      ...options,
+      headers,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!REDIRECT_STATUSES.has(response.status)) return response;
+
+    const location = response.headers?.get?.('location');
+    try {
+      await response.body?.cancel?.('manual redirect');
+    } catch {
+      /* ignore response cleanup failure */
+    }
+    if (!location) {
+      throw new Error(`redirect without Location from ${current.origin}`);
+    }
+    if (hop >= MAX_REDIRECTS) {
+      throw new Error(`too many redirects (>${MAX_REDIRECTS})`);
+    }
+
+    const next = validateHttpUrl(location, current.href);
+    const crossOrigin = current.origin !== next.origin;
+    if (
+      crossOrigin &&
+      (credentialed || headersHaveCredentials(headers) || urlHasCredentials(next.href))
+    ) {
+      throw new Error(`credentialed cross-origin redirect blocked: ${next.origin}`);
+    }
+    if (current.protocol === 'https:' && next.protocol !== 'https:') {
+      throw new Error('HTTPS redirect downgrade blocked');
+    }
+    if (crossOrigin) headers = publicHeadersOnly(headers);
+    credentialed = credentialed || urlHasCredentials(next.href);
+    current = next;
+  }
+  throw new Error(`too many redirects (>${MAX_REDIRECTS})`);
+}
+
 async function fetchTextBounded(url, options = {}, overrides = requestOverrides) {
   const limits = activeLimits(overrides);
-  const response = await fetch(url, {
-    ...options,
-    signal: AbortSignal.timeout(limits.timeoutMs)
-  });
+  const response = await fetchWithManualRedirects(url, options, limits.timeoutMs);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
@@ -386,6 +451,86 @@ async function runSelfTest() {
     !redactSecrets('https://example.test/?key=self-test-secret').includes('self-test-secret'),
     'query secrets are redacted'
   );
+
+  // Credential headers are retained only for same-origin hops. A cross-origin
+  // redirect is rejected before the destination receives a request.
+  process.env.BRAVE_API_KEY = 'brave-redirect-secret';
+  let redirectCalls = [];
+  globalThis.fetch = async (url, options) => {
+    redirectCalls.push({ url: String(url), headers: { ...(options.headers || {}) }, redirect: options.redirect });
+    if (redirectCalls.length === 1) {
+      return {
+        ok: false,
+        status: 302,
+        headers: { get: (name) => name.toLowerCase() === 'location' ? '/same-origin' : null },
+        body: { cancel: async () => {} },
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ web: { results: [] } }),
+    };
+  };
+  try {
+    await searchBrave('redirect test', 1);
+    assert(redirectCalls.length === 2, 'same-origin redirect is followed manually');
+    assert(
+      redirectCalls.every((call) => call.redirect === 'manual'),
+      'every redirect hop uses manual mode'
+    );
+    assert(
+      redirectCalls[1]?.headers?.['X-Subscription-Token'] === 'brave-redirect-secret',
+      'credential header is preserved on same-origin redirect'
+    );
+  } catch (error) {
+    assert(false, `same-origin credential redirect succeeds: ${error.message}`);
+  }
+
+  redirectCalls = [];
+  globalThis.fetch = async (url, options) => {
+    redirectCalls.push({ url: String(url), headers: { ...(options.headers || {}) } });
+    return {
+      ok: false,
+      status: 302,
+      headers: { get: (name) => name.toLowerCase() === 'location' ? 'https://redirect.invalid/stolen' : null },
+      body: { cancel: async () => {} },
+    };
+  };
+  try {
+    await searchBrave('redirect test', 1);
+    assert(false, 'credentialed cross-origin redirect is blocked');
+  } catch (error) {
+    assert(
+      redirectCalls.length === 1 && /credentialed cross-origin redirect blocked/.test(error.message),
+      'credentialed cross-origin redirect is blocked before destination request'
+    );
+    assert(
+      !error.message.includes('brave-redirect-secret'),
+      'cross-origin redirect error does not expose credential'
+    );
+  }
+
+  let loopCalls = 0;
+  globalThis.fetch = async () => {
+    loopCalls++;
+    return {
+      ok: false,
+      status: 302,
+      headers: { get: (name) => name.toLowerCase() === 'location' ? '/loop' : null },
+      body: { cancel: async () => {} },
+    };
+  };
+  try {
+    await fetchTextBounded('https://loop.example/start');
+    assert(false, 'redirect loop is bounded');
+  } catch (error) {
+    assert(
+      loopCalls === MAX_REDIRECTS + 1 && /too many redirects/.test(error.message),
+      'redirect loop is bounded'
+    );
+  }
 
   // Mock HTML for DuckDuckGo
   const mockDdgHtml = `

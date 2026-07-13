@@ -1,5 +1,17 @@
 # Person Aggregation (public-info search about a named person)
 
+## Contents
+
+- [When this branch applies](#when-this-branch-applies)
+- [Privacy boundary (explicit list — not abstract)](#privacy-boundary-explicit-list--not-abstract)
+- [Hard stops (refuse before starting)](#hard-stops-refuse-before-starting)
+- [Workflow (9 steps)](#workflow-9-steps)
+- [Saturation criteria (when to stop)](#saturation-criteria-when-to-stop)
+- [Examples in scope](#examples-in-scope)
+- [Examples out of scope (refuse or redirect)](#examples-out-of-scope-refuse-or-redirect)
+- [What this branch deliberately does not do](#what-this-branch-deliberately-does-not-do)
+- [See also](#see-also)
+
 Use this file when the user asks for **scattered public information about a single named person** — usually a maintainer, author, speaker, journalist, scientist, public figure, or someone they want to identify or reach for a legitimate, public reason. This task class has its own branch because (a) the value is in *cross-source aggregation*, not in any one source, (b) name collisions ("two trường Marie Curie", "three Vu Anh on GitHub") have to be resolved with positive evidence before answering, and (c) the privacy boundary in this file is **not optional** — it is a hard stop on what may be aggregated, regardless of whether the data is technically public somewhere on the open web.
 
 This is **not** a license to build a dossier. It is a focused workflow for a narrowly-defined task class with explicit limits.
@@ -93,7 +105,10 @@ Never escalate to `references/frontier-search.md` to chase a person across the l
 - It does not skip the evidence ledger or the source-quality rubric. Every claim is sourced and scored.
 - It does not relax the access-control rules. Login walls, paywalls, captchas, rate limits, and `robots.txt` still stop the agent; produce a blocker report.
 - It does not cross-link pseudonymous identities to real-name identities.
-- It does not replace `references/frontier-search.md`, the contradiction pass, or the multilingual-research workflow — it composes them under a privacy constraint.
+- It may compose with the contradiction and multilingual-research workflows under
+  this privacy boundary. It never composes with `references/frontier-search.md`;
+  unresolved personal details remain explicit gaps rather than long-tail search
+  targets.
 
 ## See also
 

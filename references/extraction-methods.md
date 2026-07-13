@@ -1,5 +1,12 @@
 # Extraction Methods
 
+## Contents
+
+- [Extraction modes](#extraction-modes)
+- [Schema inference](#schema-inference)
+- [Quality checks](#quality-checks)
+- [Dataset output template](#dataset-output-template)
+
 Use this file when the user wants structured data or a repeatable extraction workflow.
 
 ## Extraction modes

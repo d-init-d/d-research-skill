@@ -1,5 +1,15 @@
 # Anti-Bot Fallback
 
+## Contents
+
+- [When this applies](#when-this-applies)
+- [One chain, in order](#one-chain-in-order)
+- [What to record](#what-to-record)
+- [Safety stops](#safety-stops)
+- [Output pattern](#output-pattern)
+- [Worked mini-example](#worked-mini-example)
+- [See also](#see-also)
+
 Use this file when a relevant public source appears to be blocked by an anti-bot layer, JavaScript challenge, captcha, 403, 429, geo block, or repeated browser/fetch failure. The goal is to preserve lawful research coverage without trying to defeat access controls.
 
 This is a fallback chain, not an evasion playbook. Do not use stealth plugins, CAPTCHA solving, residential proxy rotation, leaked cookies, login bypasses, or rate-limit evasion. If the chain cannot reach an equivalent public source, produce a blocker report.

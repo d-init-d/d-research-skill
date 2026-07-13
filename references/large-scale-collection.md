@@ -1,5 +1,18 @@
 # Large-Scale Data Collection
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Principles](#principles)
+- [Checkpointing](#checkpointing)
+- [Adaptive Rate Limiting](#adaptive-rate-limiting)
+- [Batch Processing](#batch-processing)
+- [Multi-Domain Strategy](#multi-domain-strategy)
+- [Error Recovery](#error-recovery)
+- [Coverage Tracking](#coverage-tracking)
+- [Output](#output)
+- [See also](#see-also)
+
 Reference guide for collecting >100 pages or records efficiently, reliably, and at scale.
 
 ## When to Use

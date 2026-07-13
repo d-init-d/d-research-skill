@@ -1,5 +1,12 @@
 # Query Patterns
 
+## Contents
+
+- [Core fanout](#core-fanout)
+- [Iterative query expansion](#iterative-query-expansion)
+- [Pearl growing and snowballing](#pearl-growing-and-snowballing)
+- [Search log template](#search-log-template)
+
 Use this file to generate broad and targeted searches.
 
 ## Core fanout

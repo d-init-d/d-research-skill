@@ -87,12 +87,12 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.2.0-rc.1 is the production-hardening release candidate: plan schema 2.0,
+v3.2.0-rc.2 is the production-hardening release candidate: plan schema 2.0,
 tamper-evident release gates, claim-coverage linting, credential and robots
 hardening, deterministic resource limits, scoring/citation fixes, and real
 cross-platform Chromium integration. It remains Beta until live Tier-1/Tier-2
 dogfood against v3.1.1 is complete. See
-[`docs/release-v3.2.0-rc.1.md`](docs/release-v3.2.0-rc.1.md).
+[`docs/release-v3.2.0-rc.2.md`](docs/release-v3.2.0-rc.2.md).
 Existing v3.1.1 workspaces should follow the tested
 [`docs/upgrade-v3.1.1-to-v3.2.0.md`](docs/upgrade-v3.1.1-to-v3.2.0.md).
 
@@ -342,7 +342,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── eval.md                           # eval-harness usage guide
 │   ├── eval-upgrade-prompt.md            # external-runner dogfood contract
 │   ├── upgrade-v3.1.1-to-v3.2.0.md       # tested workspace migration guide
-│   └── release-v3.2.0-rc.1.md            # RC scope and external gates
+│   ├── release-v3.2.0-rc.1.md            # prior RC scope and external gates
+│   └── release-v3.2.0-rc.2.md            # current RC scope and ship gates
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates
@@ -385,6 +386,7 @@ Install the D Research skill from https://github.com/d-init-d/d-research-skill.g
 | Agent Skills portable layout | `.agents/skills/d-research` | `~/.agents/skills/d-research` |
 | Codex | `.agents/skills/d-research` | `$CODEX_HOME/skills/d-research` (default: `~/.codex/skills/d-research`) |
 | Claude Code | `.claude/skills/d-research` | `~/.claude/skills/d-research` |
+| Grok Build | `.agents/skills/d-research` | `~/.grok/skills/d-research` |
 | OpenCode | `.opencode/skills/d-research` (also discovers `.agents/skills`) | `~/.config/opencode/skills/d-research` |
 
    The commands below use the portable project-local destination. Substitute
@@ -611,17 +613,17 @@ directory containing the plan, human-readable review, evidence ledger,
 notes, sections, final report, and reproducibility checklist:
 
 ```bash
-python3 scripts/research_plan.py init --slug topic
+node scripts/run_python.mjs scripts/research_plan.py init --slug topic
 cd research-topic-2026-05-16
-python3 ../scripts/research_plan.py configure-execution --file research-plan.json
-python3 ../scripts/research_plan.py render --file research-plan.json
-python3 ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
-python3 ../scripts/research_plan.py approve --file research-plan.json --by "Reviewer"
-python3 ../scripts/research_plan.py gate --file research-plan.json --gate execute_ready
+node ../scripts/run_python.mjs ../scripts/research_plan.py configure-execution --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py render --file research-plan.json
+node ../scripts/run_python.mjs ../scripts/research_plan.py gate --file research-plan.json --gate plan_ready
+node ../scripts/run_python.mjs ../scripts/research_plan.py approve --file research-plan.json --by "Reviewer"
+node ../scripts/run_python.mjs ../scripts/research_plan.py gate --file research-plan.json --gate execute_ready
 ```
 
-On Windows, use `python` instead of `python3` if `python3` is not on
-PATH, or use the matching `npm run plan:*` commands.
+`run_python.mjs` selects an available Python launcher on Windows, macOS, and
+Linux. The matching `npm run plan:*` commands are equivalent.
 
 The `init` command prints the actual `workspace:` path. Agents must
 include that path in the final answer so users know where the plan,

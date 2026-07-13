@@ -230,9 +230,15 @@ duplicate keys are rejected, schema 1.1 requires unique run/session IDs,
 timestamps must be timezone-aware RFC3339, and a release promotion requires
 `provenance.live: true` for every manifest. CI
 evidence is green only when its `head_sha` exactly matches `--candidate-sha`.
-A promotion evaluation also rejects `NaN`/`Infinity`, rate metrics outside
-`[0, 1]`, negative/non-integer fabricated-citation counts, and non-finite
-quality gains. Only a validated evaluation document contributes metrics.
+A promotion evaluation is mandatory and must contain all seven rate metrics;
+`held_out` runs also require `fabricated_citations`, while `dogfood` runs also
+require `quality_gain_vs_baseline`. Missing fields fail each manifest instead of
+being averaged away. The validator also rejects `NaN`/`Infinity`, rate metrics
+outside `[0, 1]`, negative/non-integer fabricated-citation counts, and
+non-finite quality gains. Findings-ledger rows require a known severity
+(`critical`, `high`, `medium`, `low`) and status (`open`, `unresolved`,
+`resolved`, `closed`); unresolved Critical, High, or Medium findings block
+promotion. Only a complete validated evaluation document contributes metrics.
 A deterministic run counts
 only when a hashed result JSON binds its hashed log to the same candidate SHA,
 records `exit_code: 0`, and names the success marker that is present in the
@@ -298,7 +304,7 @@ manifest looks like this:
   },
   "candidate_binding": {
     "skill_commit": "0123456789abcdef0123456789abcdef01234567",
-    "version": "3.2.0-rc.1"
+    "version": "3.2.0-rc.2"
   },
   "started_at": "2026-07-10T01:00:00Z",
   "finished_at": "2026-07-10T01:03:00Z"
@@ -402,7 +408,7 @@ The score artifact schema is:
       },
       "candidate_binding": {
         "skill_commit": "0123456789abcdef0123456789abcdef01234567",
-        "version": "3.2.0-rc.1"
+        "version": "3.2.0-rc.2"
       }
     }
   ]

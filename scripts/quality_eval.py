@@ -1755,8 +1755,9 @@ def run_fuzz(seed: int = FUZZ_SEED, rounds: int = 64) -> list[tuple[str, bool, s
             )
         )
 
-    # cache purge --all leaves no orphans. Windows indexers can briefly retain
-    # directory handles after every file has been removed.
+    # cache purge --all leaves no handle-confirmed artifacts. Windows can
+    # transiently enumerate a case-normalized tombstone after unlink; the
+    # production cache probe distinguishes that from a real locked temp.
     cache_path_name = "D_RESEARCH_HTTP_CACHE_PATH"
     old_cache_path = os.environ.get(cache_path_name)
     try:
@@ -1789,7 +1790,7 @@ def run_fuzz(seed: int = FUZZ_SEED, rounds: int = 64) -> list[tuple[str, bool, s
             with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
                 rc_purge = hc.cmd_purge(ns)
             entries = cd / "entries"
-            left = list(entries.iterdir()) if entries.is_dir() else []
+            left = hc._cache_artifact_paths(entries)
             results.append(
                 (
                     "cache_purge_no_orphans",
@@ -2459,10 +2460,48 @@ EVALUATION_RATE_FIELDS = frozenset(
     }
 )
 
+# Promotion evaluations are not sparse scorecards. Every run that participates
+# in a promotion decision must provide the complete rate vector, while
+# run-kind-specific evidence is required only where it is meaningful. Keeping
+# the role in the key makes the contract explicit for all independently run
+# A/B/C artifacts and prevents a producer from making one complete evaluation
+# carry several incomplete manifests through an aggregate.
+EVALUATION_REQUIRED_FIELDS_BY_RUN = {
+    (run_kind, role): EVALUATION_RATE_FIELDS
+    | (
+        frozenset({"fabricated_citations"})
+        if run_kind == "held_out"
+        else frozenset({"quality_gain_vs_baseline"})
+        if run_kind == "dogfood"
+        else frozenset()
+    )
+    for run_kind in ALLOWED_RUN_KINDS
+    for role in ALLOWED_ROLES
+}
 
-def _validate_promotion_evaluation(value: dict[str, Any]) -> list[str]:
-    """Reject metric values that could spoof comparisons or averaging."""
+FINDING_SEVERITIES = frozenset({"critical", "high", "medium", "low"})
+FINDING_STATUSES = frozenset({"open", "unresolved", "resolved", "closed"})
+UNRESOLVED_FINDING_STATUSES = frozenset({"open", "unresolved"})
+BLOCKING_FINDING_SEVERITIES = frozenset({"critical", "high", "medium"})
+
+
+def _validate_promotion_evaluation(
+    value: dict[str, Any], *, run_kind: Any, role: Any
+) -> list[str]:
+    """Reject incomplete or invalid promotion scorecards fail-closed."""
     errors: list[str] = []
+    required_fields = EVALUATION_REQUIRED_FIELDS_BY_RUN.get((run_kind, role))
+    if required_fields is None:
+        errors.append(
+            f"unsupported evaluation context run_kind={run_kind!r} role={role!r}"
+        )
+        required_fields = frozenset()
+    for key in sorted(required_fields):
+        if key not in value:
+            errors.append(
+                f"missing required field {key} for run_kind={run_kind} role={role}"
+            )
+
     for key in sorted(EVALUATION_RATE_FIELDS):
         if key not in value:
             continue
@@ -2638,7 +2677,15 @@ def validate_run_manifest(
         "prompt_path": str(data.get("prompt_path") or ""),
         "raw_output_path": str(data.get("raw_output_path") or ""),
     }
-    evaluation_path = str(data.get("evaluation_path") or "")
+    evaluation_raw = data.get("evaluation_path")
+    evaluation_path = (
+        evaluation_raw.strip() if isinstance(evaluation_raw, str) else ""
+    )
+    if not evaluation_path:
+        errors.append(
+            "evaluation_path required for promotion run "
+            f"run_kind={data.get('run_kind')} role={data.get('role')}"
+        )
     if evaluation_path:
         consumed_paths["evaluation_path"] = evaluation_path
     for field, rel in consumed_paths.items():
@@ -2654,7 +2701,11 @@ def validate_run_manifest(
         if evaluation_file is not None and evaluation_file.is_file():
             try:
                 evaluation = _strict_json_object(evaluation_file, "evaluation_path")
-                evaluation_errors = _validate_promotion_evaluation(evaluation)
+                evaluation_errors = _validate_promotion_evaluation(
+                    evaluation,
+                    run_kind=data.get("run_kind"),
+                    role=data.get("role"),
+                )
                 errors.extend(
                     f"evaluation_path {error}" for error in evaluation_errors
                 )
@@ -2761,7 +2812,7 @@ def validate_run_manifest(
 
 
 def load_findings_ledger(path: Path | None) -> tuple[int | None, list[str]]:
-    """Return (unresolved_high_medium_count, errors)."""
+    """Return unresolved Critical/High/Medium count, rejecting malformed rows."""
     if path is None or not path.is_file():
         return None, ["findings_ledger_missing"]
     try:
@@ -2772,13 +2823,37 @@ def load_findings_ledger(path: Path | None) -> tuple[int | None, list[str]]:
     if not isinstance(findings, list):
         return None, ["findings_ledger_not_list"]
     n = 0
-    for f in findings:
+    errors: list[str] = []
+    for index, f in enumerate(findings):
+        prefix = f"findings[{index}]"
         if not isinstance(f, dict):
+            errors.append(f"{prefix} must be an object")
             continue
-        sev = str(f.get("severity") or "").lower()
-        status = str(f.get("status") or "open").lower()
-        if sev in {"high", "medium"} and status in {"open", "unresolved", ""}:
+        raw_severity = f.get("severity")
+        raw_status = f.get("status")
+        if not isinstance(raw_severity, str) or not raw_severity.strip():
+            errors.append(f"{prefix}.severity must be a non-empty string")
+            sev = ""
+        else:
+            sev = raw_severity.strip().lower()
+            if sev not in FINDING_SEVERITIES:
+                errors.append(
+                    f"{prefix}.severity unsupported value {raw_severity!r}"
+                )
+        if not isinstance(raw_status, str) or not raw_status.strip():
+            errors.append(f"{prefix}.status must be a non-empty string")
+            status = ""
+        else:
+            status = raw_status.strip().lower()
+            if status not in FINDING_STATUSES:
+                errors.append(f"{prefix}.status unsupported value {raw_status!r}")
+        if (
+            sev in BLOCKING_FINDING_SEVERITIES
+            and status in UNRESOLVED_FINDING_STATUSES
+        ):
             n += 1
+    if errors:
+        return None, errors
     return n, []
 
 
@@ -2829,6 +2904,9 @@ def compute_metrics_from_runs(
         "quality_gains_vs_baseline": None,
         "deterministic_triple_runs_succeeded": 0,
         "deterministic_triple_runs_passed": False,
+        "unresolved_critical_high_medium": None,
+        # Compatibility alias retained for existing promotion report consumers.
+        # The count includes Critical as well as High and Medium findings.
         "unresolved_high_medium": None,
         "independent_forward_tests": None,
         "valid_forward_roles": [],
@@ -3016,6 +3094,7 @@ def build_promotion_report(
 
     unresolved, fl_errs = load_findings_ledger(findings_ledger_path)
     validation_errors.extend(fl_errs)
+    measured["unresolved_critical_high_medium"] = unresolved
     measured["unresolved_high_medium"] = unresolved
 
     ci_ok, ci_errs = load_ci_evidence(
@@ -3046,6 +3125,7 @@ def build_promotion_report(
         "held_out_completion",
         "quality_gains_vs_baseline",
         "deterministic_triple_runs_succeeded",
+        "unresolved_critical_high_medium",
         "unresolved_high_medium",
         "independent_forward_tests",
     ]
@@ -3238,7 +3318,7 @@ def _write_promotion_test_fixture(
             "run_kind": run_kind,
             "candidate_sha": candidate_sha,
             "baseline_sha": "b" * 40,
-            "skill_version": "3.2.0-rc.1",
+            "skill_version": "3.2.0-rc.2",
             "agent_runtime": "promotion-hostile-self-test",
             "model": "fixture",
             "tool_availability": {},
@@ -3452,6 +3532,233 @@ def run_promotion_anti_spoof_tests() -> list[tuple[str, bool, str]]:
             )
         )
 
+    # Regression: one complete evaluation must never carry four sparse
+    # scorecards through averaging. This reproduces the original 4/5 bypass.
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        ci_path, findings_path = _write_promotion_test_fixture(
+            root, candidate_sha=fake_sha
+        )
+        for directory in ("forward-a", "forward-b", "forward-c", "held-out-a"):
+            manifest_path = root / directory / "run-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            evaluation_path = root / str(manifest["evaluation_path"])
+            evaluation = json.loads(evaluation_path.read_text(encoding="utf-8"))
+            for metric in EVALUATION_RATE_FIELDS:
+                evaluation.pop(metric, None)
+            evaluation_path.write_text(json.dumps(evaluation), encoding="utf-8")
+            manifest["integrity_hashes"][manifest["evaluation_path"]] = (
+                _sha256_file(evaluation_path)
+            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        sparse_evaluations = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        missing_rate_errors = [
+            error
+            for error in sparse_evaluations["validation_errors"]
+            if "missing required field" in error
+        ]
+        results.append(
+            (
+                "four_sparse_evaluations_cannot_be_averaged_from_one_survivor",
+                sparse_evaluations["claim"] != "PROMOTION_READY_CANDIDATE"
+                and len(missing_rate_errors) == 4 * len(EVALUATION_RATE_FIELDS),
+                f"missing_rate_errors={len(missing_rate_errors)}",
+            )
+        )
+
+    for directory, required_field in (
+        ("held-out-a", "fabricated_citations"),
+        ("dogfood-b", "quality_gain_vs_baseline"),
+    ):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ci_path, findings_path = _write_promotion_test_fixture(
+                root, candidate_sha=fake_sha
+            )
+            manifest_path = root / directory / "run-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            evaluation_path = root / str(manifest["evaluation_path"])
+            evaluation = json.loads(evaluation_path.read_text(encoding="utf-8"))
+            evaluation.pop(required_field)
+            evaluation_path.write_text(json.dumps(evaluation), encoding="utf-8")
+            manifest["integrity_hashes"][manifest["evaluation_path"]] = (
+                _sha256_file(evaluation_path)
+            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            incomplete_kind = build_promotion_report(
+                suite=suite,
+                artifacts_root=root,
+                expected_candidate_sha=fake_sha,
+                ci_evidence_path=ci_path,
+                findings_ledger_path=findings_path,
+            )
+            results.append(
+                (
+                    f"missing_{required_field}_cannot_promote",
+                    incomplete_kind["claim"] != "PROMOTION_READY_CANDIDATE"
+                    and any(
+                        f"missing required field {required_field}" in error
+                        for error in incomplete_kind["validation_errors"]
+                    ),
+                    str(incomplete_kind["validation_errors"][:3]),
+                )
+            )
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        ci_path, findings_path = _write_promotion_test_fixture(
+            root, candidate_sha=fake_sha
+        )
+        manifest_path = root / "forward-b" / "run-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["evaluation_path"] = ""
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        missing_evaluation = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "missing_evaluation_path_cannot_promote",
+                missing_evaluation["claim"] != "PROMOTION_READY_CANDIDATE"
+                and any(
+                    "evaluation_path required for promotion run" in error
+                    for error in missing_evaluation["validation_errors"]
+                ),
+                str(missing_evaluation["validation_errors"][:3]),
+            )
+        )
+
+    # Findings ledgers are release evidence, so every row must be structurally
+    # valid. Critical joins High/Medium as an unresolved blocking severity.
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        ci_path, findings_path = _write_promotion_test_fixture(
+            root, candidate_sha=fake_sha
+        )
+        findings_path.write_text(
+            json.dumps(
+                {
+                    "findings": [
+                        {"severity": "critical", "status": "open"},
+                        {"severity": "high", "status": "unresolved"},
+                        {"severity": "medium", "status": "open"},
+                        {"severity": "low", "status": "open"},
+                        {"severity": "critical", "status": "closed"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        unresolved_findings = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "critical_high_medium_unresolved_findings_block",
+                unresolved_findings["claim"] != "PROMOTION_READY_CANDIDATE"
+                and unresolved_findings["measured"][
+                    "unresolved_critical_high_medium"
+                ]
+                == 3
+                and unresolved_findings["measured"]["unresolved_high_medium"]
+                == 3
+                and "unresolved_high_medium_findings"
+                in unresolved_findings["blockers_for_promotion"],
+                str(unresolved_findings["measured"]),
+            )
+        )
+
+        findings_path.write_text(
+            json.dumps(
+                {
+                    "findings": [
+                        {"severity": "low", "status": "open"},
+                        {"severity": "critical", "status": "resolved"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        nonblocking_findings = build_promotion_report(
+            suite=suite,
+            artifacts_root=root,
+            expected_candidate_sha=fake_sha,
+            ci_evidence_path=ci_path,
+            findings_ledger_path=findings_path,
+        )
+        results.append(
+            (
+                "low_open_and_resolved_critical_findings_are_valid_nonblocking",
+                nonblocking_findings["claim"] == "PROMOTION_READY_CANDIDATE"
+                and nonblocking_findings["measured"][
+                    "unresolved_critical_high_medium"
+                ]
+                == 0,
+                f"claim={nonblocking_findings['claim']}",
+            )
+        )
+
+    malformed_findings = (
+        ("non_object", [42], "must be an object"),
+        ("missing_severity", [{"status": "open"}], ".severity must"),
+        (
+            "unknown_severity",
+            [{"severity": "urgent", "status": "open"}],
+            ".severity unsupported value",
+        ),
+        ("missing_status", [{"severity": "high"}], ".status must"),
+        (
+            "unknown_status",
+            [{"severity": "high", "status": "waived"}],
+            ".status unsupported value",
+        ),
+    )
+    for case_name, findings, expected_error in malformed_findings:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ci_path, findings_path = _write_promotion_test_fixture(
+                root, candidate_sha=fake_sha
+            )
+            findings_path.write_text(
+                json.dumps({"findings": findings}), encoding="utf-8"
+            )
+            malformed_ledger = build_promotion_report(
+                suite=suite,
+                artifacts_root=root,
+                expected_candidate_sha=fake_sha,
+                ci_evidence_path=ci_path,
+                findings_ledger_path=findings_path,
+            )
+            results.append(
+                (
+                    f"findings_ledger_{case_name}_cannot_promote",
+                    malformed_ledger["claim"] != "PROMOTION_READY_CANDIDATE"
+                    and malformed_ledger["measured"][
+                        "unresolved_critical_high_medium"
+                    ]
+                    is None
+                    and any(
+                        expected_error in error
+                        for error in malformed_ledger["validation_errors"]
+                    ),
+                    str(malformed_ledger["validation_errors"][:3]),
+                )
+            )
+
     for case_name, hostile_metric in (
         ("nonfinite_evaluation_metric", float("nan")),
         ("out_of_range_evaluation_metric", 2.0),
@@ -3659,7 +3966,7 @@ def run_promotion_anti_spoof_tests() -> list[tuple[str, bool, str]]:
             "run_kind": "forward",
             "candidate_sha": fake_sha,
             "baseline_sha": "b" * 40,
-            "skill_version": "3.2.0-rc.1",
+            "skill_version": "3.2.0-rc.2",
             "agent_runtime": "test",
             "model": "test",
             "tool_availability": {},
@@ -3774,7 +4081,7 @@ def run_promotion_anti_spoof_tests() -> list[tuple[str, bool, str]]:
                 "run_kind": "forward",
                 "candidate_sha": fake_sha,
                 "baseline_sha": "b" * 40,
-                "skill_version": "3.2.0-rc.1",
+                "skill_version": "3.2.0-rc.2",
                 "agent_runtime": "structural-fixture",
                 "model": "none",
                 "tool_availability": {},

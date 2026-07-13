@@ -1,5 +1,16 @@
 # Synthesis Patterns — Choosing a Review Type
 
+## Contents
+
+- [Decision tree](#decision-tree)
+- [Review types at a glance](#review-types-at-a-glance)
+- [How this skill supports each type](#how-this-skill-supports-each-type)
+- [Synthesis structure (narrative reviews)](#synthesis-structure-narrative-reviews)
+- [Common pitfalls](#common-pitfalls)
+- [Output stage](#output-stage)
+- [Pre-synthesis retrieval](#pre-synthesis-retrieval)
+- [See also](#see-also)
+
 Use this file when the user asks for a research **review** but has not
 named the specific kind, or when they have named one and you need to
 sanity-check the fit.

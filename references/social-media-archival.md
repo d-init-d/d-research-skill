@@ -1,5 +1,16 @@
 # Social Media Archival
 
+## Contents
+
+- [Privacy boundary (read first)](#privacy-boundary-read-first)
+- [Tier A vs Tier B](#tier-a-vs-tier-b)
+- [Per-platform recipes](#per-platform-recipes)
+- [Verification cycle](#verification-cycle)
+- [Evidence-ledger integration](#evidence-ledger-integration)
+- [Verifiability phrases](#verifiability-phrases)
+- [npm shortcuts](#npm-shortcuts)
+- [See also](#see-also)
+
 Use this file when the user asks to capture, verify, or analyze a public
 social-media post. The script `scripts/social_snapshot.py` wraps the
 entire workflow into a single CLI with subcommands: `snapshot`, `verify`,

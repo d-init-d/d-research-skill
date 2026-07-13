@@ -1,5 +1,21 @@
 # Research Intake
 
+## Contents
+
+- [Intake Objectives](#intake-objectives)
+- [Step 0 Card](#step-0-card)
+- [Hard-Stop Layer](#hard-stop-layer)
+- [Shape Labels](#shape-labels)
+- [Routing Priority](#routing-priority)
+- [Research Depth Selection](#research-depth-selection)
+- [Label-Specific Research Playbooks](#label-specific-research-playbooks)
+- [Output Artifact Selection](#output-artifact-selection)
+- [Safety Posture Values](#safety-posture-values)
+- [Ambiguity Policy](#ambiguity-policy)
+- [Common Routing Examples](#common-routing-examples)
+- [Intake Failure Modes](#intake-failure-modes)
+- [See also](#see-also)
+
 Use this file before choosing a research branch. Its job is to classify the
 request, set the safety posture, choose the right references to load, and avoid
 drifting into the wrong workflow later.

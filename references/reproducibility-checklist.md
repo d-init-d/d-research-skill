@@ -1,5 +1,19 @@
 # Reproducibility Checklist
 
+## Contents
+
+- [Provenance](#provenance)
+- [Search / discovery](#search--discovery)
+- [Data collection](#data-collection)
+- [Data processing](#data-processing)
+- [Quality assessment](#quality-assessment)
+- [Synthesis](#synthesis)
+- [Reporting](#reporting)
+- [Versioning](#versioning)
+- [Tamper-evidence](#tamper-evidence)
+- [Repeatability test](#repeatability-test)
+- [See also](#see-also)
+
 Use this list before declaring any research output "done". Every item
 should be answerable from the artefacts you produced; if any item is
 not, the output is not yet reproducible.

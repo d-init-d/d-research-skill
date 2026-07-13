@@ -1,5 +1,14 @@
 # PDF Extraction
 
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Subcommand reference](#subcommand-reference)
+- [Evidence-ledger integration](#evidence-ledger-integration)
+- [When to use this vs other extraction methods](#when-to-use-this-vs-other-extraction-methods)
+- [Scanned / image-only PDFs](#scanned--image-only-pdfs)
+- [See also](#see-also)
+
 Use this file when you need to extract text, metadata, or tables from a
 PDF file as part of a research workflow. The script
 `scripts/pdf_extract.py` wraps poppler-utils and optional pdfplumber

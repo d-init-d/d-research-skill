@@ -1,4 +1,4 @@
-# Network helper SSRF inventory (v3.2.0-rc.1 clean)
+# Network helper SSRF inventory (v3.2.0-rc.2 clean)
 
 Status of public-address validation for outbound HTTP(S) helpers. Arbitrary
 user-controlled URL fetchers must validate destinations, bind the TCP
@@ -8,7 +8,7 @@ a written rationale exists.
 
 | Helper | User-controlled URL/host? | Redirects | Credentials | Protection | Resolution |
 |--------|---------------------------|-----------|-------------|------------|------------|
-| `scripts/_ssrf_helpers.py` + `social_snapshot.py` | Yes (post/API URL) | Denied | No | DNS pin + public IP + streaming body cap + peer re-check | **Protected** |
+| `scripts/_ssrf_helpers.py` + Python callers | Yes for social-post/API URLs; fixed provider URLs elsewhere | Manual, bounded, every hop revalidated | Optional | DNS pin + public IP + peer re-check; HTTPS downgrade blocked; credential/body-bearing cross-origin redirects rejected before the destination request | **Protected** |
 | `scripts/api_fetch.mjs` | Yes (`--url`, Link next, redirects) | Manual, revalidated | Optional | `fetchPublicHttp` connection-bound to validated IP; Host/SNI preserved; credential cross-origin hard-fail; response cap enforced while streaming | **Protected** |
 | `scripts/lib/ssrf_guards.mjs` | N/A (library) | N/A | N/A | Public IP / blocked host / DNS check + `fetchPublicHttp` pinned connect + peer mismatch and streaming-cap tests | **Protected** |
 | `scripts/lib/browser_ssrf.mjs` + `playwright_*.mjs` | Yes (seed / nav / subresource URLs) | Browser follows fulfilled redirects; every hop is re-routed | Session optional | Context route, service workers blocked, HTTP(S) fulfilled through connection-bound `fetchPublicHttp`; WebSocket fail-closed; loopback only through explicit fixture test injection | **Protected (connection-bound / fail-closed)** - not accepted-risk |
@@ -16,9 +16,9 @@ a written rationale exists.
 | `scripts/citation_resolver.py` | DOI/PMID/arXiv/ISBN to fixed APIs (Crossref, DataCite, PubMed, arXiv, Unpaywall) | Limited | No | Fixed hosts; TLS; timeouts; body bounds | **Accepted-risk (fixed endpoint)** |
 | `scripts/citation_export.py` / `citation_render.py` / `citation_graph.py` | Same class as resolver | Limited | No | Fixed academic APIs | **Accepted-risk (fixed endpoint)** |
 | `scripts/wikidata.py` | Fixed Wikidata / SPARQL endpoints | Limited | No | Fixed hosts; TLS; timeouts | **Accepted-risk (fixed endpoint)** |
-| `scripts/translate.py` | Fixed provider endpoints or user-supplied key against known API base | Limited | API key | Fixed API bases; TLS | **Accepted-risk (fixed endpoint)** |
-| `scripts/embed_corpus.py` | Embedding API base from config / known host | Limited | Optional | Fixed-style endpoint; TLS | **Accepted-risk (fixed endpoint)** |
-| `scripts/web_search.mjs` | Query text; host from configured search endpoint | Limited | Optional | Configured endpoint, not arbitrary URL open | **Accepted-risk (fixed/configured endpoint)** |
+| `scripts/translate.py` | Fixed provider endpoints | Manual, max 5 hops | API key/body | Shared Python pinned transport; same-origin-only private material; cross-origin private redirect and HTTPS downgrade hard-fail | **Protected** |
+| `scripts/embed_corpus.py` | Fixed Cohere endpoint | Manual, max 5 hops | API key/body | Shared Python pinned transport; same-origin-only private material; cross-origin private redirect and HTTPS downgrade hard-fail | **Protected** |
+| `scripts/web_search.mjs` | Query text; fixed/configured search endpoint | Manual, max 5 hops | Optional | Credentialed cross-origin redirect and HTTPS downgrade hard-fail; public cross-origin headers filtered | **Protected redirect policy; fixed/configured endpoint** |
 | `scripts/http_cache.py` / `lib/http_cache.mjs` | N/A (disk cache) | N/A | N/A | No network | N/A |
 
 ## Direct HTTP (api_fetch) - connection-bound design
@@ -35,6 +35,13 @@ a written rationale exists.
 
 Tests: `node scripts/lib/ssrf_guards.mjs --self-test` (rebinding, mixed DNS, peer mismatch, streaming cap); `api_fetch.mjs --self-test`.
 
+## Python provider requests - connection-bound redirect design
+
+- **Helper:** `public_urlopen_with_redirects` in `scripts/_ssrf_helpers.py`, used by translation and Cohere embedding calls.
+- **Per-hop policy:** production hops allow HTTPS only, resolve and reject non-public destinations, connect to a validated address, preserve Host/SNI, and require the normalized connected peer (including IPv4-mapped IPv6 normalization) to belong to the DNS-validated set before TLS.
+- **Redirect policy:** at most five hops; URL userinfo, unsupported schemes, and HTTPS-to-HTTP downgrade are rejected. Request bodies, credential-like query parameters, and non-public headers may remain only on the same origin. A cross-origin public GET/HEAD may continue with an allowlisted header subset.
+- **Tests:** `python scripts/_ssrf_helpers.py`, `python scripts/translate.py self-test`, and `python scripts/embed_corpus.py self-test` cover same-origin credential retention, zero-request cross-origin denial, public redirects, and loop bounds.
+
 ## Browser arbitrary URL - fail-closed (not accepted-risk)
 
 - **Helpers:** `browser_ssrf.mjs` used by `playwright_probe.mjs`, `playwright_extract.mjs`, `playwright_crawl.mjs`.
@@ -48,7 +55,7 @@ Tests: `node scripts/lib/ssrf_guards.mjs --self-test` (rebinding, mixed DNS, pee
 
 ### Fixed official academic and archive endpoints
 
-- **Helpers:** wayback, citation_*, wikidata, translate, embed_corpus, web_search.
+- **Helpers:** wayback, citation_*, and wikidata. Translation, embedding, and web-search helpers now enforce explicit bounded redirect policies as documented above.
 - **Reason:** Destination host is not taken from an arbitrary user URL; user input is an identifier or query parameter on a first-party/official base URL.
 - **Remaining attack assumption:** Compromise or malicious response content from the official provider; not classic SSRF to link-local metadata via user URL.
 - **Protections:** TLS verification on, timeouts, response body caps where applicable, secret redaction, no credential forwarding on cross-origin pagination (api_fetch pattern where relevant).

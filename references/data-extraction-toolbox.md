@@ -1,5 +1,22 @@
 # Data Extraction Toolbox
 
+## Contents
+
+- [Recipe 1 — HTML `<table>` elements](#recipe-1--html-table-elements)
+- [Recipe 2 — JSON-LD in `<script type="application/ld+json">`](#recipe-2--json-ld-in-script-typeapplicationldjson)
+- [Recipe 3 — Embedded JSON in page-level `<script>` (`__NEXT_DATA__`, `__NUXT__`, dataLayer, …)](#recipe-3--embedded-json-in-page-level-script-__next_data__-__nuxt__-datalayer-)
+- [Recipe 4 — REST APIs (public, documented)](#recipe-4--rest-apis-public-documented)
+- [Recipe 5 — GraphQL endpoints (public, documented)](#recipe-5--graphql-endpoints-public-documented)
+- [Recipe 6 — Sitemaps](#recipe-6--sitemaps)
+- [Recipe 7 — RSS / Atom feeds](#recipe-7--rss--atom-feeds)
+- [Recipe 8 — OAI-PMH (repositories, libraries, archives)](#recipe-8--oai-pmh-repositories-libraries-archives)
+- [Recipe 9 — PDFs](#recipe-9--pdfs)
+- [Recipe 10 — Web archives (Wayback Machine, archive.today)](#recipe-10--web-archives-wayback-machine-archivetoday)
+- [Common processing after extraction](#common-processing-after-extraction)
+- [Lawful access reminder](#lawful-access-reminder)
+- [Scanned documents and images (OCR)](#scanned-documents-and-images-ocr)
+- [See also](#see-also)
+
 Concrete extraction recipes for the structured data shapes you actually
 encounter on the public web. Each recipe lists:
 

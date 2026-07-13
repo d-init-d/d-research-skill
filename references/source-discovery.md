@@ -1,5 +1,12 @@
 # Source Discovery
 
+## Contents
+
+- [Source hierarchy](#source-hierarchy)
+- [Discovery layers](#discovery-layers)
+- [Source map template](#source-map-template)
+- [Source scoring](#source-scoring)
+
 Use this file to find where relevant data lives before extracting anything.
 
 ## Source hierarchy

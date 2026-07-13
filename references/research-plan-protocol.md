@@ -1,5 +1,16 @@
 # Research Plan Protocol — context-safe long-horizon research
 
+## Contents
+
+- [What this is for](#what-this-is-for)
+- [When to use it](#when-to-use-it)
+- [The five phases](#the-five-phases)
+- [Workspace layout](#workspace-layout)
+- [Gate definitions](#gate-definitions)
+- [Failure modes and how to handle them](#failure-modes-and-how-to-handle-them)
+- [Anti-patterns](#anti-patterns)
+- [See also](#see-also)
+
 ## What this is for
 
 Long, deep research tasks (a literature review, a multi-source dataset
@@ -25,11 +36,10 @@ sequence of small, resumable, checkpointed sessions.
 
 Use the protocol whenever the task has **any** of these properties:
 
-- More than 5 sub-questions or 5 distinct extraction targets.
+- More than 5 sub-questions.
 - An estimated >50 sources to read.
-- An estimated runtime that will not fit in one model call.
-- A reproducibility requirement (PRISMA review, audit, regulated report).
-- Multiple agents or humans collaborating.
+- An estimated runtime that will not fit in one context window.
+- An audit-grade or regulated output requirement.
 
 Do **not** use it for one-shot lookups, single-page extractions, or
 quick fact checks. The overhead is not worth it.
@@ -73,12 +83,12 @@ Rules:
 Create a workspace with:
 
 ```sh
-python3 scripts/research_plan.py init \
+node scripts/run_python.mjs scripts/research_plan.py init \
   --slug oai-review
 ```
 
-On Windows, use `python` instead of `python3` if `python3` is not on
-PATH, or call the same subcommands through `npm run plan:*`.
+The launcher selects `py -3`, `python3`, or `python` for the host. The
+equivalent npm entry point is `npm run plan:init`.
 
 By default this creates a fresh `research-<slug>-<YYYY-MM-DD>/` folder
 in the current working directory. If that folder already exists, the
@@ -133,7 +143,7 @@ consistency.
 After editing the task graph, refresh execution annotations from config:
 
 ```sh
-python3 scripts/research_plan.py configure-execution --file research-plan.json
+node scripts/run_python.mjs scripts/research_plan.py configure-execution --file research-plan.json
 ```
 
 This reads `research.config.json` if present. If sub-agent slots are
@@ -149,7 +159,7 @@ budget`. Users can review this division before approval and change any
 task assignment with:
 
 ```sh
-python3 scripts/research_plan.py set-execution \
+node scripts/run_python.mjs scripts/research_plan.py set-execution \
   --file research-plan.json \
   --id T2 \
   --agent subagent \
@@ -164,8 +174,8 @@ again.
 Render the plan for human review:
 
 ```sh
-python3 scripts/research_plan.py render --file research-plan.json
-python3 scripts/research_plan.py gate --file research-plan.json --gate plan_ready
+node scripts/run_python.mjs scripts/research_plan.py render --file research-plan.json
+node scripts/run_python.mjs scripts/research_plan.py gate --file research-plan.json --gate plan_ready
 ```
 
 The render command writes `PLAN.md`, a human-readable version of scope,
@@ -176,7 +186,7 @@ execution.
 After the user approves the plan:
 
 ```sh
-python3 scripts/research_plan.py approve \
+node scripts/run_python.mjs scripts/research_plan.py approve \
   --file research-plan.json \
   --by "Reviewer Name" \
   --notes "Approved scope and task split."
@@ -186,7 +196,7 @@ If a host runtime is truly unattended, approval fails by default. The
 agent must explicitly bypass the human gate and leave an audit trail:
 
 ```sh
-python3 scripts/research_plan.py approve \
+node scripts/run_python.mjs scripts/research_plan.py approve \
   --file research-plan.json \
   --allow-unattended
 ```
@@ -195,6 +205,18 @@ This records `approved_by=agent-self-approved` and notes that the run
 used `--allow-unattended`. If the scope or task graph changes before
 execution, run `research_plan.py revoke`, update the plan, render again,
 and re-approve.
+
+Approval alone does not authorize dispatch. Run the executable gate and stop
+on any failure:
+
+```sh
+node scripts/run_python.mjs scripts/research_plan.py gate \
+  --file research-plan.json \
+  --gate execute_ready
+```
+
+`dispatch_ready` is an alias with the same canonical assertions. Do not start a
+research task or dispatch a sub-agent until one of these gates passes.
 
 ### 2. Execute
 
@@ -305,6 +327,11 @@ After all dispatched tasks return, the orchestrator marks them `done`
 and re-runs `scripts/research_plan.py check` to confirm the plan is
 still consistent.
 
+At the end of the research phase, validate and sign the ledger, complete the
+reproducibility checklist, and run `gate --gate synthesize_ready`. Every
+long-horizon workspace therefore needs `D_RESEARCH_LEDGER_KEY` before synthesis;
+missing key material is a blocker, never a reason to skip verification.
+
 ### 4. Verify (gates)
 
 Before transitioning between phases, the orchestrator runs
@@ -320,16 +347,15 @@ Four standard gates are provided. A plan can add more.
   `done` yet. Passes before approval.
 - **`gate.execute_ready`** — `plan_ready` assertions plus
   `plan_approved`. Passes once at the end of the approval phase.
-- **`gate.synthesize_ready`** — every task is `done` or `blocked`;
-  every blocked task has a non-empty `blocker_reason`; every
-  declared `outputs` path exists on disk; the evidence ledger
-  validates (`scripts/evidence_ledger.py validate`) and is signed
-  (`scripts/evidence_ledger.py verify`); the reproducibility
-  checklist file exists. Passes once at the end of the execute
-  phase.
-- **`gate.release_ready`** — `synthesize_ready` plus: the final
-  report exists, the citation render exists, and the plan's
-  `stopping_criteria` are marked satisfied. Passes once at the end
+- **`gate.synthesize_ready`** — every **research-phase** task is `done` or
+  `blocked`; every blocked research task has a non-empty `blocker_reason`; every
+  research output exists; the evidence ledger validates and its HMAC verifies;
+  the reproducibility checklist is complete. Synthesis tasks are intentionally
+  not required yet. Passes once at the end of the research phase.
+- **`gate.release_ready`** — `synthesize_ready` plus: every synthesis task is
+  terminal; every synthesis output exists; the exact final report validates;
+  rendered citations exist; authored narrative covers 100 percent of claim
+  rows; and the plan's stopping criteria are satisfied. Passes once at the end
   of synthesis.
 
 If a gate fails, the agent fixes the failure and re-runs the gate.
@@ -337,21 +363,23 @@ The agent never advances past a failing gate.
 
 ### 5. Synthesize
 
-The synthesis phase is the **only** phase that produces a
-narrative artefact (the final report). The agent does this:
+The synthesis phase is the **only** phase that produces the final narrative
+artefact. Enter it only after `synthesize_ready` passes. The agent does this:
 
 1. Read the plan (just the metadata + sub-questions + gates).
 2. Read the evidence ledger (full).
 3. Read each per-task summary artefact (small structured
    markdown/JSON, not raw extractions).
-4. Initialize the report skeleton: `scripts/report_render.py init --workspace <dir>`.
-5. Compose the report following
+4. Mark the applicable synthesis task `running`.
+5. Initialize the report skeleton: `scripts/report_render.py init --workspace <dir>`.
+6. Compose the report following
    `references/final-report-template.md` or edit `report.draft.md`.
-6. Render the final report: `scripts/report_render.py render --workspace <dir>`.
-7. Render citations with `scripts/citation_render.py`.
-8. Lint the report: `scripts/report_render.py lint --workspace <dir>`.
-9. Sign the ledger with `scripts/evidence_ledger.py sign`.
-10. Run `gate.release_ready`.
+7. Render the final report: `scripts/report_render.py render --workspace <dir>`.
+8. Render citations with `scripts/citation_render.py`.
+9. Lint the exact report with `scripts/report_render.py lint --workspace <dir>
+   --report <declared-report-path> --strict`.
+10. Mark every synthesis task terminal after its declared outputs exist.
+11. Re-verify the ledger HMAC and run `gate.release_ready`.
 
 If at any point the agent feels the urge to "go look at one more
 source", it instead adds a follow-up task to the plan, marks the

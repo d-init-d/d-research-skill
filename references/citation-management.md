@@ -1,5 +1,17 @@
 # Citation Management
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Citation Data Model](#citation-data-model)
+- [BibTeX Export](#bibtex-export)
+- [RIS Export](#ris-export)
+- [Inline Citation Formats](#inline-citation-formats)
+- [DOI Enrichment](#doi-enrichment)
+- [Workflow](#workflow)
+- [Quality Checks](#quality-checks)
+- [See also](#see-also)
+
 This skill handles bibliographic references for academic writing, ensuring consistent formatting, proper metadata, and export to standard formats.
 
 ## When to Use

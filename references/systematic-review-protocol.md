@@ -1,5 +1,20 @@
 # Systematic Review Protocol (PRISMA 2020)
 
+## Contents
+
+- [When to use this protocol](#when-to-use-this-protocol)
+- [Step 1 — Protocol (PRISMA item 1, 2, 24a)](#step-1--protocol-prisma-item-1-2-24a)
+- [Step 2 — Information sources (PRISMA item 6)](#step-2--information-sources-prisma-item-6)
+- [Step 3 — Search strategy (PRISMA items 7, 24b)](#step-3--search-strategy-prisma-items-7-24b)
+- [Step 4 — Identification of records (PRISMA item 16)](#step-4--identification-of-records-prisma-item-16)
+- [Step 5 — Screening (PRISMA items 8, 17, 24c)](#step-5--screening-prisma-items-8-17-24c)
+- [Step 6 — Data extraction (PRISMA items 9, 18)](#step-6--data-extraction-prisma-items-9-18)
+- [Step 7 — Risk of bias assessment (PRISMA items 11, 19–21)](#step-7--risk-of-bias-assessment-prisma-items-11-1921)
+- [Step 8 — Synthesis (PRISMA items 13, 20–23)](#step-8--synthesis-prisma-items-13-2023)
+- [Step 9 — Reporting (PRISMA items 13–27)](#step-9--reporting-prisma-items-1327)
+- [Step 10 — Reproducibility checklist](#step-10--reproducibility-checklist)
+- [See also](#see-also)
+
 Use this protocol when the user asks for a **systematic review**,
 **scoping review**, or **rapid review** that should be reproducible and
 publishable. The protocol is mapped to the PRISMA 2020 checklist

@@ -1,5 +1,14 @@
 # Source Quality Rubric
 
+## Contents
+
+- [Source type ranking](#source-type-ranking)
+- [Score dimensions](#score-dimensions)
+- [Conflict resolution](#conflict-resolution)
+- [Freshness rules](#freshness-rules)
+- [Red flags](#red-flags)
+- [Social Sources (v2.1)](#social-sources-v21)
+
 Use this file to rank sources and resolve conflicts.
 
 ## Source type ranking

@@ -1,5 +1,18 @@
 # Evidence Ledger
 
+## Contents
+
+- [Purpose](#purpose)
+- [Required fields](#required-fields)
+- [CSV quoting (RFC 4180)](#csv-quoting-rfc-4180)
+- [Failed fallback attempts](#failed-fallback-attempts)
+- [Atomic claims](#atomic-claims)
+- [Confidence rules](#confidence-rules)
+- [Evidence table template](#evidence-table-template)
+- [Final claim audit](#final-claim-audit)
+- [Social archival columns (v2.1)](#social-archival-columns-v21)
+- [Provenance / compliance columns (v3.0, optional)](#provenance--compliance-columns-v30-optional)
+
 Use this file for every non-trivial research task.
 
 ## Purpose

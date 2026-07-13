@@ -1,5 +1,18 @@
 # Register and Jargon Expansion
 
+## Contents
+
+- [Safety and scope](#safety-and-scope)
+- [Register ladder (four rungs, both directions)](#register-ladder-four-rungs-both-directions)
+- [Discover -> filter -> expand -> verify loop](#discover---filter---expand---verify-loop)
+- [Harvesting rules](#harvesting-rules)
+- [Filtering rules](#filtering-rules)
+- [Query expansion patterns](#query-expansion-patterns)
+- [Logging and reproducibility](#logging-and-reproducibility)
+- [Failure modes and guardrails](#failure-modes-and-guardrails)
+- [Integration](#integration)
+- [See also](#see-also)
+
 Use this companion when recall is thin or the evidence basin speaks in a
 different **register** than the query: clinical vs. lay, legal vs. street,
 standards vs. shop-floor, academic vs. community jargon, or emergent slang.

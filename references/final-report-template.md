@@ -1,5 +1,13 @@
 # Final Report Template
 
+## Contents
+
+- [Compact answer format](#compact-answer-format)
+- [Dataset delivery format](#dataset-delivery-format)
+- [Report with data visualization](#report-with-data-visualization)
+- [LaTeX academic report template](#latex-academic-report-template)
+- [Citation list format](#citation-list-format)
+
 Use this template for non-academic deep research outputs.
 
 ```markdown

@@ -1,5 +1,19 @@
 # Academic Research Protocol
 
+## Contents
+
+- [Academic modes](#academic-modes)
+- [Research question setup](#research-question-setup)
+- [Search protocol](#search-protocol)
+- [Screening protocol](#screening-protocol)
+- [Evidence extraction](#evidence-extraction)
+- [Quality appraisal](#quality-appraisal)
+- [Synthesis methods](#synthesis-methods)
+- [Academic final report template](#academic-final-report-template)
+- [Database search workflow](#database-search-workflow)
+- [Citation export](#citation-export)
+- [Academic integrity](#academic-integrity)
+
 Use this file for theses, school projects, literature reviews, research reports, and systematic or rapid reviews.
 
 ## Academic modes

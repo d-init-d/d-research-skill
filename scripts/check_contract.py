@@ -70,6 +70,7 @@ _SKIP_DIRS = {
 _SKILL_LINE_MIN = 250
 _SKILL_LINE_MAX = 350
 _REFERENCE_LINE_MAX = 1000
+_REFERENCE_TOC_MIN = 100
 _REFERENCE_SEE_ALSO_MIN = 300
 _PACKAGE_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-rc\.\d+)?")
 _FULL_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
@@ -477,6 +478,10 @@ def check_versions(root: Path = ROOT) -> list[str]:
         "agents/*.yaml",
         "docs/**/*.md",
         "examples/**/*",
+        "!examples/**/__pycache__/**",
+        "!examples/**/*.pyc",
+        "!examples/**/*.pyo",
+        "!examples/**/*.pyd",
         "references/**/*.md",
         "references/i18n/*.json",
         "scripts/*.py",
@@ -492,10 +497,37 @@ def check_versions(root: Path = ROOT) -> list[str]:
     scripts = pkg.get("scripts") or {}
     if scripts.get("package:check") != "node scripts/package_manifest_check.mjs":
         errors.append("package.json package:check must run package_manifest_check.mjs")
+    if scripts.get("prepack") != "npm run package:check":
+        errors.append("package.json prepack must enforce npm run package:check")
     if "npm run package:check" not in str(scripts.get("self-test:node", "")):
         errors.append("package manifest validation must be part of self-test:node")
-    if not (root / ".npmignore").is_file():
+    package_manifest = pkg.get("dResearchPackageManifest")
+    if not isinstance(package_manifest, dict):
+        errors.append("package.json missing dResearchPackageManifest")
+    else:
+        if package_manifest.get("schema_version") != 1:
+            errors.append("dResearchPackageManifest.schema_version must be 1")
+        if package_manifest.get("algorithm") != "sha256":
+            errors.append('dResearchPackageManifest.algorithm must be "sha256"')
+        file_count = package_manifest.get("file_count")
+        if isinstance(file_count, bool) or not isinstance(file_count, int) or file_count < 1:
+            errors.append("dResearchPackageManifest.file_count must be a positive integer")
+        if not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", str(package_manifest.get("paths_sha256") or "")
+        ):
+            errors.append(
+                "dResearchPackageManifest.paths_sha256 must be sha256:<64 lowercase hex>"
+            )
+    npmignore_path = root / ".npmignore"
+    if not npmignore_path.is_file():
         errors.append("missing .npmignore defense-in-depth exclusions")
+    else:
+        npmignore = npmignore_path.read_text(encoding="utf-8")
+        for required_pattern in ("__pycache__/", "*.pyc", "*.pyo", "*.pyd"):
+            if required_pattern not in npmignore.splitlines():
+                errors.append(
+                    f".npmignore missing generated-file exclusion {required_pattern!r}"
+                )
     return errors
 
 
@@ -974,6 +1006,28 @@ def _parse_skill_route_table(skill: str) -> list[tuple[str, str]]:
     return rows
 
 
+def _parse_intake_shape_labels(intake: str) -> list[str]:
+    """Return canonical labels from the Research Intake shape table."""
+    match = re.search(
+        r"^## Shape Labels\s*$\n(?P<body>.*?)(?=^##\s)",
+        intake,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        return []
+    labels: list[str] = []
+    for line in match.group("body").splitlines():
+        if not line.startswith("|") or not line.endswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        label_match = re.fullmatch(r"`([a-z0-9_]+)`", cells[0])
+        if label_match:
+            labels.append(label_match.group(1))
+    return labels
+
+
 def check_skill_and_routes(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     skill_path = root / "SKILL.md"
@@ -1026,6 +1080,7 @@ def check_skill_and_routes(root: Path = ROOT) -> list[str]:
 
     routes = manifest.get("routes") or []
     route_ids: set[str] = set()
+    mapped_intake_labels: dict[str, str] = {}
     expected_skill_rows: list[tuple[str, str]] = []
     for route in routes:
         if not isinstance(route, dict):
@@ -1038,6 +1093,23 @@ def check_skill_and_routes(root: Path = ROOT) -> list[str]:
             errors.append(f"route-manifest duplicate route id: {route_id}")
         else:
             route_ids.add(route_id)
+        intake_labels = route.get("intake_labels")
+        if not isinstance(intake_labels, list) or any(
+            not isinstance(label, str) or not label for label in intake_labels
+        ):
+            errors.append(
+                f"route-manifest route {route_id!r} intake_labels must be a string list"
+            )
+        else:
+            for label in intake_labels:
+                previous = mapped_intake_labels.get(label)
+                if previous is not None:
+                    errors.append(
+                        f"route-manifest intake label {label!r} maps to both "
+                        f"{previous!r} and {route_id!r}"
+                    )
+                else:
+                    mapped_intake_labels[label] = str(route_id)
         refs = []
         if route.get("reference"):
             refs.append(route["reference"])
@@ -1076,6 +1148,29 @@ def check_skill_and_routes(root: Path = ROOT) -> list[str]:
             f"{expected_skill_rows!r}, got {actual_skill_rows!r}"
         )
 
+    intake_path = root / "references" / "research-intake.md"
+    if not intake_path.is_file():
+        errors.append("missing references/research-intake.md")
+    else:
+        intake_labels = _parse_intake_shape_labels(
+            intake_path.read_text(encoding="utf-8")
+        )
+        if not intake_labels:
+            errors.append("research-intake.md has no parseable Shape Labels table")
+        else:
+            intake_set = set(intake_labels)
+            mapped_set = set(mapped_intake_labels)
+            missing = sorted(intake_set - mapped_set)
+            unknown = sorted(mapped_set - intake_set)
+            if missing:
+                errors.append(
+                    f"route-manifest intake mapping missing labels: {missing}"
+                )
+            if unknown:
+                errors.append(
+                    f"route-manifest intake mapping has unknown labels: {unknown}"
+                )
+
     agents = (root / "AGENTS.md").read_text(encoding="utf-8")
     if "templates/route-manifest.json" not in agents:
         errors.append("AGENTS.md must identify templates/route-manifest.json as canonical")
@@ -1096,9 +1191,33 @@ def check_skill_and_routes(root: Path = ROOT) -> list[str]:
     if not isinstance(docs_contract, dict):
         errors.append("route-manifest missing documentation_contract")
     else:
+        protocol_path = root / "references" / "research-plan-protocol.md"
+        readme_vi_path = root / "README.vi.md"
+        openai_yaml_path = root / "agents" / "openai.yaml"
         for document_name, document_text, key in (
             ("SKILL.md", skill, "skill_required_statements"),
             ("AGENTS.md", agents, "agents_required_statements"),
+            (
+                "references/research-plan-protocol.md",
+                protocol_path.read_text(encoding="utf-8")
+                if protocol_path.is_file()
+                else "",
+                "protocol_required_statements",
+            ),
+            (
+                "README.vi.md",
+                readme_vi_path.read_text(encoding="utf-8")
+                if readme_vi_path.is_file()
+                else "",
+                "readme_vi_required_statements",
+            ),
+            (
+                "agents/openai.yaml",
+                openai_yaml_path.read_text(encoding="utf-8")
+                if openai_yaml_path.is_file()
+                else "",
+                "openai_yaml_required_statements",
+            ),
         ):
             statements = docs_contract.get(key)
             if not isinstance(statements, list) or not statements:
@@ -1243,15 +1362,15 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
         elif entrypoint_suffix not in readme or entrypoint_suffix not in readme_vi:
             errors.append("README.md and README.vi.md must require the d-research/SKILL.md suffix")
         runtime_markers = installation.get("runtime_markers")
-        if not isinstance(runtime_markers, list) or len(runtime_markers) != 4:
-            errors.append("installation_contract.runtime_markers must list four runtimes")
+        if not isinstance(runtime_markers, list) or len(runtime_markers) != 5:
+            errors.append("installation_contract.runtime_markers must list five runtimes")
         else:
             for marker in runtime_markers:
                 if not isinstance(marker, str) or marker not in readme or marker not in readme_vi:
                     errors.append(f"installation matrix missing runtime marker: {marker!r}")
         canonical_paths = installation.get("canonical_paths")
-        if not isinstance(canonical_paths, list) or len(canonical_paths) != 4:
-            errors.append("installation_contract.canonical_paths must list four paths")
+        if not isinstance(canonical_paths, list) or len(canonical_paths) != 5:
+            errors.append("installation_contract.canonical_paths must list five paths")
         else:
             for path_marker in canonical_paths:
                 if not isinstance(path_marker, str) or not path_marker:
@@ -1507,6 +1626,14 @@ def check_reference_structure(root: Path = ROOT) -> list[str]:
                 f"{relative} has {line_count} lines; split references above "
                 f"{_REFERENCE_LINE_MAX} lines"
             )
+        if line_count >= _REFERENCE_TOC_MIN and not re.search(
+            r"^## (?:Contents|Table of [Cc]ontents)\s*$",
+            text,
+            flags=re.MULTILINE,
+        ):
+            errors.append(
+                f"{relative} has {line_count} lines but no early contents navigation"
+            )
         if line_count >= _REFERENCE_SEE_ALSO_MIN and not re.search(
             r"^## See also\s*$",
             text,
@@ -1706,6 +1833,8 @@ def self_test() -> int:
             encoding="utf-8",
         )
         reference_errors = check_reference_structure(root)
+        if not any("no early contents" in err for err in reference_errors):
+            failures.append("expected long-reference contents navigation detection")
         if not any("no '## See also'" in err for err in reference_errors):
             failures.append("expected long-reference navigation detection")
 
@@ -1721,11 +1850,16 @@ def self_test() -> int:
         # not merely contain the same filenames and gate names somewhere.
         route_root = root / "route-drift"
         (route_root / "templates").mkdir(parents=True)
-        for name in ("SKILL.md", "AGENTS.md"):
+        for name in ("SKILL.md", "AGENTS.md", "README.vi.md"):
             (route_root / name).write_text(
                 (ROOT / name).read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
+        (route_root / "agents").mkdir()
+        (route_root / "agents" / "openai.yaml").write_text(
+            (ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
         route_manifest = _load_json(ROOT / "templates" / "route-manifest.json")
         (route_root / "templates" / "route-manifest.json").write_text(
             json.dumps(route_manifest, indent=2, ensure_ascii=False) + "\n",
@@ -1740,9 +1874,32 @@ def self_test() -> int:
             target = route_root / relative
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("# self-test route\n", encoding="utf-8")
+                if relative in {
+                    "references/research-intake.md",
+                    "references/research-plan-protocol.md",
+                }:
+                    target.write_text(
+                        (ROOT / relative).read_text(encoding="utf-8"),
+                        encoding="utf-8",
+                    )
+                else:
+                    target.write_text("# self-test route\n", encoding="utf-8")
         if check_skill_and_routes(route_root):
             failures.append("expected clean manifest-bound route fixture to pass")
+
+        drifted_manifest = json.loads(json.dumps(route_manifest))
+        drifted_manifest["routes"][0]["intake_labels"] = []
+        (route_root / "templates" / "route-manifest.json").write_text(
+            json.dumps(drifted_manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        intake_drift = check_skill_and_routes(route_root)
+        if not any("intake mapping missing labels" in error for error in intake_drift):
+            failures.append("expected missing intake-label mapping to fail")
+        (route_root / "templates" / "route-manifest.json").write_text(
+            json.dumps(route_manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
         agents_path = route_root / "AGENTS.md"
         clean_agents = agents_path.read_text(encoding="utf-8")
@@ -2296,8 +2453,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--release-tag",
         help=(
-            "Validate a pushed vX.Y.Z[-rc.N] tag against package metadata. "
-            "Stable metadata also requires committed live dogfood evidence."
+            "Validate a vX.Y.Z[-rc.N] tag value against package metadata. "
+            "The release workflow separately proves that the tag exists, is "
+            "annotated, and is GitHub-verified. Stable metadata also requires "
+            "committed live dogfood evidence."
         ),
     )
     parser.add_argument(

@@ -40,6 +40,50 @@ _TEST_URLOPEN: Any = None
 # must return (http.client.HTTPResponse-like, connection-like) or raise.
 _TEST_PINNED_TRANSPORT: Any = None
 
+REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+DEFAULT_MAX_REDIRECTS = 5
+PUBLIC_REDIRECT_HEADERS = {
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "cache-control",
+    "content-type",
+    "if-modified-since",
+    "if-none-match",
+    "pragma",
+    "user-agent",
+}
+SECRET_QUERY_KEYS = {
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth",
+    "client_secret",
+    "credential",
+    "key",
+    "password",
+    "refresh_token",
+    "secret",
+    "token",
+}
+
+
+class RedirectPolicyError(urllib.error.URLError):
+    """Raised when a redirect cannot preserve network or credential policy."""
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
+
 
 def _is_non_public_ip(ip: ipaddress._BaseAddress) -> bool:
     """Return True when *ip* must not be contacted by public research helpers.
@@ -66,6 +110,32 @@ def _is_non_public_ip(ip: ipaddress._BaseAddress) -> bool:
     if is_global is False:
         flags = True
     return bool(flags)
+
+
+def _normalize_ip_for_comparison(value: str) -> str:
+    """Return a canonical IP string, unwrapping IPv4-mapped IPv6 values."""
+    raw = str(value).strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    # Peer strings may carry an IPv6 scope identifier. Public destinations do
+    # not need one, but removing it keeps comparison deterministic.
+    if ":" in raw and "%" in raw:
+        raw = raw.split("%", 1)[0]
+    parsed = ipaddress.ip_address(raw)
+    mapped = getattr(parsed, "ipv4_mapped", None)
+    return str(mapped if mapped is not None else parsed)
+
+
+def _peer_matches_validated_ips(peer: str, validated_ips: list[str]) -> bool:
+    """Return whether the connected peer belongs to the DNS-validated set."""
+    try:
+        normalized_peer = _normalize_ip_for_comparison(peer)
+        normalized_validated = {
+            _normalize_ip_for_comparison(value) for value in validated_ips
+        }
+    except ValueError:
+        return False
+    return normalized_peer in normalized_validated
 
 
 def resolve_public_ips(host: str) -> list[str]:
@@ -255,8 +325,14 @@ def _pinned_https_open(req: urllib.request.Request, timeout: float | None) -> _S
             else:
                 sock = socket.create_connection((ip, port), timeout=timeout)
                 peer_ip = sock.getpeername()[0]
-                if _is_non_public_ip(ipaddress.ip_address(peer_ip)):
+                normalized_peer = _normalize_ip_for_comparison(peer_ip)
+                if _is_non_public_ip(ipaddress.ip_address(normalized_peer)):
                     raise ValueError(f"peer address is non-public: {peer_ip}")
+                if not _peer_matches_validated_ips(peer_ip, ips):
+                    raise ValueError(
+                        "peer address mismatch: connected peer is not in the "
+                        "DNS-validated address set"
+                    )
                 ssock = context.wrap_socket(sock, server_hostname=host)
                 sock = None  # ownership transferred
                 conn = http.client.HTTPSConnection(
@@ -332,6 +408,165 @@ def public_urlopen(req: urllib.request.Request, timeout: float | None = None):
     return _pinned_https_open(req, timeout)
 
 
+def _url_origin(url: str) -> tuple[str, str, int]:
+    parsed = urllib.parse.urlsplit(url)
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host:
+        raise RedirectPolicyError("redirect URL host is required")
+    try:
+        port = parsed.port or (443 if scheme == "https" else 80)
+    except ValueError as exc:
+        raise RedirectPolicyError("redirect URL port is invalid") from exc
+    return scheme, host, port
+
+
+def _url_has_credentials(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.username or parsed.password:
+            return True
+        return any(
+            key.lower() in SECRET_QUERY_KEYS
+            for key, _value in urllib.parse.parse_qsl(
+                parsed.query,
+                keep_blank_values=True,
+            )
+        )
+    except ValueError:
+        return True
+
+
+def _request_has_private_material(req: urllib.request.Request) -> bool:
+    if req.data is not None or _url_has_credentials(req.full_url):
+        return True
+    return any(
+        name.lower() not in PUBLIC_REDIRECT_HEADERS
+        for name, _value in req.header_items()
+    )
+
+
+def _validate_redirect_target(
+    value: str,
+    current_url: str,
+    *,
+    allow_loopback_fixture: bool,
+) -> str:
+    try:
+        target = urllib.parse.urljoin(current_url, value)
+        parsed = urllib.parse.urlsplit(target)
+        if parsed.scheme.lower() not in {"http", "https"}:
+            raise ValueError(f"scheme not allowed: {parsed.scheme!r}")
+        if parsed.username or parsed.password:
+            raise ValueError("URL userinfo is not allowed")
+        if not parsed.hostname:
+            raise ValueError("URL host is required")
+        current_scheme = urllib.parse.urlsplit(current_url).scheme.lower()
+        if current_scheme == "https" and parsed.scheme.lower() != "https":
+            raise ValueError("HTTPS redirect downgrade blocked")
+        if not allow_loopback_fixture:
+            assert_public_http_url(target, allow_http=False)
+        return target
+    except ValueError as exc:
+        raise RedirectPolicyError(f"redirect target rejected: {exc}") from exc
+
+
+def _open_without_redirect(
+    req: urllib.request.Request,
+    *,
+    timeout: float | None,
+    allow_loopback_fixture: bool,
+) -> Any:
+    if not allow_loopback_fixture:
+        return public_urlopen(req, timeout=timeout)
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    try:
+        return opener.open(req, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code in REDIRECT_STATUSES:
+            return exc
+        raise
+
+
+def public_urlopen_with_redirects(
+    req: urllib.request.Request,
+    timeout: float | None = None,
+    *,
+    max_redirects: int = DEFAULT_MAX_REDIRECTS,
+    allow_loopback_fixture: bool = False,
+) -> Any:
+    """Open with bounded redirects and same-origin-only private material.
+
+    Production hops are individually SSRF-validated and use the DNS-pinned
+    transport. Cross-origin redirects are allowed only for public GET/HEAD
+    requests, with non-public headers stripped. Credential headers, secret
+    query values, and request bodies never cross an origin boundary.
+
+    ``allow_loopback_fixture`` exists only for deterministic offline tests.
+    """
+    if not isinstance(max_redirects, int) or isinstance(max_redirects, bool):
+        raise ValueError("max_redirects must be a non-negative integer")
+    if max_redirects < 0:
+        raise ValueError("max_redirects must be a non-negative integer")
+
+    current = req
+    request_is_private = _request_has_private_material(req)
+    for hop in range(max_redirects + 1):
+        response = _open_without_redirect(
+            current,
+            timeout=timeout,
+            allow_loopback_fixture=allow_loopback_fixture,
+        )
+        status = int(getattr(response, "status", getattr(response, "code", 0)) or 0)
+        if status not in REDIRECT_STATUSES:
+            return response
+
+        location = response.headers.get("Location") if response.headers else None
+        response.close()
+        if not location:
+            raise RedirectPolicyError("redirect response omitted Location")
+        if hop >= max_redirects:
+            raise RedirectPolicyError(f"too many redirects (>{max_redirects})")
+
+        target = _validate_redirect_target(
+            location,
+            current.full_url,
+            allow_loopback_fixture=allow_loopback_fixture,
+        )
+        cross_origin = _url_origin(current.full_url) != _url_origin(target)
+        target_is_private = _url_has_credentials(target)
+        if cross_origin and (request_is_private or target_is_private):
+            raise RedirectPolicyError(
+                "credentialed or body-bearing cross-origin redirect blocked"
+            )
+
+        headers = dict(current.header_items())
+        if cross_origin:
+            headers = {
+                name: value
+                for name, value in headers.items()
+                if name.lower() in PUBLIC_REDIRECT_HEADERS
+            }
+        method = current.get_method()
+        data = current.data
+        if status == 303 or (status in {301, 302} and method not in {"GET", "HEAD"}):
+            method = "GET"
+            data = None
+            headers = {
+                name: value
+                for name, value in headers.items()
+                if name.lower() not in {"content-length", "content-type"}
+            }
+        current = urllib.request.Request(
+            target,
+            data=data,
+            headers=headers,
+            method=method,
+        )
+        request_is_private = request_is_private or target_is_private
+    raise RedirectPolicyError(f"too many redirects (>{max_redirects})")
+
+
 def self_test() -> int:
     """Offline unit tests for SSRF helpers."""
     import io
@@ -377,6 +612,27 @@ def self_test() -> int:
         blocked = _is_non_public_ip(ip)
         if blocked != expect_block:
             errors.append(f"_is_non_public_ip({raw})={blocked}, expected {expect_block}")
+
+    # Connected peers must match the DNS-validated set after canonical IP and
+    # IPv4-mapped IPv6 normalization. This is hermetic: no socket is opened.
+    for peer, validated, expected in (
+        ("8.8.8.8", ["8.8.8.8"], True),
+        ("::ffff:8.8.8.8", ["8.8.8.8"], True),
+        ("8.8.8.8", ["::ffff:8.8.8.8"], True),
+        (
+            "2001:4860:4860:0:0:0:0:8888",
+            ["2001:4860:4860::8888"],
+            True,
+        ),
+        ("8.8.4.4", ["8.8.8.8"], False),
+        ("not-an-ip", ["8.8.8.8"], False),
+    ):
+        matched = _peer_matches_validated_ips(peer, validated)
+        if matched != expected:
+            errors.append(
+                "peer membership mismatch: "
+                f"peer={peer} validated={validated} got={matched} expected={expected}"
+            )
 
     # --- F-06: streaming wrapper never allows size-less network reads --------
     class _FakeNetResp:
@@ -569,6 +825,169 @@ def self_test() -> int:
             errors.append(f"timeout mapped to unexpected {type(exc).__name__}: {exc}")
     finally:
         _TEST_PINNED_TRANSPORT = saved_transport
+
+    # Manual redirect policy: preserve credentials only on the same origin,
+    # block before a cross-origin sink request, and bound redirect loops.
+    import http.server
+    import threading
+
+    class _RedirectSink(http.server.BaseHTTPRequestHandler):
+        post_hits = 0
+        get_headers: list[dict[str, str]] = []
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            pass
+
+        def do_POST(self) -> None:  # noqa: N802
+            type(self).post_hits += 1
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def do_GET(self) -> None:  # noqa: N802
+            type(self).get_headers.append(dict(self.headers.items()))
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+    class _RedirectSource(http.server.BaseHTTPRequestHandler):
+        cross_location = ""
+        same_origin_authorization: list[str] = []
+        loop_hits = 0
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            pass
+
+        def do_POST(self) -> None:  # noqa: N802
+            content_length = int(self.headers.get("Content-Length") or 0)
+            if content_length:
+                self.rfile.read(content_length)
+            if self.path == "/same-start":
+                self.send_response(307)
+                self.send_header("Location", "/same-final")
+                self.end_headers()
+                return
+            if self.path == "/same-final":
+                type(self).same_origin_authorization.append(
+                    self.headers.get("Authorization", "")
+                )
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+                return
+            if self.path == "/cross-start":
+                self.send_response(307)
+                self.send_header("Location", type(self).cross_location + "/private")
+                self.end_headers()
+                return
+            if self.path == "/loop":
+                type(self).loop_hits += 1
+                self.send_response(307)
+                self.send_header("Location", "/loop")
+                self.end_headers()
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path == "/public-start":
+                self.send_response(302)
+                self.send_header("Location", type(self).cross_location + "/public")
+                self.end_headers()
+                return
+            self.send_response(404)
+            self.end_headers()
+
+    sink_server = http.server.HTTPServer(("127.0.0.1", 0), _RedirectSink)
+    sink_port = sink_server.server_address[1]
+    _RedirectSource.cross_location = f"http://127.0.0.1:{sink_port}"
+    source_server = http.server.HTTPServer(("127.0.0.1", 0), _RedirectSource)
+    source_port = source_server.server_address[1]
+    sink_thread = threading.Thread(target=sink_server.serve_forever, daemon=True)
+    source_thread = threading.Thread(target=source_server.serve_forever, daemon=True)
+    sink_thread.start()
+    source_thread.start()
+    redirect_secret = "Bearer REDIRECT-SELF-TEST-SECRET"
+    private_headers = {
+        "Authorization": redirect_secret,
+        "Content-Type": "application/json",
+    }
+    try:
+        same_req = urllib.request.Request(
+            f"http://127.0.0.1:{source_port}/same-start",
+            data=b"{}",
+            headers=private_headers,
+        )
+        with public_urlopen_with_redirects(
+            same_req,
+            timeout=5,
+            allow_loopback_fixture=True,
+        ):
+            pass
+        if _RedirectSource.same_origin_authorization != [redirect_secret]:
+            errors.append("same-origin redirect did not preserve Authorization")
+
+        cross_req = urllib.request.Request(
+            f"http://127.0.0.1:{source_port}/cross-start",
+            data=b"{}",
+            headers=private_headers,
+        )
+        try:
+            public_urlopen_with_redirects(
+                cross_req,
+                timeout=5,
+                allow_loopback_fixture=True,
+            )
+            errors.append("credentialed cross-origin redirect should be blocked")
+        except RedirectPolicyError as exc:
+            if "REDIRECT-SELF-TEST-SECRET" in str(exc):
+                errors.append("redirect policy error exposed Authorization")
+        if _RedirectSink.post_hits != 0:
+            errors.append("cross-origin redirect sink received a private POST")
+
+        public_req = urllib.request.Request(
+            f"http://127.0.0.1:{source_port}/public-start",
+            headers={"User-Agent": "redirect-self-test"},
+        )
+        with public_urlopen_with_redirects(
+            public_req,
+            timeout=5,
+            allow_loopback_fixture=True,
+        ):
+            pass
+        if len(_RedirectSink.get_headers) != 1:
+            errors.append("public cross-origin GET redirect was not followed")
+        elif _RedirectSink.get_headers[0].get("User-Agent") != "redirect-self-test":
+            errors.append("public cross-origin header was not preserved")
+
+        loop_req = urllib.request.Request(
+            f"http://127.0.0.1:{source_port}/loop",
+            data=b"{}",
+            headers=private_headers,
+        )
+        try:
+            public_urlopen_with_redirects(
+                loop_req,
+                timeout=5,
+                allow_loopback_fixture=True,
+            )
+            errors.append("redirect loop should be bounded")
+        except RedirectPolicyError as exc:
+            if "too many redirects" not in str(exc):
+                errors.append(f"unexpected redirect-loop error: {exc}")
+        if _RedirectSource.loop_hits != DEFAULT_MAX_REDIRECTS + 1:
+            errors.append(
+                "redirect loop hop count mismatch: "
+                f"{_RedirectSource.loop_hits}"
+            )
+    finally:
+        source_server.shutdown()
+        sink_server.shutdown()
+        source_server.server_close()
+        sink_server.server_close()
 
     # Source-level guard: production pinned open must not contain unbounded resp.read()
     import inspect

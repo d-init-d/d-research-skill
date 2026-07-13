@@ -1,5 +1,14 @@
 # Vietnamese Source Discovery
 
+## Contents
+
+- [Safety and Scope](#safety-and-scope)
+- [Query Construction](#query-construction)
+- [Source Basins](#source-basins)
+- [Useful Query Patterns](#useful-query-patterns)
+- [Date and Identity Discipline](#date-and-identity-discipline)
+- [Compact Coverage Table](#compact-coverage-table)
+
 Use this companion with `references/multilingual-research.md` when Vietnamese
 sources, Vietnam-based organizations, local news, education sources, public
 events, government portals, or Vietnamese-language social/community sources are

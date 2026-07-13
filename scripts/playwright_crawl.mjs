@@ -242,10 +242,40 @@ function parseRobots(text) {
   return groups;
 }
 
+/**
+ * Normalize URI octets for RFC 9309 matching.
+ *
+ * Percent-encoded ASCII unreserved octets compare as their decoded form;
+ * reserved octets stay encoded (with canonical hex case), and raw non-ASCII
+ * characters become their percent-encoded UTF-8 octets.
+ */
+function normalizeRobotsOctets(value) {
+  const encodedUnicode = [...String(value || '')].map((character) => {
+    if (character.codePointAt(0) <= 0x7f) return character;
+    return [...Buffer.from(character, 'utf8')]
+      .map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, '0')}`)
+      .join('');
+  }).join('');
+  return encodedUnicode.replace(/%([0-9a-f]{2})/gi, (_match, hex) => {
+    const byte = Number.parseInt(hex, 16);
+    const decoded = String.fromCharCode(byte);
+    return /[A-Za-z0-9\-._~]/.test(decoded)
+      ? decoded
+      : `%${hex.toUpperCase()}`;
+  });
+}
+
+function robotsRuleSpecificity(rule) {
+  let normalized = normalizeRobotsOctets(rule);
+  if (normalized.endsWith('$')) normalized = normalized.slice(0, -1);
+  normalized = normalized.replace(/\*/g, '');
+  return (normalized.match(/%[0-9A-F]{2}|[\s\S]/g) || []).length;
+}
+
 /** Match robots path rule with * wildcards and $ end-anchor (longest match). */
 function robotsPathMatch(rule, pathName) {
   if (!rule) return false;
-  let pattern = rule;
+  let pattern = normalizeRobotsOctets(rule);
   let endAnchor = false;
   if (pattern.endsWith('$')) {
     endAnchor = true;
@@ -254,7 +284,7 @@ function robotsPathMatch(rule, pathName) {
   // Escape regex specials except *
   const escaped = pattern.replace(/[.+?^{}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
   const re = new RegExp('^' + escaped + (endAnchor ? '$' : ''));
-  return re.test(pathName);
+  return re.test(normalizeRobotsOctets(pathName));
 }
 
 function robotsAllows(groups, targetUrl) {
@@ -268,22 +298,24 @@ function robotsAllows(groups, targetUrl) {
   let relevant = list.filter((g) => g.agents.includes(ROBOTS_UA));
   if (!relevant.length) relevant = list.filter((g) => g.agents.includes('*'));
   if (!relevant.length) return true;
-  let matchedAllow = '';
-  let matchedDisallow = '';
+  let matchedAllow = -1;
+  let matchedDisallow = -1;
   for (const g of relevant) {
     for (const rule of g.allow) {
-      if (rule && robotsPathMatch(rule, pathName) && rule.length > matchedAllow.length) {
-        matchedAllow = rule;
+      const specificity = robotsRuleSpecificity(rule);
+      if (rule && robotsPathMatch(rule, pathName) && specificity > matchedAllow) {
+        matchedAllow = specificity;
       }
     }
     for (const rule of g.disallow) {
-      if (rule && robotsPathMatch(rule, pathName) && rule.length > matchedDisallow.length) {
-        matchedDisallow = rule;
+      const specificity = robotsRuleSpecificity(rule);
+      if (rule && robotsPathMatch(rule, pathName) && specificity > matchedDisallow) {
+        matchedDisallow = specificity;
       }
     }
   }
-  if (!matchedDisallow) return true;
-  return matchedAllow.length >= matchedDisallow.length;
+  if (matchedDisallow < 0) return true;
+  return matchedAllow >= matchedDisallow;
 }
 
 async function getRobots(cache, url, ignoreTlsErrors = false, ssrfOpts = {}) {
@@ -463,8 +495,11 @@ async function run(args) {
     limitations.push('ignore_tls_errors_enabled');
   }
   const blocked = [];
+  const limitReasons = new Set();
+  const deferredByDepth = new Map();
   let navigationPolicyBlock = null;
   let resourceLimitExceeded = false;
+  let pagesAttempted = 0;
 
   // Intercept every request at context scope:
   // 1) SSRF public-destination check + Node-pinned HTTP(S) fulfillment
@@ -513,7 +548,7 @@ async function run(args) {
     },
   });
 
-  while (queue.length && manifest.length < args.maxPages) {
+  while (queue.length && pagesAttempted < args.maxPages) {
     const item = queue.shift();
     const url = normalizeUrl(item.url);
     if (!url || seen.has(url)) continue;
@@ -521,9 +556,12 @@ async function run(args) {
     const host = new URL(url).hostname;
     const count = perDomain.get(host) || 0;
     if (count >= args.maxPagesPerDomain) {
+      limitReasons.add('max_pages_per_domain');
       blocked.push({ url, reason: 'max_pages_per_domain', depth: item.depth });
       continue;
     }
+    perDomain.set(host, count + 1);
+    pagesAttempted++;
     const seedSsrf = await assertBrowserPublicUrl(url, {
       allowLoopback: args.allowLoopbackFixture === true,
     });
@@ -567,7 +605,6 @@ async function run(args) {
       }
       navigationUrl = resolved.url;
     }
-    perDomain.set(host, count + 1);
     await sleep(args.delayMs);
     let response = null;
     navigationPolicyBlock = null;
@@ -641,12 +678,19 @@ async function run(args) {
       };
       manifest.push(record);
       await writeJson(path.join(args.outDir, 'pages', `${String(record.id).padStart(4, '0')}.json`), record);
-      if (item.depth < args.maxDepth) {
-        for (const link of data.links) {
-          const next = normalizeUrl(link.href);
-          if (!next || seen.has(next) || isLikelyBinary(next)) continue;
-          if (!args.followExternalLinks && !sameDomain(next, item.seed)) continue;
+      for (const link of data.links) {
+        const next = normalizeUrl(link.href);
+        if (!next || seen.has(next) || isLikelyBinary(next)) continue;
+        if (!args.followExternalLinks && !sameDomain(next, item.seed)) continue;
+        if (item.depth < args.maxDepth) {
           queue.push({ url: next, depth: item.depth + 1, seed: item.seed });
+        } else if (!deferredByDepth.has(next)) {
+          deferredByDepth.set(next, {
+            url: next,
+            reason: 'max_depth',
+            depth: item.depth + 1,
+            discoveredFrom: page.url(),
+          });
         }
       }
     } catch (err) {
@@ -678,6 +722,33 @@ async function run(args) {
   }
 
   await browser.close();
+  const pendingByPageLimit = new Map();
+  for (const item of queue) {
+    const pendingUrl = normalizeUrl(item.url);
+    if (!pendingUrl || seen.has(pendingUrl) || pendingByPageLimit.has(pendingUrl)) continue;
+    pendingByPageLimit.set(pendingUrl, {
+      url: pendingUrl,
+      reason: 'max_pages',
+      depth: item.depth,
+    });
+  }
+  if (pendingByPageLimit.size > 0) {
+    limitReasons.add('max_pages');
+    blocked.push(...pendingByPageLimit.values());
+  }
+
+  const unresolvedDepth = [...deferredByDepth.values()].filter((row) => !seen.has(row.url));
+  if (unresolvedDepth.length > 0) {
+    limitReasons.add('max_depth');
+    blocked.push(...unresolvedDepth);
+  }
+  if (resourceLimitExceeded) limitReasons.add('resource_limit');
+  const limitsReached = [...limitReasons].sort();
+  const stoppingReason = limitsReached.length === 0
+    ? 'queue_exhausted'
+    : limitsReached.length === 1
+      ? limitsReached[0]
+      : 'multiple_limits';
   const summary = {
     seeds,
     config: {
@@ -691,11 +762,15 @@ async function run(args) {
       maxResponseBytes: args.maxResponseBytes,
     },
     limitations,
+    pagesAttempted,
     pagesVisited: manifest.length,
     blockedCount: blocked.length,
-    complete: !resourceLimitExceeded,
+    complete: limitsReached.length === 0,
     resourceLimitExceeded,
-    stoppingReason: resourceLimitExceeded ? 'resource_limit' : 'queue_exhausted_or_page_limit',
+    limitsReached,
+    remainingQueueCount: pendingByPageLimit.size,
+    deferredByDepthCount: unresolvedDepth.length,
+    stoppingReason,
     generatedAt: new Date().toISOString()
   };
   await writeJson(path.join(args.outDir, 'manifest.json'), manifest);
@@ -720,6 +795,9 @@ async function main() {
       ),
     };
     if (robotsAllows(robots, 'https://example.com/private/x')) throw new Error('robots disallow failed');
+    if (robotsAllows(robots, 'https://example.com/%70rivate/x')) {
+      throw new Error('robots percent-encoded unreserved disallow failed');
+    }
     if (!robotsAllows(robots, 'https://example.com/private/public/x')) throw new Error('robots allow failed');
     // wildcard + end anchor
     const wild = {

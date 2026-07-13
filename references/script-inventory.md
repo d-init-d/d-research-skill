@@ -8,16 +8,16 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 
 - `scripts/playwright_probe.mjs`: classify a page, detect blockers, list links/files/tables, optionally screenshot, and fail closed on an oversized main response
 - `scripts/playwright_extract.mjs`: extract visible text, tables, links, metadata, and files into JSON or Markdown with the shared response cap
-- `scripts/playwright_crawl.mjs`: bounded same-domain crawl with robots awareness, page manifests, and structured incomplete output on response-limit failures
+- `scripts/playwright_crawl.mjs`: bounded same-domain crawl with RFC 9309 percent-octet-aware robots matching, page manifests, and truthful structured incomplete output for page/domain/depth/resource ceilings
 - `scripts/evidence_ledger.py`: initialize, validate, and **HMAC-sign / verify** CSV evidence ledgers
 - `scripts/api_fetch.mjs`: paginated API fetch with rate limiting, retry, and multiple output formats
 - `scripts/data_clean.py`: data cleaning, deduplication, validation, statistics, and merging
 - `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via Crossref with DataCite fallback
 - `scripts/resource_limits.py`: conservative HTTP/file/Excel/PDF/OCR/subprocess/table/Wayback/social caps; structured incomplete blockers on violation
 - `scripts/check_contract.py`: dynamic version/config/path/count/CLI contract checks for release readiness
-- `scripts/package_manifest_check.mjs`: fail-closed npm tarball validation; rejects untracked/local/sensitive artifacts and missing tracked runtime files
+- `scripts/package_manifest_check.mjs`: fail-closed npm tarball validation in Git worktrees and extracted source archives; rejects untracked/local/sensitive artifacts, missing tracked runtime files, and path-fingerprint drift
 - `scripts/release_verify.py`: offline validation of exact-SHA GitHub Actions success, annotated GitHub-verified tag objects, and exact-commit reviewer approvals bound to the promotion SHA256
-- `scripts/_ssrf_helpers.py`: shared public-host / SSRF guard helpers (Python; DNS-pinned open for social)
+- `scripts/_ssrf_helpers.py`: shared Python public-host / SSRF guards, DNS-pinned streaming HTTPS transport, and bounded same-origin-only private redirect policy for social, translation, and embedding callers
 - `scripts/content_sanitize.py`: production HTML/visible-text extraction, secret redaction, hostile-source processing, safe download names (used by multi_extract + quality eval)
 - `scripts/lib/ssrf_guards.mjs`: shared public-host / SSRF guards + **connection-bound** `fetchPublicHttp` (Node; used by `api_fetch.mjs`)
 - `scripts/lib/browser_ssrf.mjs`: context-level browser SSRF guard with Node-pinned HTTP(S) fulfillment, service-worker blocking, and WebSocket fail-closed behavior; used by playwright probe/extract/crawl
@@ -41,11 +41,11 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/citation_graph.py`: cited-by / references / expand / to-frontier / coauthors / self-test — citation graph traversal via OpenAlex for snowball sampling and network analysis; see `references/citation-graph.md`
 - `scripts/multi_extract.py`: text / meta / tables / structured / mbox-search / to-ledger / self-test — unified extraction from DOCX, EPUB, XLSX, mbox, and HTML structured data; see `references/multi-format-extraction.md`
 - `scripts/dedup_near.py`: fingerprint / scan / ledger / self-test — near-duplicate detection via SimHash + Hamming distance; see `references/deduplication.md`
-- `scripts/http_cache.py`: get-key / stats / purge / self-test — shared HTTP cache (opt-in via `D_RESEARCH_HTTP_CACHE_PATH`); see `references/http-cache.md`
+- `scripts/http_cache.py`: get-key / stats / purge / self-test — shared HTTP cache with atomic fail-closed publication and strict purge verification (opt-in via `D_RESEARCH_HTTP_CACHE_PATH`); see `references/http-cache.md`
 - `scripts/lib/http_cache.mjs`: Node ESM helper used by `api_fetch.mjs` for the same shared cache layout
 - `scripts/bench_harness_check.py`: check / check-all / orphans / self-test — bench/fixture/harness consistency check. **NOT an agent benchmark** — only catches bench data regressions
 - `scripts/quality_eval.py`: validate / list / integrity / hostile / fuzz / mutation / perf-compare / degraded / promotion-report / promotion-anti-spoof / self-test / triple — held-out research-quality suite, fail-closed enforcement of every promotion threshold, exact candidate/CI binding, integrity-covered evaluation and deterministic-run artifacts, citation/date integrity, and production-path hostile checks via `content_sanitize`. See `examples/evals/quality-suite.json` and `docs/eval.md`
-- `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE); see `adapters/web-search-only.md`
+- `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE) and bounded credential-isolating manual redirects; see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 
 The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.

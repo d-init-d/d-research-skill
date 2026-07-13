@@ -1,5 +1,15 @@
 # Data Visualization Guide
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Chart Type Selection](#chart-type-selection)
+- [Static Charts (matplotlib)](#static-charts-matplotlib)
+- [Interactive Charts (plotly)](#interactive-charts-plotly)
+- [Report Embedding](#report-embedding)
+- [Dashboard Template HTML](#dashboard-template-html)
+- [Guidelines](#guidelines)
+
 ## When to Use
 
 Use visualizations when:

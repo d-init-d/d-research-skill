@@ -1,65 +1,73 @@
 # D Research Agent Instructions
 
-Use the D Research workflow whenever the user asks for deep research, data scraping, source discovery, academic research, literature review, market research, due diligence, policy/standards analysis, creative/cultural research, technical investigation, or multi-source evidence synthesis.
+Use D Research for deep or multi-source research, lawful public-data collection,
+source discovery, literature/market/technical research, due diligence,
+policy/standards analysis, cultural research, and the narrow lookup routes below.
+Default browser automation is Playwright; access is read-only unless the user
+explicitly authorizes an in-scope archival submission.
 
-Treat `templates/route-manifest.json` as the canonical route/gate contract shared with `SKILL.md`. Use `references/semantic-retrieval.md` for corpus similarity work, `references/academic-research-protocol.md` for broad academic reviews, and `references/browser-first-crawl.md` for single-URL browser work. Do not dispatch until `execute_ready`/`dispatch_ready` passes; retain the canonical `plan_ready`, `synthesize_ready`, and `release_ready` semantics from the manifest.
+Treat `templates/route-manifest.json` as the canonical route/gate contract shared with `SKILL.md`.
+Use `references/workflow-routes.md` as the narrative decision tree. Do not dispatch until `execute_ready`/`dispatch_ready` passes; preserve the canonical
+`plan_ready`, `synthesize_ready`, and `release_ready` assertion sets.
 
-Default browser automation: Playwright.
+## Mandatory flow
 
-Core workflow:
-0. Classify the request with `references/research-intake.md` before opening sources. Assign multi-label research shape(s), research depth (fast, standard, completeness-first), safety posture, expected output artifact, freshness/geography/language scope, authority model/source basins, required references, required ledgers/templates, red-flag or contradiction focus, and execution gates. Use `due_diligence_or_investigation`, `policy_or_standards_analysis`, and `creative_or_cultural_research` when those authority models apply, while still composing them with market, technical, academic, dataset, multilingual, or long-horizon labels. Resolve hard-stop safety/privacy/access issues before source discovery; ask the user only when ambiguity changes safety, legality, scope, or deliverable.
-1. Restate the research goal.
-2. Decompose the topic into sub-questions, facets, entities, aliases, register/jargon variants, and source classes.
-2a. For any long-horizon task (>5 sub-questions, >50 sources, multi-context-window runtime, or audit-grade output), initialise one workspace directory from `templates/research-plan.json` (schema 2.0) and follow `references/research-plan-protocol.md`. Use `scripts/research_plan.py init --slug <topic-slug> [--title "..."]` for a generic draft (empty tasks; `plan_ready` fails until filled). Tag each task with `phase`: `research` or `synthesis`. Migrate v1 plans with `scripts/research_plan.py migrate`. Use `configure-execution` after task decomposition, `render` for `PLAN.md`, `gate --gate plan_ready`, `approve`, then dispatch parallel-safe tasks. Gate synthesis with `gate --gate synthesize_ready` (research-phase tasks only; real HMAC verify via `D_RESEARCH_LEDGER_KEY`). Gate release with `gate --gate release_ready` (synthesis complete + claim coverage). Dispatch to sub-agents only when `researchPlan.subagents.slots[]` has configured slots. Split tasks before they exceed their `execution.context_budget`; write findings to files immediately. Use `--allow-unattended` only when no human review is available. Always report the final workspace path. See `examples/long-horizon-research-plan.md`.
-3. Build a source map before extraction.
-4. Generate query fanout: broad, exact, official, primary, filetype, site-specific, dataset/API, recent, and contradiction queries. When a clinical/legal/standards/academic query under-recalls because the evidence basin uses lay, community, or vernacular terms, add register/jargon variants from `references/register-and-jargon-expansion.md` — walk the register ladder both ways (formal -> vernacular for recall, vernacular -> formal to anchor each community term to a primary source), harvest terms from fresh results only, keep only terms recurring across two or more independent community sources, and treat the harvested vocabulary as discovery only, never as evidence.
-5. Use browser-first probing for promising URLs.
-6. Access public APIs and academic databases when available (OpenAlex, CrossRef, PubMed, Semantic Scholar, arXiv).
-7. Extract accessible public data using the least invasive stable method.
-8. Expand via links, sitemaps, files, public APIs, citations, and snowballing.
-9. Process and clean extracted data when building datasets (see `references/data-processing-pipeline.md`).
-10. Maintain an evidence ledger for important claims.
-11. Search for contradictions before final synthesis.
-11a. If the first pass leaves evidence gaps, obscure facts, or contested claims, escalate to `references/frontier-search.md`. Maintain `templates/frontier-ledger.csv` and `templates/coverage-map.json` alongside the evidence ledger, score candidate nodes against open gaps, expand the highest-priority node, and stop on evidence saturation. When a gap persists because the basin uses community/vernacular terms, enqueue confirmed register variants as `alias`-type frontier nodes (see `references/register-and-jargon-expansion.md`). Never use this as a way around access controls.
-11b. If the user asks to verify or look up one specific atomic fact (one entity + one attribute, deterministic primary source, one-sentence answer), switch to `references/fact-verification.md` instead of running the full loop. Hit the primary source once, quote verbatim, file one ledger row with a one-shot independent re-check, and report. Bail back to the full workflow on any anomaly (non-2xx, contradicting mirrors, follow-up "why" questions). Do not reach for `references/frontier-search.md` from this branch.
-11c. If the user asks for public-role information about one named person (maintainer, author, speaker, journalist, public figure) and there is a canonical anchor (GitHub profile, ORCID, package author field, faculty page, verified byline), switch to `references/person-aggregation.md`. Apply the explicit privacy boundary in that file before fetching anything. Saturate at 25 ledger rows or three sources adding no new verified claims. Refuse on minors, private individuals, and harassment / stalking / doxxing framings. Do not re-identify pseudonyms, do not aggregate home address / family / personal contact / photos / medical / financial / orientation / whereabouts, and do not use `references/frontier-search.md` to chase one more piece of personal info.
-11d. If the user asks to capture, archive, or analyze a public social-media post, switch to `references/social-media-archival.md`. Use `scripts/social_snapshot.py` for snapshot capture (Tier A: direct API for Reddit, HN, Mastodon, Bluesky, Lemmy; Tier B: archive-only via `scripts/wayback.py` for X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn). Read the privacy boundary section first — it refuses minors, private individuals, harassment/stalking/doxxing framings, and login-bypass attempts before any HTTP call. Convert snapshots to evidence-ledger rows with `to-ledger` and verify Tier A captures with `verify`.
-11e. Before final synthesis on any non-trivial branch, apply `references/execution-gates.md`: source map gate, coverage/recall gate, identity/date/inference gate, evidence verification gate, and synthesis readiness gate. Subagents are optional accelerators; if unavailable, perform the same checklists manually. If Vietnamese or Vietnam-local sources matter, use `references/vietnamese-source-discovery.md` with `references/multilingual-research.md`.
-12. Export citations in BibTeX/RIS format for academic work, and render to APA/MLA/IEEE/Chicago/Vancouver/Harvard/Nature with `scripts/citation_render.py` when needed (see `references/citation-management.md`). If the input is a DOI, PMID, arXiv ID, or ISBN, resolve it first via `scripts/citation_resolver.py` (see `adapters/citation-resolver.md`) before expanding the search — this short-circuits the full research loop with canonical metadata in one request.
-13. For PRISMA-grade systematic reviews, follow `references/systematic-review-protocol.md` and populate `templates/prisma-flow.json`.
-14. For structured data extraction (HTML tables, JSON-LD, sitemaps, RSS, OAI-PMH, embedded JSON), use the recipes in `references/data-extraction-toolbox.md` and `scripts/extract_tables.py`.
-15. For tamper-evidence on the evidence ledger, sign it with `scripts/evidence_ledger.py sign` (HMAC-SHA256). Verify with the same script's `verify` subcommand.
-16. Apply the source-quality rubric with `scripts/score_source.py score` to get deterministic per-row scores.
-17. Before declaring an output "done", walk through `references/reproducibility-checklist.md`. For long-horizon workspaces with a plan + evidence ledger, use `scripts/report_render.py render --workspace <dir>` to produce the final structured report, then `scripts/report_render.py lint` to verify claim coverage.
-18. If a relevant public tier-1 source is blocked by anti-bot, JavaScript challenge, captcha, 403, or 429, run the bounded fallback chain in `references/anti-bot-fallback.md` once: canonical API/static form -> public web archive -> cache/snippet if available -> fetch-only/no-JS retrieval -> blocker report. Record failed attempts as low-confidence process rows. Do not bypass access controls.
+1. Classify with `references/research-intake.md` before opening sources. Resolve
+   hard-stop safety, privacy, legality, and access issues first. Ask only when an
+   ambiguity changes safety, scope, or deliverable.
+2. Select the narrowest matching route. Atomic fact, social-post, public-role
+   person, and single-URL branches override the broad workflow when their entry
+   conditions hold; follow their branch-specific output contracts.
+3. For broad work, restate the goal; decompose questions/entities/aliases;
+   create the source map; fan out official, primary, dataset, recent, and
+   contradiction queries; probe browser-first; extract least-invasively; expand
+   within limits; maintain the evidence ledger; and search for contradictions.
+4. For more than 5 sub-questions, more than 50 sources, multi-context runtime,
+   or audit-grade output, wrap the route in `references/research-plan-protocol.md`.
+   Create one schema-2.0 workspace, configure execution, render, pass
+   `plan_ready`, approve, then pass `execute_ready` before any task starts.
+   `synthesize_ready` applies to research-phase tasks only and requires a real
+   HMAC via `D_RESEARCH_LEDGER_KEY`; `release_ready` additionally requires
+   terminal synthesis tasks/outputs, exact report and citations, 100% authored
+   claim coverage, and satisfied stopping criteria. Report the workspace path.
+5. Before non-trivial synthesis, apply `references/execution-gates.md`. Do not claim completeness unless the relevant execution gates passed.
+6. Finish with `references/reproducibility-checklist.md`; render/lint planned
+   reports with `scripts/report_render.py` and score important sources with
+   `scripts/score_source.py`.
 
-Data access layers (in order):
-- Web pages and files (browser/fetch)
-- Public APIs: REST, GraphQL, SPARQL (see `references/api-access-workflow.md`)
-- Academic databases (see `references/academic-databases.md`)
-- Read-only databases when user provides access (see `adapters/database-readonly.md`)
-- Specialized domain sources (see `references/specialized-domains.md`)
+## Canonical route index
 
-Available adapters:
-- `adapters/playwright.md` (default)
-- `adapters/generic-browser.md`
-- `adapters/fetch-only.md`
-- `adapters/web-search-only.md`
-- `adapters/wikidata.md`
-- `adapters/database-readonly.md`
-- `adapters/graphql.md`
-- `adapters/citation-resolver.md`
+- Atomic fact: `references/fact-verification.md`
+- Public social post: `references/social-media-archival.md`
+- Named public-role person: `references/person-aggregation.md`
+- Semantic corpus: `references/semantic-retrieval.md`
+- Broad, due-diligence, policy, and cultural routing: `references/workflow-routes.md`, `references/research-intake.md`
+- Technical/market: `references/source-discovery.md`, `references/source-quality-rubric.md`
+- Legal/government/financial and medical/safety: `references/specialized-domains.md`
+- Dataset/structured extraction: `references/data-extraction-toolbox.md`, `references/data-processing-pipeline.md`
+- Academic/citations: `references/academic-research-protocol.md`, `references/citation-management.md`
+- Systematic/PRISMA: `references/systematic-review-protocol.md`
+- Single URL: `references/browser-first-crawl.md`, `references/anti-bot-fallback.md`
+- API/database: `references/api-access-workflow.md`
+- Large-scale collection: `references/large-scale-collection.md`
+- Monitoring: `references/monitoring-change-detection.md`
+- Visualization/rendered report: `references/data-visualization.md`, `references/report-generation.md`
+- Multilingual/Vietnamese: `references/multilingual-research.md`, `references/vietnamese-source-discovery.md`
+- Thin recall/jargon: `references/register-and-jargon-expansion.md`
+- Broad-work evidence gaps only: `references/frontier-search.md`
 
-Safety rules:
-- read-only by default
-- do not bypass login, paywalls, captchas, rate limits, robots restrictions, or access controls
-- captcha solving and stealth/anti-detection plugins are never allowed (not merely "disabled by default")
-- do not access private or personal data without authorization
-- stop on repeated 403, 429, captcha, or login walls after the bounded fallback chain has failed
-- respect API rate limits and log all requests
+## Safety invariants
 
-For large-scale collection (100+ records), use checkpointing and adaptive rate limiting (see `references/large-scale-collection.md`).
+- Read only by default; use only lawfully provided credentials.
+- Never bypass login, paywalls, captchas, rate limits, robots restrictions, or
+  access controls; captcha solving and stealth/anti-detection plugins are never allowed.
+- Refuse private-person profiling, minors, harassment, stalking, doxxing,
+  pseudonym re-identification, and collection of sensitive personal details.
+- Stop after the bounded fallback chain fails on repeated 403/429/captcha/login
+  walls. Record blocked attempts and resource-limit truncation explicitly.
+- Never turn a configured crawl or resource limit into a claim of completeness.
 
-If Playwright is unavailable, use the configured browser adapter. If no browser exists, use fetch. If fetch is unavailable, use web search and mark limitations.
-
-Final outputs should include direct answer, key findings, evidence summary, data collected, sources reached, sources blocked, coverage gaps, caveats, confidence, and next research steps. Do not claim completeness unless the relevant execution gates passed. For academic outputs, include formatted citations.
+Broad/non-trivial outputs include the direct answer, findings, evidence,
+collected data, reached/blocked sources, gaps, caveats, confidence, and next
+steps. Narrow fast paths include only what their reference requires. Academic
+outputs include formatted citations.

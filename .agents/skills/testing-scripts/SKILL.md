@@ -1,5 +1,5 @@
 ---
-name: testing-d-research-scripts
+name: testing-scripts
 description: Verify the d-research-skill helper scripts (Node + Python). Use after editing files under scripts/, changing dependencies, or preparing a release.
 ---
 
@@ -26,10 +26,12 @@ HTTP/HTTPS fixtures. No external API key is required.
 Run from the repository root:
 
 ```bash
-npm ci
+npm ci --ignore-scripts --no-audit --no-fund
 npm run self-test
 npm run acceptance
 npm run browser:smoke
+npm run package:check
+npm pack --dry-run --json
 ```
 
 Pass criteria:
@@ -37,6 +39,8 @@ Pass criteria:
 - every command exits `0`
 - the acceptance summary reports zero `FAIL`
 - the browser smoke reports all local security scenarios as passing
+- the package path fingerprint matches and no generated/local/evidence artifact
+  enters the dry-run tarball
 - no Python traceback or unhandled Node rejection appears
 
 `npm run self-test` is split into:
@@ -53,13 +57,18 @@ Treat `package.json` as the authoritative list; do not duplicate a stale script
 count here. `references/script-inventory.md` documents helper ownership and
 routing.
 
+Package validation must also pass after Python bytecode caches exist under
+`examples/`; generated `__pycache__`, `.pyc`, `.pyo`, and `.pyd` files must be
+excluded from npm output. The extracted source-archive test must run without a
+`.git` directory and still pass `npm run self-test` plus `npm pack --dry-run`.
+
 ## Static checks
 
 Run these after any cross-cutting change:
 
 ```bash
 ruff check scripts/
-python -m compileall -q scripts
+python -m compileall -q scripts examples
 python scripts/check_node_syntax.py
 python scripts/check_internal_refs.py
 python scripts/check_internal_refs.py --decision-tree
@@ -67,6 +76,11 @@ python scripts/check_contract.py
 python scripts/bench_harness_check.py check-all --strict
 git diff --check
 ```
+
+Run `actionlint` over all files under `.github/workflows/` when the Go toolchain
+is available. Run `npm audit --omit=dev --audit-level=moderate` when network
+access is available; record an unavailable registry as an external limitation,
+not a synthetic pass.
 
 `evidence_ledger.py self-test` intentionally exercises tamper detection before
 printing its success marker. That intermediate diagnostic is expected.

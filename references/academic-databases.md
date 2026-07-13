@@ -1,5 +1,15 @@
 # Academic Literature Database Access
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Free/Open APIs (No Key Required)](#freeopen-apis-no-key-required)
+- [APIs Needing Keys](#apis-needing-keys)
+- [Workflow](#workflow)
+- [Citation Network Analysis](#citation-network-analysis)
+- [Output](#output)
+- [See also](#see-also)
+
 This guide teaches the agent how to access, search, and analyze academic literature using free and open APIs. Academic database research is foundational for literature reviews, systematic reviews, meta-analyses, and research synthesis tasks.
 
 ## When to Use

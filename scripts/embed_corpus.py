@@ -27,9 +27,12 @@ import math
 import os
 import shutil
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
+from _ssrf_helpers import public_urlopen_with_redirects
 from resource_limits import (
     ResourceLimitError,
     emit_blocker_and_exit,
@@ -78,9 +81,6 @@ def _cohere_embed(
     input_type: str = "search_document",
 ) -> list[list[float]]:
     """Embed via Cohere API (remote, requires key + opt-in)."""
-    import urllib.error
-    import urllib.request
-
     key = os.environ.get("COHERE_API_KEY", "")
     if not key:
         print("error: COHERE_API_KEY env var not set", file=sys.stderr)
@@ -98,7 +98,10 @@ def _cohere_embed(
     )
     try:
         limits = load_limits()
-        with urllib.request.urlopen(req, timeout=limits.http_timeout_sec) as resp:
+        with public_urlopen_with_redirects(
+            req,
+            timeout=limits.http_timeout_sec,
+        ) as resp:
             result = json.loads(read_http_response_bounded(resp, limits))
             return result.get("embeddings", [])
     except ResourceLimitError as exc:

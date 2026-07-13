@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import time
 from pathlib import Path
@@ -630,7 +631,7 @@ def put(
         if last_err is not None:
             for p in (tmp_body, tmp_meta):
                 _safe_unlink(p)
-            return key
+            return None
         last_err = None
         for attempt in range(12):
             try:
@@ -650,7 +651,7 @@ def put(
                 published_meta=False,
                 prev_body_name=prev_body_name,
             )
-            return key
+            return None
         try:
             os.chmod(meta_path, 0o600)
             os.chmod(body_path, 0o600)
@@ -666,8 +667,9 @@ def put(
     except Exception:
         for p in (tmp_body, tmp_meta):
             _safe_unlink(p)
-        # Best-effort: if body was published but meta was not, drop unreferenced.
-        if body_path.is_file() and not meta_path.is_file():
+        # Best-effort: if body was published but meta was not, drop only our
+        # unreferenced generation. Existing live metadata may still be present.
+        if body_path.is_file():
             _cleanup_writer_generation(
                 entries,
                 key,
@@ -675,7 +677,7 @@ def put(
                 published_meta=False,
                 prev_body_name=prev_body_name,
             )
-        return key
+        return None
     return key
 
 
@@ -721,11 +723,15 @@ def _cache_artifact_paths(entries_dir: Path) -> list[Path]:
     case-normalized name after a concurrent rename/unlink. Opening the path
     distinguishes that ghost entry from a real file or a genuinely locked one.
     """
-    if not entries_dir.is_dir():
+    try:
+        entries_mode = entries_dir.stat().st_mode
+    except FileNotFoundError:
+        return []
+    if not stat.S_ISDIR(entries_mode):
         return []
     try:
         candidates = list(entries_dir.iterdir())
-    except OSError:
+    except FileNotFoundError:
         return []
     confirmed: list[Path] = []
     for path in candidates:
@@ -806,7 +812,18 @@ def cmd_purge(args: argparse.Namespace) -> int:
         print("error: cache not configured", file=sys.stderr)
         return 1
     entries_dir = cd / "entries"
-    if not entries_dir.is_dir():
+    try:
+        entries_mode = entries_dir.stat().st_mode
+    except FileNotFoundError:
+        print("nothing to purge")
+        return 0
+    except OSError as exc:
+        print(
+            f"error: cannot inspect cache entries for purge: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    if not stat.S_ISDIR(entries_mode):
         print("nothing to purge")
         return 0
     purge_all = args.all
@@ -815,7 +832,16 @@ def cmd_purge(args: argparse.Namespace) -> int:
     purged = 0
     referenced_bodies: set[str] = set()
 
-    for meta_path in list(entries_dir.glob("*.json")):
+    try:
+        meta_candidates = list(entries_dir.glob("*.json"))
+    except OSError as exc:
+        print(
+            f"error: cannot enumerate cache entries for purge: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    for meta_path in meta_candidates:
         # Skip temp meta names if any match the glob oddly
         if meta_path.name.endswith(".tmp") or ".json.tmp" in meta_path.name:
             continue
@@ -849,37 +875,43 @@ def cmd_purge(args: argparse.Namespace) -> int:
         # sweep because Windows scanners can transiently lock freshly replaced
         # cache files even after their writer has closed them.
         deadline = time.monotonic() + 2.0
-        clean_snapshots = 0
-        removed_names: set[str] = set()
-        while True:
-            for path in _cache_artifact_paths(entries_dir):
-                normalized_name = path.name.casefold()
-                if normalized_name in removed_names:
-                    continue
-                if _safe_unlink(path, attempts=8):
-                    purged += 1
-                    # NTFS directory enumeration can retain a stale,
-                    # case-normalized name after a successful unlink/ENOENT.
-                    # Purge assumes no concurrent writers; ignore that tombstone.
-                    removed_names.add(normalized_name)
-            remaining = [
-                path
-                for path in _cache_artifact_paths(entries_dir)
-                if path.name.casefold() not in removed_names
-            ]
-            if not remaining:
-                clean_snapshots += 1
-                if clean_snapshots >= 2:
+        clean_since: float | None = None
+        settle_seconds = 0.2
+        try:
+            while True:
+                for path in _cache_artifact_paths(entries_dir):
+                    if _safe_unlink(path, attempts=8):
+                        purged += 1
+                remaining = _cache_artifact_paths(entries_dir)
+                observed_at = time.monotonic()
+                if not remaining:
+                    if clean_since is None:
+                        clean_since = observed_at
+                    elif observed_at - clean_since >= settle_seconds:
+                        break
+                else:
+                    clean_since = None
+                if observed_at >= deadline:
                     break
-            else:
-                clean_snapshots = 0
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(0.025)
+                time.sleep(0.025)
+        except OSError as exc:
+            print(
+                f"error: cannot enumerate cache entries for purge: {exc}",
+                file=sys.stderr,
+            )
+            return 1
     else:
         # Age-based: collect orphan generation bodies older than max_age.
         # Do not delete fresh in-flight temps/bodies (age <= max_age).
-        for path in list(entries_dir.iterdir()):
+        try:
+            age_candidates = list(entries_dir.iterdir())
+        except OSError as exc:
+            print(
+                f"error: cannot enumerate cache entries for purge: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        for path in age_candidates:
             if not path.is_file():
                 continue
             name = path.name
@@ -901,35 +933,31 @@ def cmd_purge(args: argparse.Namespace) -> int:
                 if _safe_unlink(path):
                     purged += 1
 
-    # Live metadata/body artifacts affect cache reads and remain fail-closed.
-    # Temp artifacts are never read; after bounded retries, a Windows filter
-    # driver may still expose a locked/ghost rename entry until process exit.
-    # Report that hygiene limitation without turning a logically clean purge
-    # into a flaky integrity failure.
+    # A successful purge is a strict postcondition: no handle-confirmed cache
+    # artifact remains. Directory-only tombstones are filtered by
+    # _cache_artifact_paths(), but a locked temp is real state and must fail
+    # closed instead of being downgraded to a warning.
     if purge_all:
-        remaining = sorted(
-            path.name
-            for path in _cache_artifact_paths(entries_dir)
-            if path.name.casefold() not in removed_names
-        )
+        try:
+            remaining = sorted(path.name for path in _cache_artifact_paths(entries_dir))
+        except OSError as exc:
+            print(
+                f"error: cannot enumerate cache entries for purge: {exc}",
+                file=sys.stderr,
+            )
+            return 1
         if remaining:
             lower_names = [name.lower() for name in remaining]
             _m = sum(name.endswith(".json") for name in lower_names)
             bodies_left = sum(name.endswith(".body") for name in lower_names)
             temps_left = sum(name.endswith(".tmp") for name in lower_names)
-            if _m or bodies_left:
-                print(
-                    "error: purge --all incomplete "
-                    f"(meta={_m} body={bodies_left} temp={temps_left} "
-                    f"remaining={remaining})",
-                    file=sys.stderr,
-                )
-                return 1
             print(
-                "warning: purge removed all live cache entries; transient temp "
-                f"cleanup deferred by filesystem (remaining={remaining})",
+                "error: purge --all incomplete "
+                f"(meta={_m} body={bodies_left} temp={temps_left} "
+                f"remaining={remaining})",
                 file=sys.stderr,
             )
+            return 1
 
     print(f"purged {purged} entries from {cd}")
     return 0
@@ -1179,6 +1207,51 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             if starred is not None:
                 errors.append("Vary:* must not be cacheable")
 
+            # Atomic publish failures report failure and leave no readable hit.
+            original_replace = os.replace
+            original_sleep = time.sleep
+            time.sleep = lambda _seconds: None
+            try:
+                body_fail_url = "https://example.com/atomic-body-fail"
+
+                def _fail_all_replaces(_src: str, _dst: str) -> None:
+                    raise OSError("simulated body publish failure")
+
+                os.replace = _fail_all_replaces
+                body_fail_result = put(
+                    "GET", body_fail_url, 200, {}, b"must-not-publish"
+                )
+                if body_fail_result is not None:
+                    errors.append("body publish failure must return None")
+                if get("GET", body_fail_url) is not None:
+                    errors.append("body publish failure must not create a cache hit")
+
+                meta_fail_url = "https://example.com/atomic-meta-fail"
+
+                def _fail_meta_replace(src: str, dst: str) -> None:
+                    if str(src).endswith(".json.tmp"):
+                        raise OSError("simulated metadata publish failure")
+                    original_replace(src, dst)
+
+                os.replace = _fail_meta_replace
+                meta_fail_result = put(
+                    "GET", meta_fail_url, 200, {}, b"must-not-publish"
+                )
+                if meta_fail_result is not None:
+                    errors.append("metadata publish failure must return None")
+                if get("GET", meta_fail_url) is not None:
+                    errors.append("metadata publish failure must not create a cache hit")
+                meta_fail_key = cache_key("GET", meta_fail_url)
+                leaked = list((cd / "entries").glob(f"{meta_fail_key}*"))
+                if leaked:
+                    errors.append(
+                        "metadata publish failure left cache artifacts: "
+                        + ", ".join(path.name for path in leaked)
+                    )
+            finally:
+                os.replace = original_replace
+                time.sleep = original_sleep
+
             # Test 17: 100 concurrent writers to same key
             import concurrent.futures
             import traceback
@@ -1409,6 +1482,93 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             result = get("GET", "https://example.com/api")
             if result is not None:
                 errors.append("entry still exists after purge --all")
+
+            # A directory enumeration tombstone is not a real cache artifact.
+            # Reproduce it deterministically with a missing path returned by
+            # iterdir(); handle confirmation must discard it.
+            from unittest import mock
+            from contextlib import redirect_stderr, redirect_stdout
+            from io import StringIO
+
+            stat_failed_closed = False
+            with mock.patch.object(
+                Path,
+                "stat",
+                side_effect=PermissionError("simulated stat denial"),
+            ):
+                try:
+                    _cache_artifact_paths(entries_dir)
+                except PermissionError:
+                    stat_failed_closed = True
+            if not stat_failed_closed:
+                errors.append("cache artifact stat failure must propagate")
+
+            ghost = entries_dir / ("A" * 64 + "." + "B" * 32 + ".BODY.tmp")
+            with mock.patch.object(Path, "iterdir", return_value=iter([ghost])):
+                if _cache_artifact_paths(entries_dir):
+                    errors.append("missing directory tombstone must not count as artifact")
+
+            glob_output = StringIO()
+            with (
+                mock.patch.object(
+                    Path,
+                    "glob",
+                    side_effect=PermissionError("simulated metadata enumeration denial"),
+                ),
+                redirect_stdout(glob_output),
+                redirect_stderr(glob_output),
+            ):
+                glob_rc = cmd_purge(ns)
+            if glob_rc == 0:
+                errors.append("metadata enumeration failure must fail purge --all")
+            if "cannot enumerate cache entries for purge" not in glob_output.getvalue():
+                errors.append("metadata enumeration failure must be reported")
+
+            # An enumeration failure is not an empty cache. Purge must report a
+            # structured failure instead of converting PermissionError/OSError
+            # to a successful empty snapshot.
+            enumeration_output = StringIO()
+            with (
+                mock.patch.object(
+                    Path,
+                    "iterdir",
+                    side_effect=PermissionError("simulated enumeration denial"),
+                ),
+                redirect_stdout(enumeration_output),
+                redirect_stderr(enumeration_output),
+            ):
+                enumeration_rc = cmd_purge(ns)
+            if enumeration_rc == 0:
+                errors.append("cache enumeration failure must fail purge --all")
+            if "cannot enumerate cache entries for purge" not in enumeration_output.getvalue():
+                errors.append("cache enumeration failure must be reported")
+
+            # Conversely, a handle-confirmed temp that cannot be removed is a
+            # strict purge failure. Patch only I/O/timing so this regression is
+            # deterministic and does not depend on obtaining an OS file lock.
+            locked_cd = Path(tmpdir) / "locked-cache"
+            locked_entries = locked_cd / "entries"
+            locked_entries.mkdir(parents=True)
+            locked_temp = locked_entries / ("c" * 64 + "." + "d" * 32 + ".body.tmp")
+            locked_temp.write_bytes(b"locked")
+            locked_ns = argparse.Namespace(
+                cache_path=str(locked_cd), all=True, max_age=None
+            )
+            locked_output = StringIO()
+            module = sys.modules[__name__]
+            with (
+                mock.patch.object(module, "_safe_unlink", return_value=False),
+                mock.patch.object(time, "monotonic", side_effect=[0.0, 3.0]),
+                mock.patch.object(time, "sleep", return_value=None),
+                redirect_stdout(locked_output),
+                redirect_stderr(locked_output),
+            ):
+                locked_rc = cmd_purge(locked_ns)
+            if locked_rc == 0:
+                errors.append("handle-confirmed locked temp must fail purge --all")
+            if "temp=1" not in locked_output.getvalue():
+                errors.append("locked temp purge failure must report temp count")
+            locked_temp.unlink(missing_ok=True)
 
             # Re-check concurrent writers still valid after cleanup changes
             url_c2 = "https://example.com/concurrent2"

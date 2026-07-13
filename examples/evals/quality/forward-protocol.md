@@ -58,17 +58,18 @@ The run manifest schema is `1.1` and requires:
 - unique `run_id` and `session_id`, plus `role`, `run_kind`, `candidate_sha`,
   and `skill_version`;
 - `agent_runtime`, `model`, and `tool_availability`;
-- `prompt_path`, `raw_output_path`, optional `evaluation_path`, and optional
+- `prompt_path`, `raw_output_path`, required `evaluation_path`, and optional
   `triple_run_results`;
 - timezone-aware RFC3339 `started_at` and `completed_at` plus `exit_status`;
 - relative `artifact_paths`, matching `integrity_hashes`, and
   `provenance: {"source": "...", "live": true}`.
 
 JSON duplicate keys and non-finite numbers (`NaN`, `Infinity`) are invalid.
-Evaluation rate fields must be finite numbers in `[0, 1]`,
-`fabricated_citations` must be a non-negative integer, and
-`quality_gain_vs_baseline` must be finite. The promotion gate calculates
-metrics only from evaluation documents that pass these checks.
+Every evaluation must provide all seven rate fields as finite numbers in
+`[0, 1]`. A `held_out` evaluation also requires non-negative integer
+`fabricated_citations`; a `dogfood` evaluation also requires finite
+`quality_gain_vs_baseline`. The promotion gate calculates metrics only from
+complete evaluation documents that pass these checks.
 
 ## Blind-evaluator contamination checks
 
@@ -91,8 +92,8 @@ Promotion is eligible only after:
 1. `python scripts/quality_eval.py triple` exits green three times.
 2. Hashed A/B/C forward artifacts and live held-out/dogfood artifacts validate.
 3. Every threshold in `quality-suite.json` is met with no critical failure.
-4. CI evidence is bound to the exact candidate SHA and no high/medium finding
-   remains unresolved.
+4. CI evidence is bound to the exact candidate SHA and no critical/high/medium
+   finding remains unresolved; malformed or unknown ledger values fail closed.
 5. `promotion-report` emits `PROMOTION_READY_CANDIDATE` without compatibility
    flags; flags never grant promotion.
 6. The stable release workflow verifies the signed candidate/stable tags,

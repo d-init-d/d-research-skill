@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.2.0-rc.2] - 2026-07-13
+
+Second production-hardening candidate. This candidate closes the independently
+reproduced crawler, promotion-gate, package/archive, workflow-contract, and
+installed-skill readiness gaps found after rc.1 preparation.
+
 ### Added
 
 - **Quality eval suite:** held-out research-quality suite
@@ -21,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `multi_extract` and quality hostile checks).
 - **`scripts/lib/browser_ssrf.mjs`:** fail-closed browser destination checks for
   navigation and subresources.
+- **Machine-bound route taxonomy:** every intake shape label maps exactly once
+  through `templates/route-manifest.json`; the contract rejects missing,
+  duplicate, or unknown mappings and semantic drift in protocol/metadata docs.
+- **Progressive disclosure:** every routed reference of 100 lines or more has an
+  early H2 contents map; the contract enforces navigation on future additions.
 
 ### Fixed
 
@@ -41,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `ssrf_guards.mjs` self-test.
 - **Browser SSRF:** arbitrary browser URLs are fail-closed by default (not
   accepted-risk). Local fixture loopback only via
-  `D_RESEARCH_SSRF_ALLOW_LOOPBACK=1` (browser_smoke / acceptance hermetic).
+  the hidden `--allow-loopback-fixture` test hook (browser_smoke / acceptance
+  hermetic); production browser guards do not read a loopback environment flag.
 - **F-06 (portability):** Ruff clean; seed parser accepts decimal/`0x` hex with
   structured errors; ASCII status tokens (`green->red->green`) for CP1252-safe
   Windows consoles.
@@ -55,18 +67,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `npm run package:check` rejects untracked files, local MCP/browser artifacts,
   release evidence, credential-like files, Python caches, and omitted tracked
   runtime files before a tarball can pass CI.
+- **Promotion fail-closed:** every promotion evaluation now requires the full
+  seven-rate vector; held-out and dogfood runs require their kind-specific
+  metrics. Sparse scorecards, missing evaluations, malformed findings, and
+  unresolved Critical/High/Medium findings block promotion.
+- **Robots and crawl truthfulness:** RFC 9309 percent-encoded unreserved octets
+  cannot bypass path rules, and configured page/domain/depth ceilings produce
+  explicit incomplete summaries instead of `complete=true`.
+- **Credential redirects:** Brave, translation, and embedding helpers follow
+  redirects manually, retain credentials only on the original origin, reject
+  downgrade/cross-origin leakage before the destination request, and cap hops.
+- **Long-horizon contract:** all primary instructions now require
+  `execute_ready`/`dispatch_ready` before work, distinguish research from
+  synthesis terminal tasks, and enforce exact release outputs/claim coverage.
+- **Cache publish semantics:** Python cache writes no longer report a successful
+  key when atomic publication fails.
 
 ### Security
 
 - Inventory `docs/ssrf-helper-inventory.md` updated: browser arbitrary seeds are
-  **Protected (fail-closed)**, not accepted-risk. Fixed official endpoints remain
-  accepted-risk with rationale.
+  **Protected (fail-closed)**, not accepted-risk. Translation, embedding, and
+  search redirects now have explicit credential isolation; remaining fixed
+  archive/academic endpoints retain a documented accepted-risk rationale.
 - **L-02:** GitHub Actions pin comments aligned to exact release tags that contain
   the immutable 40-character SHAs (`checkout@v4.3.1`, `setup-python@v5.6.0`,
   `setup-node@v4.4.0`, `upload-artifact@v4.6.2`, `lychee-action@v2.9.0`,
   `attest-build-provenance@v2.4.0`).
 - npm package dry-runs are tracked-only and fail closed on local, sensitive, or
-  evidence artifacts; `.npmignore` provides defense-in-depth exclusions.
+  evidence artifacts; explicit package exclusions keep generated Python bytecode
+  out even when npm's `files` allowlist overrides broad ignore globs.
+- Direct `npm pack` invokes the package gate automatically. A committed path
+  fingerprint lets the signed source archive run the same package/self-test
+  contract without `.git`, while Git worktrees retain tracked-only validation.
+- Manual release dispatch now has `contents: read` only; OIDC and attestation
+  permissions exist solely on signed tag-push archive jobs. Python 3.10–3.12 CI
+  now runs `content_sanitize.py` and `quality_eval.py` in every unit-matrix row.
+- The workspace testing sub-skill metadata now matches its directory name, and
+  its release checklist covers package/archive boundaries and generated caches.
+- The installation contract now documents and validates Grok Build's personal
+  `~/.grok/skills/d-research` discovery path.
 
 ## [3.2.0-rc.1] - 2026-07-10
 
@@ -717,7 +756,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0-rc.2...HEAD
+[3.2.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.2
 [3.2.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.1
 [3.1.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.1
 [3.1.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.1.0

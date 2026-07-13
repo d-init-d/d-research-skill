@@ -1,5 +1,12 @@
 # Topic Decomposition
 
+## Contents
+
+- [Goal](#goal)
+- [Decomposition methods](#decomposition-methods)
+- [Output template](#output-template)
+- [Stopping criteria](#stopping-criteria)
+
 Use this file when the task is broad, ambiguous, academic, or multi-source.
 
 ## Goal

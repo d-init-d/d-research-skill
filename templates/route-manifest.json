@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "skill_name": "d-research",
   "repository_contract": {
-    "version": "3.2.0-rc.1",
+    "version": "3.2.0-rc.2",
     "counts": {
       "references_markdown": 48,
       "adapters_markdown": 9,
@@ -48,12 +48,14 @@
         "Agent Skills portable",
         "Codex",
         "Claude Code",
+        "Grok Build",
         "OpenCode"
       ],
       "canonical_paths": [
         ".agents/skills/d-research",
         "$CODEX_HOME/skills/d-research",
         ".claude/skills/d-research",
+        "~/.grok/skills/d-research",
         ".opencode/skills/d-research"
       ]
     },
@@ -131,7 +133,7 @@
   "stable_release_gate": {
     "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
     "required_baseline_version": "3.1.1",
-    "required_candidate_version": "3.2.0-rc.1",
+    "required_candidate_version": "3.2.0-rc.2",
     "full_ci": {
       "workflow_path": ".github/workflows/lint-and-self-test.yml",
       "exact_release_sha": true,
@@ -167,6 +169,7 @@
   "documentation_contract": {
     "skill_required_statements": [
       "Never use this skill to bypass access controls",
+      "Dispatch only after `execute_ready`/`dispatch_ready` passes;",
       "Machine-readable routes: `templates/route-manifest.json`.",
       "Canonical assertion sets live in `templates/route-manifest.json`"
     ],
@@ -175,6 +178,18 @@
       "Do not dispatch until `execute_ready`/`dispatch_ready` passes;",
       "captcha solving and stealth/anti-detection plugins are never allowed",
       "Do not claim completeness unless the relevant execution gates passed."
+    ],
+    "protocol_required_statements": [
+      "Approval alone does not authorize dispatch.",
+      "every **research-phase** task",
+      "every synthesis task is"
+    ],
+    "readme_vi_required_statements": [
+      "frontier probe bench 3.0",
+      "`run-result.json` schema 2.1"
+    ],
+    "openai_yaml_required_statements": [
+      "choose the narrowest lawful research route"
     ]
   },
   "routes": [
@@ -186,6 +201,7 @@
         "target": "`references/fact-verification.md`"
       },
       "labels": ["atomic fact", "verify one fact"],
+      "intake_labels": ["atomic_fact"],
       "reference": "references/fact-verification.md"
     },
     {
@@ -196,6 +212,7 @@
         "target": "`references/social-media-archival.md`"
       },
       "labels": ["social post", "archive post"],
+      "intake_labels": ["public_social_post"],
       "reference": "references/social-media-archival.md"
     },
     {
@@ -206,6 +223,7 @@
         "target": "`references/person-aggregation.md`"
       },
       "labels": ["named person", "public role"],
+      "intake_labels": ["person_public_role"],
       "reference": "references/person-aggregation.md"
     },
     {
@@ -216,7 +234,19 @@
         "target": "`references/semantic-retrieval.md`"
       },
       "labels": ["semantic corpus", "find claims like"],
+      "intake_labels": ["large_corpus_semantic"],
       "reference": "references/semantic-retrieval.md"
+    },
+    {
+      "id": "broad_research",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Broad multi-source research",
+        "target": "`references/workflow-routes.md`"
+      },
+      "labels": ["broad research", "multi-source synthesis"],
+      "intake_labels": ["broad_research"],
+      "reference": "references/workflow-routes.md"
     },
     {
       "id": "due_diligence_or_investigation",
@@ -226,8 +256,8 @@
         "target": "intake `due_diligence_or_investigation`"
       },
       "labels": ["due diligence", "red flags"],
-      "reference": "references/research-intake.md",
-      "intake_label": "due_diligence_or_investigation"
+      "intake_labels": ["due_diligence_or_investigation"],
+      "reference": "references/research-intake.md"
     },
     {
       "id": "policy_or_standards_analysis",
@@ -237,8 +267,8 @@
         "target": "intake `policy_or_standards_analysis`"
       },
       "labels": ["policy", "standards", "RFC"],
-      "reference": "references/research-intake.md",
-      "intake_label": "policy_or_standards_analysis"
+      "intake_labels": ["policy_or_standards_analysis"],
+      "reference": "references/research-intake.md"
     },
     {
       "id": "creative_or_cultural_research",
@@ -248,28 +278,89 @@
         "target": "intake `creative_or_cultural_research`"
       },
       "labels": ["creative", "cultural", "reception"],
-      "reference": "references/research-intake.md",
-      "intake_label": "creative_or_cultural_research"
+      "intake_labels": ["creative_or_cultural_research"],
+      "reference": "references/research-intake.md"
+    },
+    {
+      "id": "technical_research",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Technical research",
+        "target": "`references/source-discovery.md`, `references/workflow-routes.md`"
+      },
+      "labels": ["technical research", "software investigation"],
+      "intake_labels": ["technical_research"],
+      "references": [
+        "references/source-discovery.md",
+        "references/workflow-routes.md"
+      ]
+    },
+    {
+      "id": "market_competitor",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Market / competitor",
+        "target": "`references/source-discovery.md`, `references/source-quality-rubric.md`"
+      },
+      "labels": ["market research", "competitor analysis"],
+      "intake_labels": ["market_competitor"],
+      "references": [
+        "references/source-discovery.md",
+        "references/source-quality-rubric.md"
+      ]
+    },
+    {
+      "id": "legal_government_financial",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Legal / government / financial",
+        "target": "`references/specialized-domains.md`"
+      },
+      "labels": ["legal", "government", "financial"],
+      "intake_labels": ["legal_government_financial"],
+      "reference": "references/specialized-domains.md"
+    },
+    {
+      "id": "medical_or_safety",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Medical / safety",
+        "target": "`references/specialized-domains.md`, `references/source-quality-rubric.md`"
+      },
+      "labels": ["medical", "safety", "high stakes"],
+      "intake_labels": ["medical_or_safety"],
+      "references": [
+        "references/specialized-domains.md",
+        "references/source-quality-rubric.md"
+      ]
     },
     {
       "id": "dataset_collection",
       "skill_surface": {
         "kind": "table_row",
         "label": "Dataset collection",
-        "target": "crawl + extraction workflow"
+        "target": "`references/data-extraction-toolbox.md`, `references/data-processing-pipeline.md`"
       },
       "labels": ["dataset", "crawl extraction"],
-      "reference": "references/data-extraction-toolbox.md"
+      "intake_labels": ["dataset_collection", "structured_extraction"],
+      "references": [
+        "references/data-extraction-toolbox.md",
+        "references/data-processing-pipeline.md"
+      ]
     },
     {
       "id": "academic_review",
       "skill_surface": {
         "kind": "table_row",
         "label": "Academic / literature",
-        "target": "academic protocol + citations"
+        "target": "`references/academic-research-protocol.md`, `references/citation-management.md`"
       },
       "labels": ["academic", "literature review"],
-      "reference": "references/academic-research-protocol.md"
+      "intake_labels": ["academic_review"],
+      "references": [
+        "references/academic-research-protocol.md",
+        "references/citation-management.md"
+      ]
     },
     {
       "id": "systematic_review",
@@ -279,6 +370,7 @@
         "target": "`references/systematic-review-protocol.md`"
       },
       "labels": ["systematic review", "PRISMA"],
+      "intake_labels": ["systematic_review"],
       "reference": "references/systematic-review-protocol.md"
     },
     {
@@ -286,10 +378,14 @@
       "skill_surface": {
         "kind": "table_row",
         "label": "Single URL",
-        "target": "browser probe + anti-bot fallback"
+        "target": "`references/browser-first-crawl.md`, `references/anti-bot-fallback.md`"
       },
       "labels": ["specific URL"],
-      "reference": "references/browser-first-crawl.md"
+      "intake_labels": ["public_url_analysis"],
+      "references": [
+        "references/browser-first-crawl.md",
+        "references/anti-bot-fallback.md"
+      ]
     },
     {
       "id": "api_collection",
@@ -299,6 +395,7 @@
         "target": "`references/api-access-workflow.md`"
       },
       "labels": ["API collection"],
+      "intake_labels": ["api_or_database"],
       "reference": "references/api-access-workflow.md"
     },
     {
@@ -309,7 +406,33 @@
         "target": "`references/large-scale-collection.md`"
       },
       "labels": ["large-scale", "100+"],
+      "intake_labels": [],
       "reference": "references/large-scale-collection.md"
+    },
+    {
+      "id": "monitoring_change",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Monitoring / change detection",
+        "target": "`references/monitoring-change-detection.md`"
+      },
+      "labels": ["monitoring", "change detection"],
+      "intake_labels": ["monitoring_change"],
+      "reference": "references/monitoring-change-detection.md"
+    },
+    {
+      "id": "visualization_report",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Visualization / rendered report",
+        "target": "`references/data-visualization.md`, `references/report-generation.md`"
+      },
+      "labels": ["visualization", "rendered report"],
+      "intake_labels": ["visualization_report"],
+      "references": [
+        "references/data-visualization.md",
+        "references/report-generation.md"
+      ]
     },
     {
       "id": "multilingual",
@@ -319,6 +442,7 @@
         "target": "`references/multilingual-research.md`, `references/vietnamese-source-discovery.md`"
       },
       "labels": ["multilingual", "Vietnamese"],
+      "intake_labels": ["multilingual_local", "vietnamese_local"],
       "references": [
         "references/multilingual-research.md",
         "references/vietnamese-source-discovery.md"
@@ -332,6 +456,7 @@
         "target": "`references/register-and-jargon-expansion.md`"
       },
       "labels": ["jargon", "vernacular", "thin recall"],
+      "intake_labels": ["register_jargon_recall"],
       "reference": "references/register-and-jargon-expansion.md"
     },
     {
@@ -342,6 +467,7 @@
         "target": "`references/frontier-search.md`"
       },
       "labels": ["evidence gaps", "frontier"],
+      "intake_labels": [],
       "reference": "references/frontier-search.md"
     },
     {
@@ -351,6 +477,7 @@
         "anchor": "**Long-horizon outer loop:**"
       },
       "labels": ["long-horizon", "research plan"],
+      "intake_labels": ["long_horizon"],
       "reference": "references/research-plan-protocol.md"
     }
   ],

@@ -192,6 +192,11 @@ function startFixtureServer() {
         res.end('<html><body>SECRET SHOULD NOT BE EXTRACTED</body></html>');
         return;
       }
+      if (url.pathname === '/%70rivate/secret') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<html><body>ENCODED SECRET SHOULD NOT BE EXTRACTED</body></html>');
+        return;
+      }
       if (url.pathname === '/redir-private') {
         res.writeHead(302, { Location: '/private/secret' });
         res.end();
@@ -390,6 +395,111 @@ async function testRobotsRedirect(fixture) {
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
   }
   return 'robots_redirect';
+}
+
+async function testRobotsPercentEncoding(fixture) {
+  const { base, hits } = fixture;
+  const crawl = path.join(ROOT, 'scripts', 'playwright_crawl.mjs');
+  const tmp = ensureSmokeTmp('smoke-robots-percent-');
+  const hitStart = hits.length;
+  try {
+    const result = await runNode(crawl, [
+      '--seed', `${base}/%70rivate/secret`,
+      '--outDir', tmp,
+      '--maxPages', '1',
+      '--delayMs', '0',
+      '--allow-loopback-fixture',
+    ]);
+    assert(result.code === 0, `encoded robots crawl failed: ${result.stderr}`);
+    const summary = JSON.parse(fs.readFileSync(path.join(tmp, 'summary.json'), 'utf8'));
+    const blocked = JSON.parse(fs.readFileSync(path.join(tmp, 'blocked.json'), 'utf8'));
+    assert(summary.pagesVisited === 0, 'percent-encoded disallowed path was visited');
+    assert(
+      blocked.some((row) => row.reason === 'robots_disallow'),
+      'percent-encoded disallowed path did not record robots_disallow',
+    );
+    const newHits = hits.slice(hitStart);
+    assert(
+      !newHits.some((hit) => hit.path === '/%70rivate/secret'),
+      'percent-encoded robots-disallowed destination received an HTTP request',
+    );
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  return 'robots_percent_encoding';
+}
+
+async function testCrawlCompletenessBounds(base) {
+  const crawl = path.join(ROOT, 'scripts', 'playwright_crawl.mjs');
+  const tmp = ensureSmokeTmp('smoke-crawl-bounds-');
+  const cases = [
+    {
+      name: 'max_pages',
+      args: ['--maxPages', '1', '--maxDepth', '1', '--maxPagesPerDomain', '5'],
+      expectedReason: 'max_pages',
+      expectedBlocked: 'max_pages',
+    },
+    {
+      name: 'max_pages_counts_blocked_attempts',
+      seedArgs: [
+        '--seed', `${base}/%70rivate/secret`,
+        '--seed', `${base}/ok`,
+      ],
+      args: ['--maxPages', '1', '--maxDepth', '1', '--maxPagesPerDomain', '5'],
+      expectedReason: 'max_pages',
+      expectedBlocked: 'max_pages',
+      expectedAttempts: 1,
+    },
+    {
+      name: 'max_depth',
+      args: ['--maxPages', '5', '--maxDepth', '0', '--maxPagesPerDomain', '5'],
+      expectedReason: 'max_depth',
+      expectedBlocked: 'max_depth',
+    },
+    {
+      name: 'max_pages_per_domain',
+      args: ['--maxPages', '5', '--maxDepth', '1', '--maxPagesPerDomain', '1'],
+      expectedReason: 'max_pages_per_domain',
+      expectedBlocked: 'max_pages_per_domain',
+    },
+  ];
+  try {
+    for (const item of cases) {
+      const outDir = path.join(tmp, item.name);
+      const result = await runNode(crawl, [
+        ...(item.seedArgs || ['--seed', `${base}/ok`]),
+        '--outDir', outDir,
+        '--delayMs', '0',
+        '--allow-loopback-fixture',
+        ...item.args,
+      ]);
+      assert(result.code === 0, `${item.name} crawl failed: ${result.stderr}`);
+      const summary = JSON.parse(fs.readFileSync(path.join(outDir, 'summary.json'), 'utf8'));
+      const blocked = JSON.parse(fs.readFileSync(path.join(outDir, 'blocked.json'), 'utf8'));
+      assert(summary.complete === false, `${item.name} must mark crawl incomplete`);
+      if (item.expectedAttempts != null) {
+        assert(
+          summary.pagesAttempted === item.expectedAttempts,
+          `${item.name} pagesAttempted mismatch: ${summary.pagesAttempted}`,
+        );
+      }
+      assert(
+        summary.stoppingReason === item.expectedReason,
+        `${item.name} stoppingReason mismatch: ${summary.stoppingReason}`,
+      );
+      assert(
+        summary.limitsReached.includes(item.expectedReason),
+        `${item.name} missing limitsReached entry`,
+      );
+      assert(
+        blocked.some((row) => row.reason === item.expectedBlocked),
+        `${item.name} missing structured blocked row`,
+      );
+    }
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  return 'crawl_completeness_bounds';
 }
 
 async function testBrowserResponseLimits(base) {
@@ -731,6 +841,16 @@ async function main() {
       results.push(await testRobotsRedirect(fixture));
     } catch (e) {
       errors.push(`robots_redirect: ${e.message}`);
+    }
+    try {
+      results.push(await testRobotsPercentEncoding(fixture));
+    } catch (e) {
+      errors.push(`robots_percent_encoding: ${e.message}`);
+    }
+    try {
+      results.push(await testCrawlCompletenessBounds(fixture.base));
+    } catch (e) {
+      errors.push(`crawl_completeness_bounds: ${e.message}`);
     }
     try {
       results.push(await testBrowserResponseLimits(fixture.base));
