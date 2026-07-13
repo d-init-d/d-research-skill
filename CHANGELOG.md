@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-07-13
+
+Production-ready release of the schema-2.0 D Research workflow. The stable tree
+promotes the fully tested v3.2.0-rc.3 candidate without executable-code,
+dependency, workflow, or package-path drift.
+
+### Release assurance
+
+- All 23 required local checks passed on candidate commit
+  `2974893c77415686b6bcd1d05b6b1f6738a4f320`, including Python 3.10/3.12,
+  Node self-tests, 27/27 adversarial acceptance checks, real Chromium smoke,
+  quality triple 3/3, promotion anti-spoof 46/46, actionlint, package checks,
+  dependency audit, and no-`.git` archive replay.
+- Exact-SHA CI passed across Python 3.10-3.12, Node 18/20/22, Ubuntu, and
+  Windows, with real Chromium integration on both operating systems.
+- Annotated candidate tag `v3.2.0-rc.3` is bound by tag-object SHA
+  `16248f808d134a1498f358a96583c0cae6645a39`; its source archive, checksum,
+  extracted-tree replay, and provenance attestation passed before promotion.
+- The version-scoped maintainer decision records four explicit external-
+  assurance waivers rather than fabricating evidence. Annotated tags, candidate
+  ancestry, exact-SHA CI, semantic metadata freeze, archive/checksum, and
+  provenance remain non-waivable.
+
+### Included
+
+- Immutable research-plan approvals, portable output-tree concurrency locks,
+  canonical reproducibility assertions, signed-ledger and claim-coverage gates.
+- Fail-closed report/citation paths, total evaluation validators, hostile-input
+  regressions, and artifact-bound promotion checks.
+- Browser-first read-only collection with robots/TLS/credential/SSRF defenses
+  and deterministic request, response, aggregate, and output resource limits.
+- Reproducible package boundary, cross-platform CI, annotated-tag release
+  workflow, SHA-256 source artifacts, archive replay, and build provenance.
+
 ## [3.2.0-rc.3] - 2026-07-13
 
 Final production-hardening candidate. This candidate closes the approval,
@@ -862,7 +896,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0-rc.3...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0
 [3.2.0-rc.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.3
 [3.2.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.2
 [3.2.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.1

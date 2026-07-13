@@ -87,14 +87,14 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.2.0-rc.3 is the final production-hardening candidate. It adds immutable
+v3.2.0 is the production-ready schema-2.0 release. It includes immutable
 approval fingerprints, portable output locking, canonical checklist IDs,
 fail-closed report signatures, strict eval manifests, and browser-wide
-read-only/resource budgets. Its frozen release policy transparently records
-maintainer-authorized waivers for live dogfood, independent review, and
-GitHub-verified tag signatures while retaining annotated tags, exhaustive local
-verification, exact-SHA CI, RC ancestry, archive checksums, and provenance. See
-[`docs/release-v3.2.0-rc.3.md`](docs/release-v3.2.0-rc.3.md).
+read-only/resource budgets. Its release record transparently documents the
+maintainer-authorized external-assurance waivers while retaining annotated
+tags, 23/23 local checks, exact-SHA cross-platform CI, RC ancestry, archive
+replay, SHA-256 validation, and provenance. See
+[`docs/release-v3.2.0.md`](docs/release-v3.2.0.md).
 Existing v3.1.1 workspaces should follow the tested
 [`docs/upgrade-v3.1.1-to-v3.2.0.md`](docs/upgrade-v3.1.1-to-v3.2.0.md).
 

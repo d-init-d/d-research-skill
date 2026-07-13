@@ -7,9 +7,9 @@ workflow. It combines browser-first lawful collection, evidence-ledger and
 report gates, deterministic source scoring, citation management, structured
 resource limits, and cross-platform release automation in one auditable skill.
 
-This file is included in the final RC so the npm package path manifest remains
-frozen during promotion. The stable commit will update only the final release
-status and verification references permitted by the post-RC contract.
+The stable tree promotes v3.2.0-rc.3 without executable-code, dependency,
+workflow, or package-path drift. Only version/lifecycle metadata, these release
+notes, and the versioned hash-bound release decision changed after the RC.
 
 ## Highlights
 
@@ -48,6 +48,14 @@ independent-review, and GitHub tag-verification requirements. Stable promotion
 still requires the exhaustive hash-bound local suite, annotated tags, exact-SHA
 CI, RC ancestry, semantic metadata freeze, archive replay, SHA-256 validation,
 and GitHub provenance attestation.
+
+The exact candidate commit is
+`2974893c77415686b6bcd1d05b6b1f6738a4f320`; annotated candidate tag object
+`16248f808d134a1498f358a96583c0cae6645a39` binds `v3.2.0-rc.3` to that commit.
+All 23 required local checks passed, followed by successful exact-SHA CI on
+Python 3.10-3.12, Node 18/20/22, Ubuntu, and Windows. The RC source archive,
+checksum, extracted no-`.git` replay, and GitHub provenance attestation also
+passed before stable promotion.
 
 See [`release-v3.2.0-rc.3.md`](release-v3.2.0-rc.3.md) for the complete policy,
 test commands, residual-risk statement, and promotion sequence.

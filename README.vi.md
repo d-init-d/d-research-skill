@@ -53,14 +53,13 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
-v3.2.0-rc.3 là release candidate hardening cuối trước stable. Bản này bổ sung
-fingerprint bất biến cho approval, khóa output portable, checklist có ID chuẩn,
-report signature fail-closed, eval manifest nghiêm ngặt và budget read-only/tài
-nguyên trên toàn browser. Chính sách release đã đóng băng ghi minh bạch các
-waiver do maintainer phê duyệt cho live dogfood, independent review và chữ ký
-tag được GitHub xác minh; các gate annotated tag, kiểm thử cục bộ đầy đủ, CI đúng
-SHA, RC ancestry, checksum archive và provenance vẫn bắt buộc. Xem
-[`docs/release-v3.2.0-rc.3.md`](docs/release-v3.2.0-rc.3.md).
+v3.2.0 là bản production-ready của workflow schema 2.0. Bản này có fingerprint
+bất biến cho approval, khóa output portable, checklist có ID chuẩn, report
+signature fail-closed, eval manifest nghiêm ngặt và budget read-only/tài nguyên
+trên toàn browser. Hồ sơ release ghi minh bạch các waiver bảo đảm bên ngoài do
+maintainer phê duyệt; các gate annotated tag, 23/23 kiểm thử cục bộ, CI đa nền
+tảng đúng SHA, RC ancestry, archive replay, SHA-256 và provenance đều đã pass.
+Xem [`docs/release-v3.2.0.md`](docs/release-v3.2.0.md).
 Workspace v3.1.1 nên nâng cấp theo hướng dẫn đã có fixture kiểm thử tại
 [`docs/upgrade-v3.1.1-to-v3.2.0.md`](docs/upgrade-v3.1.1-to-v3.2.0.md).
 

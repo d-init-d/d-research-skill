@@ -1,6 +1,6 @@
 {
   "name": "d-research-skill-tools",
-  "version": "3.2.0-rc.3",
+  "version": "3.2.0",
   "description": "Browser-first deep research, data collection, and academic research skill for AI agents.",
   "type": "module",
   "license": "CC-BY-NC-4.0",

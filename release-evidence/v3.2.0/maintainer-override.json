@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "release_version": "3.2.0",
+  "release_tag": "v3.2.0",
+  "candidate_version": "3.2.0-rc.3",
+  "candidate_skill_commit": "2974893c77415686b6bcd1d05b6b1f6738a4f320",
+  "candidate_tag": "v3.2.0-rc.3",
+  "candidate_tag_object_sha": "16248f808d134a1498f358a96583c0cae6645a39",
+  "repository": "d-init-d/d-research-skill",
+  "decision": "approved_with_waivers",
+  "maintainer": {
+    "login": "d-init-d",
+    "role": "repository_owner"
+  },
+  "authorized_at": "2026-07-13T15:46:20Z",
+  "waivers": [
+    "github_verified_candidate_tag",
+    "github_verified_release_tag",
+    "independent_reviewer",
+    "live_dogfood"
+  ],
+  "reason": "The repository owner explicitly authorized v3.2.0 promotion after all 23 required checks passed on the exact RC commit, the full cross-platform exact-SHA CI matrix passed, and the annotated RC archive/checksum/provenance workflow completed successfully.",
+  "risk_acceptance": {
+    "github_verified_candidate_tag": "The owner accepts that the annotated RC tag is authenticated by repository push authorization and exact object binding rather than a GitHub-verified cryptographic tag signature.",
+    "github_verified_release_tag": "The owner accepts that the annotated stable tag will be authenticated by repository push authorization and immutable release automation rather than a GitHub-verified cryptographic tag signature.",
+    "independent_reviewer": "The owner accepts the absence of an independent GitHub reviewer after primary review, adversarial subagent review, and complete local plus exact-SHA CI verification.",
+    "live_dogfood": "The owner accepts the absence of uncontaminated live Tier-1 and Tier-2 baseline/candidate dogfood and does not represent synthetic or historical score files as live evidence."
+  },
+  "local_verification": {
+    "path": "release-evidence/v3.2.0/local-verification.json",
+    "sha256": "sha256:5a95be83595a3622c66102ec24fdb3dfb9286bde0bc580b0c57130c4e82dcac4"
+  }
+}
