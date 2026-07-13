@@ -857,6 +857,40 @@ def check_skill_and_routes(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def _repository_contract_version_matches(package_version: str, manifest: dict) -> bool:
+    """Accept an exact version or a stable release frozen to its dogfooded RC.
+
+    The route manifest is part of the executable candidate contract and is not
+    allowed to change after dogfood. Stable promotion therefore keeps its
+    ``repository_contract.version`` at the exact RC declared by
+    ``stable_release_gate.required_candidate_version`` while package metadata
+    advances from ``X.Y.Z-rc.N`` to ``X.Y.Z``.
+    """
+
+    contract = manifest.get("repository_contract")
+    if not isinstance(contract, dict):
+        return False
+    contract_version = contract.get("version")
+    if contract_version == package_version:
+        return True
+    if not isinstance(package_version, str) or not re.fullmatch(
+        r"\d+\.\d+\.\d+", package_version
+    ):
+        return False
+    gate = manifest.get("stable_release_gate")
+    if not isinstance(gate, dict):
+        return False
+    candidate_version = gate.get("required_candidate_version")
+    return (
+        isinstance(candidate_version, str)
+        and candidate_version == contract_version
+        and re.fullmatch(
+            re.escape(package_version) + r"-rc\.\d+", candidate_version
+        )
+        is not None
+    )
+
+
 def check_repository_contract(root: Path = ROOT) -> list[str]:
     """Validate machine-readable repository counts, paths, docs, and CLI flags."""
     errors: list[str] = []
@@ -869,7 +903,7 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
         return ["route-manifest missing repository_contract"]
 
     package_version = str(_load_json(root / "package.json").get("version", ""))
-    if contract.get("version") != package_version:
+    if not _repository_contract_version_matches(package_version, manifest):
         errors.append(
             "repository_contract.version mismatch: "
             f"manifest={contract.get('version')!r}, package={package_version!r}"
@@ -1474,6 +1508,25 @@ def self_test() -> int:
         stale_errors = check_versions(version_root)
         if not any("9.9.9" in error for error in stale_errors):
             failures.append("dynamic version checker failed to reject stale 9.9.9 docs")
+
+        # Stable promotion freezes the executable route contract at the exact
+        # dogfooded RC. Only package/release metadata advances to X.Y.Z.
+        frozen_manifest = {
+            "repository_contract": {"version": "3.2.0-rc.1"},
+            "stable_release_gate": {"required_candidate_version": "3.2.0-rc.1"},
+        }
+        if not _repository_contract_version_matches("3.2.0-rc.1", frozen_manifest):
+            failures.append("exact RC repository contract version should match")
+        if not _repository_contract_version_matches("3.2.0", frozen_manifest):
+            failures.append("stable metadata should accept its frozen dogfooded RC contract")
+        if _repository_contract_version_matches("3.2.1", frozen_manifest):
+            failures.append("stable metadata must reject a contract from another release line")
+        drifted_gate = {
+            "repository_contract": {"version": "3.2.0-rc.1"},
+            "stable_release_gate": {"required_candidate_version": "3.2.0-rc.2"},
+        }
+        if _repository_contract_version_matches("3.2.0", drifted_gate):
+            failures.append("stable metadata must reject an RC/gate version mismatch")
 
         # Stable-only live-dogfood gate. All synthetic artefacts stay in this
         # temporary directory and are never release evidence.
