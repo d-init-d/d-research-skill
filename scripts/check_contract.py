@@ -8,6 +8,7 @@ Fails non-zero on:
 * standard gate contract drift
 * unsafe public config values
 * version mismatch across package metadata and release docs
+* drift between declared and CI-installed toolchain pins
 * stale/missing route or repository contract manifest
 * repository file-count, path, and CLI-contract drift
 * SKILL.md outside 250-350 lines
@@ -405,6 +406,40 @@ def scan_repo_controls(root: Path = ROOT) -> list[str]:
 
 def _normalize_version(v: str) -> str:
     return v.replace("-rc.", "rc").replace("-rc", "rc").strip()
+
+
+def check_ruff_pin_sync(root: Path = ROOT) -> list[str]:
+    """Require the declared Ruff version to match the version installed by CI."""
+
+    errors: list[str] = []
+    pyproject_path = root / "pyproject.toml"
+    workflow_path = root / ".github" / "workflows" / "lint-and-self-test.yml"
+
+    if not pyproject_path.is_file():
+        errors.append("missing pyproject.toml for Ruff pin validation")
+        return errors
+    if not workflow_path.is_file():
+        errors.append("missing lint-and-self-test workflow for Ruff pin validation")
+        return errors
+
+    pyproject_text = pyproject_path.read_text(encoding="utf-8")
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    pyproject_pins = set(re.findall(r'"ruff==(\d+\.\d+\.\d+)"', pyproject_text))
+    workflow_pins = set(re.findall(r'ruff==(\d+\.\d+\.\d+)', workflow_text))
+
+    if len(pyproject_pins) != 1:
+        errors.append("pyproject.toml must declare exactly one exact Ruff pin")
+    if len(workflow_pins) != 1:
+        errors.append("lint-and-self-test workflow must install exactly one Ruff version")
+    if len(pyproject_pins) == 1 and len(workflow_pins) == 1:
+        declared = next(iter(pyproject_pins))
+        installed = next(iter(workflow_pins))
+        if declared != installed:
+            errors.append(
+                "Ruff pin mismatch: "
+                f"pyproject.toml={declared!r}, lint-and-self-test.yml={installed!r}"
+            )
+    return errors
 
 
 def check_versions(root: Path = ROOT) -> list[str]:
@@ -2327,6 +2362,7 @@ def collect_errors(
 ) -> list[str]:
     errors: list[str] = []
     errors.extend(scan_repo_controls())
+    errors.extend(check_ruff_pin_sync())
     errors.extend(check_versions())
     errors.extend(check_config_safety())
     errors.extend(check_skill_and_routes())
@@ -2376,6 +2412,27 @@ def self_test() -> int:
         example_errors = check_example_metadata(root)
         if not any("missing YAML metadata" in err for err in example_errors):
             failures.append("expected missing example metadata detection")
+
+        ruff_root = root / "ruff-pin-drift"
+        (ruff_root / ".github" / "workflows").mkdir(parents=True)
+        (ruff_root / "pyproject.toml").write_text(
+            '[project.optional-dependencies]\ndev = ["ruff==0.15.21"]\n',
+            encoding="utf-8",
+        )
+        ruff_workflow = ruff_root / ".github" / "workflows" / "lint-and-self-test.yml"
+        ruff_workflow.write_text(
+            'steps:\n  - run: python -m pip install "ruff==0.15.13"\n',
+            encoding="utf-8",
+        )
+        ruff_errors = check_ruff_pin_sync(ruff_root)
+        if not any("Ruff pin mismatch" in error for error in ruff_errors):
+            failures.append("expected mismatched Ruff pins to fail")
+        ruff_workflow.write_text(
+            'steps:\n  - run: python -m pip install "ruff==0.15.21"\n',
+            encoding="utf-8",
+        )
+        if check_ruff_pin_sync(ruff_root):
+            failures.append("expected synchronized Ruff pins to pass")
 
         references_dir = root / "references"
         references_dir.mkdir()

@@ -385,7 +385,7 @@ jobs:
           npm run self-test
           npm pack --dry-run --json >/dev/null
 
-      # actions/upload-artifact@v4.6.2
+      # actions/upload-artifact@v7.0.1
       - name: Upload versioned source archive and checksum
         if: github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -396,7 +396,7 @@ jobs:
             ${{ steps.archive.outputs.archive }}
             ${{ steps.archive.outputs.checksum }}
 
-      # actions/attest-build-provenance@v2.4.0
+      # actions/attest-build-provenance@v4.1.1
       - name: Attest source archive provenance
         if: github.event_name == 'push'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373

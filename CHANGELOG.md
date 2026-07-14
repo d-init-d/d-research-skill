@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded the SHA-pinned release actions to
+  `actions/upload-artifact@v7.0.1` and
+  `actions/attest-build-provenance@v4.1.1` for future release tags.
+- Upgraded the development and CI Ruff pin from `0.15.13` to `0.15.21`.
+
+### Fixed
+
+- The contract check now rejects drift between the Ruff version declared in
+  `pyproject.toml` and the version installed by CI.
+
 ## [3.2.0] - 2026-07-13
 
 Production-ready release of the schema-2.0 D Research workflow. The stable tree
