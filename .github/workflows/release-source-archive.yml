@@ -399,6 +399,6 @@ jobs:
       # actions/attest-build-provenance@v2.4.0
       - name: Attest source archive provenance
         if: github.event_name == 'push'
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
         with:
           subject-path: ${{ steps.archive.outputs.archive }}
