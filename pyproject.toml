@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "d-research-skill"
-version = "3.2.0"
+version = "3.2.1rc1"
 description = "Browser-first deep research, data collection, and academic research skill for AI agents."
 readme = "README.md"
 license = { text = "CC-BY-NC-4.0" }
@@ -24,7 +24,7 @@ authors = [
     { name = "d-init-d" },
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: Other/Proprietary License",
@@ -39,8 +39,8 @@ classifiers = [
 
 # The bundled scripts are stdlib-only by design. We deliberately do not
 # pin any runtime dependency here. Optional features that *can* use a
-# third-party library (sentence-transformers, deepl, libretranslate,
-# argostranslate, lxml, pdfplumber, openpyxl, beautifulsoup4) are
+# third-party library (sentence-transformers, langdetect, deepl,
+# libretranslate, argostranslate, lxml, pdfplumber, openpyxl, beautifulsoup4) are
 # advertised as extras below; install the extra you need explicitly,
 # e.g. `pip install -e .[embeddings]`.
 dependencies = []
@@ -52,6 +52,9 @@ embeddings = [
 ]
 translation = [
     "argostranslate>=1.9",
+]
+language-detection = [
+    "langdetect>=1.0.9,<2",
 ]
 extraction = [
     "pdfplumber>=0.11",

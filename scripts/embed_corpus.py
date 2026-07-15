@@ -10,8 +10,9 @@ Subcommands
 * ``self-test``    - run offline self-tests with stub embedder
 
 Embedding backends (all optional, all soft-fail):
-- stub: deterministic hash-based fake (for testing, always available)
-- sentence-transformers: pip install sentence-transformers (local, default if available)
+- auto: default selection policy; sentence-transformers if importable, otherwise fail closed
+- stub: deterministic hash-based fake (explicit testing only, always available)
+- sentence-transformers: optional local production backend
 - cohere: remote, requires COHERE_API_KEY + --allow-remote or D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS=1
 - llama-cli: local shellout to llama-embedding binary
 
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -42,6 +44,19 @@ from resource_limits import (
 
 EMBED_DIM_STUB = 32
 INDEX_SCHEMA_VERSION = "1.0"
+AUTO_BACKEND = "auto"
+SENTENCE_TRANSFORMERS_BACKEND = "sentence-transformers"
+CONCRETE_BACKENDS = (
+    "stub",
+    SENTENCE_TRANSFORMERS_BACKEND,
+    "cohere",
+    "llama-cli",
+)
+BACKEND_CHOICES = (AUTO_BACKEND, *CONCRETE_BACKENDS)
+
+
+class EmbeddingBackendUnavailable(RuntimeError):
+    """Raised when a requested optional embedding backend is unavailable."""
 
 
 # ---------------------------------------------------------------------------
@@ -59,20 +74,51 @@ def _stub_embed(text: str) -> list[float]:
     return vec
 
 
+def _sentence_transformers_available() -> bool:
+    """Return whether the optional local production backend is importable."""
+    try:
+        return importlib.util.find_spec("sentence_transformers") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _resolve_backend(backend: str) -> str:
+    """Resolve a selection policy to a concrete backend without remote fallback."""
+    if backend != AUTO_BACKEND:
+        return backend
+    if _sentence_transformers_available():
+        return SENTENCE_TRANSFORMERS_BACKEND
+    raise EmbeddingBackendUnavailable(
+        "--backend auto could not find a production local embedding backend.\n"
+        "  Install: python -m pip install -e \".[embeddings]\"\n"
+        "  Tests only: pass --backend stub explicitly."
+    )
+
+
 def _sentence_transformers_embed(texts: list[str], model_name: str) -> list[list[float]]:
     """Embed via sentence-transformers (optional pip package)."""
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
-    except ImportError:
-        print(
-            "error: sentence-transformers is not installed.\n"
-            "  Install: pip install sentence-transformers>=2.2",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    model = SentenceTransformer(model_name)
-    embeddings = model.encode(texts, show_progress_bar=False)
-    return [e.tolist() for e in embeddings]
+    except ImportError as exc:
+        raise EmbeddingBackendUnavailable(
+            "sentence-transformers is not installed.\n"
+            "  Install: python -m pip install -e \".[embeddings]\""
+        ) from exc
+    try:
+        model = SentenceTransformer(model_name)
+        embeddings = model.encode(texts, show_progress_bar=False)
+        return [e.tolist() for e in embeddings]
+    except Exception as exc:
+        # Optional model loading may fail because the model is unavailable,
+        # the local cache is corrupt, or the backend runtime cannot encode.
+        # Normalize those library-specific failures for CLI and API callers
+        # without catching BaseException control flow such as Ctrl+C.
+        raise EmbeddingBackendUnavailable(
+            "sentence-transformers could not load or run the requested model "
+            f"({type(exc).__name__}).\n"
+            "  Ensure the model is available locally and the embeddings extra is healthy.\n"
+            "  Install/repair: python -m pip install -e \".[embeddings]\""
+        ) from exc
 
 
 def _cohere_embed(
@@ -147,7 +193,7 @@ def _llama_cli_embed(texts: list[str]) -> list[list[float]]:
 
 def _resolved_model_name(backend: str, model: str = "") -> str:
     """Return the concrete model name stored in index metadata."""
-    if backend == "sentence-transformers":
+    if backend == SENTENCE_TRANSFORMERS_BACKEND:
         return model or "all-MiniLM-L6-v2"
     if backend == "cohere":
         return model or "embed-english-v3.0"
@@ -157,13 +203,14 @@ def _resolved_model_name(backend: str, model: str = "") -> str:
 
 
 def embed_texts(
-    texts: list[str], backend: str = "stub", model: str = "",
+    texts: list[str], backend: str = AUTO_BACKEND, model: str = "",
     input_type: str = "search_document",
 ) -> list[list[float]]:
     """Embed a list of texts using the specified backend."""
+    backend = _resolve_backend(backend)
     if backend == "stub":
         return [_stub_embed(t) for t in texts]
-    if backend == "sentence-transformers":
+    if backend == SENTENCE_TRANSFORMERS_BACKEND:
         model_name = _resolved_model_name(backend, model)
         return _sentence_transformers_embed(texts, model_name)
     if backend == "cohere":
@@ -171,8 +218,7 @@ def embed_texts(
         return _cohere_embed(texts, model_name, input_type)
     if backend == "llama-cli":
         return _llama_cli_embed(texts)
-    print(f"error: unknown backend: {backend}", file=sys.stderr)
-    raise SystemExit(1)
+    raise ValueError(f"unknown backend: {backend}")
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +248,8 @@ def _write_index(
     backend: str, model: str, embedding_dim: int,
 ) -> None:
     """Write index with metadata header line."""
+    if backend not in CONCRETE_BACKENDS:
+        raise ValueError(f"index metadata requires a concrete backend, got {backend!r}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     header = {
         "_meta": True,
@@ -240,6 +288,14 @@ def _validate_index(meta: dict[str, Any], entries: list[dict[str, Any]]) -> int:
     """Validate embedding dimensions and metadata consistency."""
     if not entries:
         print("error: index is empty", file=sys.stderr)
+        return 1
+
+    backend = meta.get("backend")
+    if backend not in CONCRETE_BACKENDS:
+        print(
+            f"error: invalid concrete backend in index metadata: {backend!r}",
+            file=sys.stderr,
+        )
         return 1
 
     expected_dim = meta.get("embedding_dim")
@@ -283,6 +339,15 @@ def _check_remote(backend: str, allow_remote: bool) -> int:
     return 0
 
 
+def _resolve_cli_backend(requested_backend: str) -> str | None:
+    """Resolve a CLI backend and convert optional-backend errors to diagnostics."""
+    try:
+        return _resolve_backend(requested_backend)
+    except EmbeddingBackendUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return None
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Build embedding index from text files in a directory."""
     in_dir = Path(args.input)
@@ -290,7 +355,10 @@ def cmd_index(args: argparse.Namespace) -> int:
         print(f"error: directory not found: {in_dir}", file=sys.stderr)
         return 1
 
-    backend = args.backend
+    requested_backend = getattr(args, "backend", AUTO_BACKEND) or AUTO_BACKEND
+    backend = _resolve_cli_backend(requested_backend)
+    if backend is None:
+        return 1
     model = getattr(args, "model", "") or ""
     allow_remote = getattr(args, "allow_remote", False)
 
@@ -314,7 +382,11 @@ def cmd_index(args: argparse.Namespace) -> int:
         paths.append(str(f.relative_to(in_dir)))
 
     model = _resolved_model_name(backend, model)
-    embeddings = embed_texts(texts, backend, model, input_type="search_document")
+    try:
+        embeddings = embed_texts(texts, backend, model, input_type="search_document")
+    except (EmbeddingBackendUnavailable, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     embedding_dim = len(embeddings[0]) if embeddings else 0
 
     entries = []
@@ -356,7 +428,11 @@ def cmd_query(args: argparse.Namespace) -> int:
         return 1
 
     # Embed query with same backend
-    query_vecs = embed_texts([args.q], backend, model, input_type="search_query")
+    try:
+        query_vecs = embed_texts([args.q], backend, model, input_type="search_query")
+    except (EmbeddingBackendUnavailable, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     query_vec = query_vecs[0]
 
     # Dimension check
@@ -416,7 +492,10 @@ def cmd_query_ledger(args: argparse.Namespace) -> int:
         print(f"error: ledger not found: {ledger_path}", file=sys.stderr)
         return 1
 
-    backend = getattr(args, "backend", "stub") or "stub"
+    requested_backend = getattr(args, "backend", AUTO_BACKEND) or AUTO_BACKEND
+    backend = _resolve_cli_backend(requested_backend)
+    if backend is None:
+        return 1
     model = getattr(args, "model", "") or ""
     allow_remote = getattr(args, "allow_remote", False)
 
@@ -436,8 +515,12 @@ def cmd_query_ledger(args: argparse.Namespace) -> int:
         text = f"{row.get('claim', '')} {row.get('evidence', '')} {row.get('source_title', '')}"
         texts.append(text.strip())
 
-    embeddings = embed_texts(texts, backend, model, input_type="search_document")
-    query_vecs = embed_texts([args.q], backend, model, input_type="search_query")
+    try:
+        embeddings = embed_texts(texts, backend, model, input_type="search_document")
+        query_vecs = embed_texts([args.q], backend, model, input_type="search_query")
+    except (EmbeddingBackendUnavailable, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     query_vec = query_vecs[0]
 
     # Dimension check
@@ -520,6 +603,7 @@ def cmd_dedupe(args: argparse.Namespace) -> int:
 def cmd_self_test(_args: argparse.Namespace) -> int:
     """Offline self-test with stub embedder."""
     import tempfile
+    from unittest import mock
 
     errors: list[str] = []
 
@@ -665,6 +749,134 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if rc == 0:
             errors.append("cohere query without --allow-remote should fail")
 
+        # Test 9: auto resolves to a concrete local production backend
+        module = sys.modules[__name__]
+        with mock.patch.object(module, "_sentence_transformers_available", return_value=True):
+            if _resolve_backend(AUTO_BACKEND) != SENTENCE_TRANSFORMERS_BACKEND:
+                errors.append("auto backend should select sentence-transformers when available")
+            if _resolve_backend("stub") != "stub":
+                errors.append("explicit stub backend should remain available for tests")
+
+            auto_index_path = Path(tmpdir) / "auto_index.jsonl"
+            with mock.patch.object(
+                module,
+                "_sentence_transformers_embed",
+                side_effect=lambda values, _model: [_stub_embed(value) for value in values],
+            ):
+                auto_index_ns = argparse.Namespace(
+                    input=str(corpus_dir), out=str(auto_index_path),
+                    backend=AUTO_BACKEND, model="", allow_remote=False,
+                )
+                rc = cmd_index(auto_index_ns)
+            if rc != 0:
+                errors.append("auto index command failed with available local backend")
+            else:
+                auto_meta, _auto_entries = _read_index(auto_index_path)
+                if auto_meta.get("backend") != SENTENCE_TRANSFORMERS_BACKEND:
+                    errors.append("auto index metadata must store the concrete backend")
+                if auto_meta.get("model") != "all-MiniLM-L6-v2":
+                    errors.append("auto index metadata must store the resolved model")
+
+        # Test 10: auto fails closed rather than silently using the stub
+        unavailable_index_path = Path(tmpdir) / "unavailable_auto.jsonl"
+        with mock.patch.object(module, "_sentence_transformers_available", return_value=False):
+            captured_err = io.StringIO()
+            try:
+                embed_texts(["library call"], backend=AUTO_BACKEND)
+            except EmbeddingBackendUnavailable:
+                pass
+            except SystemExit:
+                errors.append("embed_texts must not terminate programmatic callers")
+            else:
+                errors.append("embed_texts auto should report an unavailable production backend")
+            unavailable_ns = argparse.Namespace(
+                input=str(corpus_dir), out=str(unavailable_index_path),
+                backend=AUTO_BACKEND, model="", allow_remote=False,
+            )
+            with contextlib.redirect_stderr(captured_err):
+                rc = cmd_index(unavailable_ns)
+            if rc == 0:
+                errors.append("auto backend should fail when sentence-transformers is unavailable")
+            if unavailable_index_path.exists():
+                errors.append("failed auto backend must not write an index")
+            if "--backend stub explicitly" not in captured_err.getvalue():
+                errors.append("auto backend failure should explain the explicit test stub")
+
+        # Test 11: model load/encode failures become controlled backend errors
+        import types
+
+        class _LoadFailure:
+            def __init__(self, _model: str) -> None:
+                raise OSError("simulated model load failure")
+
+        class _EncodeFailure:
+            def __init__(self, _model: str) -> None:
+                pass
+
+            def encode(self, _texts: list[str], *, show_progress_bar: bool) -> list:
+                _ = show_progress_bar
+                raise RuntimeError("simulated model encode failure")
+
+        for label, fake_class in (
+            ("load", _LoadFailure),
+            ("encode", _EncodeFailure),
+        ):
+            fake_module = types.ModuleType("sentence_transformers")
+            fake_module.SentenceTransformer = fake_class
+            with mock.patch.dict(sys.modules, {"sentence_transformers": fake_module}):
+                try:
+                    _sentence_transformers_embed(["test"], "test-model")
+                except EmbeddingBackendUnavailable as exc:
+                    if type(exc.__cause__).__name__ not in {"OSError", "RuntimeError"}:
+                        errors.append(
+                            f"sentence-transformers {label} failure lost its exception cause"
+                        )
+                except Exception as exc:
+                    errors.append(
+                        f"sentence-transformers {label} failure escaped as {type(exc).__name__}"
+                    )
+                else:
+                    errors.append(
+                        f"sentence-transformers {label} failure was not reported"
+                    )
+
+        failed_model_path = Path(tmpdir) / "failed_model.jsonl"
+        fake_module = types.ModuleType("sentence_transformers")
+        fake_module.SentenceTransformer = _LoadFailure
+        failed_model_ns = argparse.Namespace(
+            input=str(corpus_dir), out=str(failed_model_path),
+            backend=SENTENCE_TRANSFORMERS_BACKEND, model="test-model", allow_remote=False,
+        )
+        with mock.patch.dict(sys.modules, {"sentence_transformers": fake_module}):
+            with contextlib.redirect_stderr(io.StringIO()):
+                rc = cmd_index(failed_model_ns)
+        if rc == 0 or failed_model_path.exists():
+            errors.append("model load failure must return nonzero without writing an index")
+
+        # Test 12: an index must never persist the auto selection token
+        invalid_auto_path = Path(tmpdir) / "invalid_auto_index.jsonl"
+        with invalid_auto_path.open("w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "_meta": True,
+                "schema_version": INDEX_SCHEMA_VERSION,
+                "backend": AUTO_BACKEND,
+                "model": "all-MiniLM-L6-v2",
+                "embedding_dim": EMBED_DIM_STUB,
+            }) + "\n")
+            f.write(json.dumps({
+                "id": 0,
+                "path": "x.txt",
+                "text_preview": "x",
+                "embedding": _stub_embed("x"),
+            }) + "\n")
+        invalid_auto_ns = argparse.Namespace(
+            index=str(invalid_auto_path), q="test", k=1, out=None, allow_remote=False,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc = cmd_query(invalid_auto_ns)
+        if rc == 0:
+            errors.append("query should reject an auto token persisted as index backend")
+
         # Dedupe
         dedup_path = Path(tmpdir) / "dupes.json"
         dedup_ns = argparse.Namespace(
@@ -674,7 +886,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if rc != 0:
             errors.append("dedupe command failed")
 
-    # Test 9: remote check enforcement
+    # Test 13: remote check enforcement
     os.environ.pop("D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS", None)
     if _is_remote_allowed():
         errors.append("_is_remote_allowed should be False when env not set")
@@ -709,8 +921,10 @@ def main() -> int:
     idx_p = sub.add_parser("index", help="Build embedding index from text files.")
     idx_p.add_argument("--in", dest="input", required=True, help="Directory of text files.")
     idx_p.add_argument("--out", required=True, help="Output JSONL index path.")
-    idx_p.add_argument("--backend", default="stub",
-                       choices=["stub", "sentence-transformers", "cohere", "llama-cli"])
+    idx_p.add_argument(
+        "--backend", default=AUTO_BACKEND, choices=BACKEND_CHOICES,
+        help="Embedding backend (default: auto; selects sentence-transformers if installed).",
+    )
     idx_p.add_argument("--model", default="", help="Model name (for sentence-transformers).")
     idx_p.add_argument("--allow-remote", action="store_true", default=False)
 
@@ -725,8 +939,10 @@ def main() -> int:
     ql_p.add_argument("--ledger", required=True, help="Evidence-ledger CSV.")
     ql_p.add_argument("--q", required=True, help="Query text.")
     ql_p.add_argument("--k", type=int, default=10, help="Number of results.")
-    ql_p.add_argument("--backend", default="stub",
-                      choices=["stub", "sentence-transformers", "cohere", "llama-cli"])
+    ql_p.add_argument(
+        "--backend", default=AUTO_BACKEND, choices=BACKEND_CHOICES,
+        help="Embedding backend (default: auto; selects sentence-transformers if installed).",
+    )
     ql_p.add_argument("--model", default="", help="Model name.")
     ql_p.add_argument("--allow-remote", action="store_true", default=False)
 

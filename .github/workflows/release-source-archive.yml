@@ -82,6 +82,14 @@ jobs:
           PY
           )"
           candidate_tag="v${candidate_version}"
+          baseline_version="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('templates/route-manifest.json').read_text(encoding='utf-8'))
+          print(manifest['stable_release_gate']['required_baseline_version'])
+          PY
+          )"
+          baseline_tag="v${baseline_version}"
           release_type="$(git cat-file -t "refs/tags/${RELEASE_TAG}")"
           candidate_type="$(git cat-file -t "refs/tags/${candidate_tag}")"
           if [[ "$release_type" != "tag" ]]; then
@@ -94,7 +102,7 @@ jobs:
           fi
           candidate_commit="$(git rev-parse "refs/tags/${candidate_tag}^{commit}")"
           candidate_tag_object="$(git rev-parse "refs/tags/${candidate_tag}^{tag}")"
-          baseline_commit="$(git rev-parse "refs/tags/v3.1.1^{commit}")"
+          baseline_commit="$(git rev-parse "refs/tags/${baseline_tag}^{commit}")"
           python scripts/check_contract.py \
             --release-tag "$RELEASE_TAG" \
             --candidate-commit "$candidate_commit" \
@@ -211,7 +219,7 @@ jobs:
               --expected-commit "$tag_commit"
           done
 
-      - name: Require successful full CI for the exact release commit
+      - name: Require successful full CI for the exact candidate and release commits
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -221,6 +229,14 @@ jobs:
         run: |
           set -euo pipefail
           release_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          candidate_version="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('templates/route-manifest.json').read_text(encoding='utf-8'))
+          print(manifest['stable_release_gate']['required_candidate_version'])
+          PY
+          )"
+          candidate_commit="$(git rev-parse "refs/tags/v${candidate_version}^{commit}")"
           workflow_path="$(python - <<'PY'
           import json
           from pathlib import Path
@@ -229,26 +245,33 @@ jobs:
           PY
           )"
           workflow_file="$(basename "$workflow_path")"
-          response="$(mktemp)"
-          headers="$(mktemp)"
-          trap 'rm -f "$response" "$headers"' EXIT
-          curl --fail-with-body --silent --show-error \
-            --retry 3 --retry-all-errors \
-            -D "$headers" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/${workflow_file}/runs?head_sha=${release_commit}&status=completed&per_page=100" \
-            -o "$response"
-          if grep -Eiq '^link:.*rel="next"' "$headers"; then
-            echo "exact-SHA CI response is paginated; refusing a potentially truncated result" >&2
-            exit 1
+          commits=("$candidate_commit")
+          if [[ "$release_commit" != "$candidate_commit" ]]; then
+            commits+=("$release_commit")
           fi
-          python scripts/release_verify.py verify-ci-response \
-            --input "$response" \
-            --expected-sha "$release_commit" \
-            --repository "$REPOSITORY" \
-            --workflow-path "$workflow_path"
+          responses="$(mktemp -d)"
+          trap 'rm -rf "$responses"' EXIT
+          for commit in "${commits[@]}"; do
+            response="${responses}/${commit}.json"
+            headers="${responses}/${commit}.headers"
+            curl --fail-with-body --silent --show-error \
+              --retry 3 --retry-all-errors \
+              -D "$headers" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPOSITORY}/actions/workflows/${workflow_file}/runs?head_sha=${commit}&status=completed&per_page=100" \
+              -o "$response"
+            if grep -Eiq '^link:.*rel="next"' "$headers"; then
+              echo "exact-SHA CI response for ${commit} is paginated; refusing a potentially truncated result" >&2
+              exit 1
+            fi
+            python scripts/release_verify.py verify-ci-response \
+              --input "$response" \
+              --expected-sha "$commit" \
+              --repository "$REPOSITORY" \
+              --workflow-path "$workflow_path"
+          done
 
       - name: Verify independent reviewer attestation for stable promotion
         if: github.event_name == 'push' && !contains(github.ref_name, '-rc.')

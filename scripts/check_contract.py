@@ -1220,6 +1220,7 @@ def check_stable_release_evidence(
         harness = None
 
     runtime_signatures: set[str] = set()
+    baseline_version = gate.get("required_baseline_version")
     for tier_name in ("tier1", "tier2"):
         tier_contract = tier_contracts.get(tier_name)
         tier_entry = promotion_tiers.get(tier_name)
@@ -1359,7 +1360,7 @@ def check_stable_release_evidence(
             harness.DEFAULT_REGRESSION_DELTA,
         )
         if tier_name == "tier1" and comparison.get("verdict") == "WEAKER":
-            errors.append("tier1 live dogfood regressed versus v3.1.1")
+            errors.append(f"tier1 live dogfood regressed versus v{baseline_version}")
         if tier_name == "tier2":
             if comparison.get("counts", {}).get("safety_regressions") != 0:
                 errors.append("tier2 live dogfood contains a safety regression")
@@ -1368,7 +1369,9 @@ def check_stable_release_evidence(
             if not isinstance(baseline_passed, int) or not isinstance(candidate_passed, int):
                 errors.append("tier2 score artifacts must contain integer passed counts")
             elif candidate_passed < baseline_passed:
-                errors.append("tier2 candidate pass count is lower than v3.1.1")
+                errors.append(
+                    f"tier2 candidate pass count is lower than v{baseline_version}"
+                )
 
     if len(runtime_signatures) > 1:
         errors.append(
@@ -1753,6 +1756,34 @@ def _repository_contract_version_matches(package_version: str, manifest: dict) -
     )
 
 
+def _check_live_tag_contracts(stable_gate: dict) -> list[str]:
+    """Require symmetric, GitHub-verified annotated tag contracts."""
+
+    errors: list[str] = []
+    expected_keys = {
+        "annotated",
+        "github_verified",
+        "bind_tag_object_sha",
+        "verification_mode",
+    }
+    for field in ("candidate_tag", "release_tag"):
+        tag_contract = stable_gate.get(field)
+        if (
+            not isinstance(tag_contract, dict)
+            or set(tag_contract) != expected_keys
+            or tag_contract.get("annotated") is not True
+            or tag_contract.get("github_verified") is not True
+            or tag_contract.get("bind_tag_object_sha") is not True
+            or tag_contract.get("verification_mode")
+            != "github_verified_tag_object_sha"
+        ):
+            errors.append(
+                f"stable_release_gate.{field} must require an annotated, "
+                "GitHub-verified, tag-object-bound tag"
+            )
+    return errors
+
+
 def check_repository_contract(root: Path = ROOT) -> list[str]:
     """Validate machine-readable repository counts, paths, docs, and CLI flags."""
     errors: list[str] = []
@@ -1897,6 +1928,8 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
         else:
             if full_ci.get("workflow_path") != ".github/workflows/lint-and-self-test.yml":
                 errors.append("stable_release_gate.full_ci.workflow_path is invalid")
+            if full_ci.get("exact_candidate_sha") is not True:
+                errors.append("stable_release_gate.full_ci must require exact_candidate_sha")
             if full_ci.get("exact_release_sha") is not True:
                 errors.append("stable_release_gate.full_ci must require exact_release_sha")
             if full_ci.get("required_conclusion") != "success":
@@ -2010,14 +2043,8 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                     or any(value is not True for value in hard_gates.values())
                 ):
                     errors.append("maintainer_override non_waivable gates are invalid")
-        elif not isinstance(candidate_tag_contract, dict) or any(
-            candidate_tag_contract.get(key) is not True
-            for key in ("annotated", "github_verified", "bind_tag_object_sha")
-        ):
-            errors.append(
-                "stable_release_gate.candidate_tag must require annotated, GitHub-verified, "
-                "tag-object-bound RC tags"
-            )
+        else:
+            errors.extend(_check_live_tag_contracts(stable_gate))
         reviewer_attestation = stable_gate.get("reviewer_attestation")
         if not isinstance(reviewer_attestation, dict):
             errors.append("stable_release_gate.reviewer_attestation must be an object")
@@ -2076,6 +2103,7 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
             "validate_post_rc_changed_paths",
             "validate-post-rc-metadata",
             "--candidate-tag-object",
+            'commits=("$candidate_commit")',
             "verify-ci-response",
             "verify-tag-response",
             "verify-review-response",
@@ -2609,6 +2637,30 @@ def self_test() -> int:
         if _repository_contract_version_matches("3.2.0", drifted_gate):
             failures.append("stable metadata must reject an RC/gate version mismatch")
 
+        valid_live_tags = {
+            "candidate_tag": {
+                "annotated": True,
+                "github_verified": True,
+                "bind_tag_object_sha": True,
+                "verification_mode": "github_verified_tag_object_sha",
+            },
+            "release_tag": {
+                "annotated": True,
+                "github_verified": True,
+                "bind_tag_object_sha": True,
+                "verification_mode": "github_verified_tag_object_sha",
+            },
+        }
+        if _check_live_tag_contracts(valid_live_tags):
+            failures.append("valid symmetric live tag contracts were rejected")
+        invalid_live_tags = json.loads(json.dumps(valid_live_tags))
+        invalid_live_tags["release_tag"]["github_verified"] = False
+        if not any(
+            "release_tag" in error
+            for error in _check_live_tag_contracts(invalid_live_tags)
+        ):
+            failures.append("unverified stable tag contract was accepted")
+
         # Stable-only live-dogfood gate. All synthetic artefacts stay in this
         # temporary directory and are never release evidence.
         stable_root = root / "stable-evidence"
@@ -2632,6 +2684,7 @@ def self_test() -> int:
             "required_candidate_version": "3.2.0-rc.1",
             "full_ci": {
                 "workflow_path": ".github/workflows/lint-and-self-test.yml",
+                "exact_candidate_sha": True,
                 "exact_release_sha": True,
                 "required_conclusion": "success",
             },
@@ -3276,7 +3329,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--baseline-commit",
-        help="Bind stable baseline evidence to the exact v3.1.1 tag commit.",
+        help=(
+            "Bind stable baseline evidence to the exact tag commit declared by "
+            "stable_release_gate.required_baseline_version."
+        ),
     )
     parser.add_argument(
         "--candidate-tag-object",

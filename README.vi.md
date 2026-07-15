@@ -53,6 +53,15 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
+v3.2.1-rc.1 nâng semantic retrieval, citation export giàu metadata và language
+detection thành các nhánh optional chất lượng production. Semantic retrieval ưu
+tiên sentence-transformers cục bộ và fail-closed khi chưa cài; citation export hỗ
+trợ metadata đã validate cho article, book và conference; language detection có
+thể dùng `langdetect` cục bộ với kết quả deterministic. Đây là release
+candidate, chỉ được promote sau live dogfood, verified tag, CI đúng SHA và
+independent review. Xem
+[`docs/release-v3.2.1-rc.1.md`](docs/release-v3.2.1-rc.1.md).
+
 v3.2.0 là bản production-ready của workflow schema 2.0. Bản này có fingerprint
 bất biến cho approval, khóa output portable, checklist có ID chuẩn, report
 signature fail-closed, eval manifest nghiêm ngặt và budget read-only/tài nguyên
@@ -106,10 +115,10 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 - Research đa kênh: web search, browser automation, fetch-only, public API, Wayback/archive, Wikidata, GraphQL và database read-only khi user cấp quyền.
 - Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
 - Source scoring v2 tách năm trục tự động (type, authority, freshness, traceability, independence) khỏi ba gate review bắt buộc do người đánh giá quyết định (relevance, method transparency, access quality); xem `scripts/score_source.py` và `references/source-quality-rubric.md`.
-- Citation export/render: BibTeX, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
+- Citation export/render: BibTeX `@article`/`@book`/`@inproceedings` qua metadata sidecar tùy chọn, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
 - Citation resolver cho academic identifiers: DOI, PMID, arXiv ID, ISBN. `scripts/citation_resolver.py` resolve qua các API công khai miễn phí (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall), emit BibTeX hoặc evidence-ledger row. Là Step 0 fast path khi user paste sẵn DOI/PMID/arXiv ID/ISBN — bỏ qua workflow research đầy đủ vì đã có canonical metadata trong 1 request. Xem `adapters/citation-resolver.md`.
 - Report generator: `scripts/report_render.py` tạo báo cáo Markdown có cấu trúc từ workspace nghiên cứu (plan + evidence ledger + screening log). Hỗ trợ init skeleton, render final report, lint kiểm tra claim coverage, và export PDF/DOCX/HTML qua pandoc. Xem `references/report-generation.md`.
-- Semantic retrieval: `scripts/embed_corpus.py` tìm kiếm ngữ nghĩa trên corpus text hoặc evidence ledger bằng cosine similarity. Hỗ trợ stub/sentence-transformers/cohere/llama-cli backends. Xem `references/semantic-retrieval.md`.
+- Semantic retrieval: `scripts/embed_corpus.py` tìm kiếm ngữ nghĩa trên corpus text hoặc evidence ledger bằng cosine similarity. Mặc định `auto` chọn `sentence-transformers` cục bộ khi đã cài và fail-closed nếu thiếu; stub chỉ dùng khi chỉ định rõ cho test. Xem `references/semantic-retrieval.md`.
 - PRISMA 2020 systematic review và template flow diagram.
 - Data extraction toolbox: HTML tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH, REST/GraphQL, PDFs.
 - Long-horizon research protocol: tạo workspace riêng, `research-plan.json`, `PLAN.md`, approval gate, notes, sections, report, checklist.

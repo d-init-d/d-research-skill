@@ -30,15 +30,16 @@ All queries use **cosine similarity** between embedding vectors, implemented wit
 | Backend | Setup | Privacy | Quality |
 |---|---|---|---|
 | `stub` | Always available | Local (deterministic hash) | Low (testing only) |
-| `sentence-transformers` | `pip install sentence-transformers` | Local | High |
+| `sentence-transformers` | `python -m pip install -e ".[embeddings]"` | Local inference | High |
 | `cohere` | `COHERE_API_KEY` + `--allow-remote` | Remote (data sent to Cohere) | High |
 | `llama-cli` | `llama-embedding` binary on PATH | Local | High |
 
-Default: `stub` (for testing). For production use, prefer `sentence-transformers` (local, high quality).
+`index` and `query-ledger` default to `--backend auto`. Auto selects `sentence-transformers` when installed and otherwise fails closed with setup instructions. It never selects a remote backend. The `stub` backend must be requested explicitly and is only suitable for deterministic tests.
 
 ## Privacy
 
-- `sentence-transformers` and `llama-cli` run entirely locally — no data leaves the machine
+- `sentence-transformers` inference and `llama-cli` run locally — no corpus text is sent to a provider
+- A named sentence-transformers model may download weights on first use; pre-cache it or pass a local model path for offline runs
 - `cohere` sends text to Cohere's API — requires explicit opt-in via `--allow-remote` or `D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS=1`
 - Do not embed sensitive evidence-ledger content with remote backends without user consent
 
@@ -47,7 +48,7 @@ Default: `stub` (for testing). For production use, prefer `sentence-transformers
 The first line is a metadata header:
 
 ```json
-{"_meta": true, "schema_version": "1.0", "backend": "stub", "model": "", "embedding_dim": 32}
+{"_meta": true, "schema_version": "1.0", "backend": "sentence-transformers", "model": "all-MiniLM-L6-v2", "embedding_dim": 384}
 ```
 
 Subsequent lines are document entries:
@@ -56,17 +57,23 @@ Subsequent lines are document entries:
 {"id": 0, "path": "doc1.txt", "text_preview": "First 200 chars...", "embedding": [0.1, -0.2, ...]}
 ```
 
-The `query` command reads the index metadata and uses the **same backend and model** to embed the query. This ensures dimension compatibility. If the query embedding dimension does not match the index `embedding_dim`, the command exits non-zero with a clear error.
+The `query` command reads the index metadata and uses the **same concrete backend and model** to embed the query. `auto` is never stored in an index. Legacy headerless indexes still resolve to `stub` for compatibility. Dimension mismatches exit non-zero.
 
 For Cohere, the index uses `input_type: "search_document"` and queries use `input_type: "search_query"` per Cohere's API recommendations.
 
 ## Usage Examples
 
 ```bash
+# Install the optional local production backend
+python -m pip install -e ".[embeddings]"
+
+# Build a production index (auto selects sentence-transformers)
+python scripts/embed_corpus.py index --in ./corpus/ --out index.jsonl
+
 # Build index with stub embedder (testing)
 python scripts/embed_corpus.py index --in ./corpus/ --out index.jsonl --backend stub
 
-# Build index with sentence-transformers (production)
+# Select sentence-transformers explicitly or choose a model/path
 python scripts/embed_corpus.py index --in ./corpus/ --out index.jsonl --backend sentence-transformers
 
 # Query the index

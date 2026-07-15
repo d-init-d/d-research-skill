@@ -7,8 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.2.1-rc.1] - 2026-07-15
+
+Production-hardening release candidate that upgrades three optional helper
+paths from fallback- or test-oriented defaults to production-quality behavior.
+The canonical evidence-ledger schema and read-only research contract are
+unchanged.
+
+### Added
+
+- Added optional JSON citation-metadata sidecars to export conservative
+  `@article`, `@book`, and `@inproceedings` BibTeX entries while preserving the
+  canonical evidence-ledger schema and the legacy `@misc` fallback.
+- Added deterministic, local `langdetect` support through the optional
+  `language-detection` extra, with explicit backend selection and a stdlib
+  trigram fallback.
+
 ### Changed
 
+- Semantic indexing and direct ledger queries now default to an `auto` backend
+  that selects local `sentence-transformers` when installed and otherwise
+  fails closed instead of silently using the test-only stub.
+  Existing offline invocations must install `.[embeddings]` or explicitly pass
+  `--backend stub` when deterministic test behavior is intended.
 - Upgraded the SHA-pinned release actions to
   `actions/upload-artifact@v7.0.1` and
   `actions/attest-build-provenance@v4.1.1` for future release tags.
@@ -18,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - The contract check now rejects drift between the Ruff version declared in
   `pyproject.toml` and the version installed by CI.
+- The release archive workflow now resolves the dogfood baseline tag from the
+  frozen route manifest instead of hard-coding the v3.1.1 release line.
+- Stable promotion now re-verifies successful full CI for both the exact
+  dogfooded candidate SHA and the metadata-only stable SHA.
+- Sentence-transformers model load and encode failures now return a controlled,
+  actionable backend error instead of escaping as a Python traceback.
 
 ## [3.2.0] - 2026-07-13
 
@@ -908,7 +935,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.1-rc.1...HEAD
+[3.2.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.1
 [3.2.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0
 [3.2.0-rc.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.3
 [3.2.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.2

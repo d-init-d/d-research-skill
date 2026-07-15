@@ -44,8 +44,14 @@ For sensitive content, use Argos Translate (local) or ask the user to translate 
 # Translate text (default: LibreTranslate, requires --allow-remote)
 python scripts/translate.py text --in input.txt --to en --allow-remote --out translated.txt
 
-# Detect language (stdlib trigram heuristic, no network)
+# Detect language (auto prefers langdetect, then safely falls back to trigram)
 python scripts/translate.py detect --in unknown.txt
+
+# Force the bundled deterministic stdlib fallback
+python scripts/translate.py detect --in unknown.txt --backend trigram
+
+# Force the optional higher-quality backend (fails clearly when not installed)
+python scripts/translate.py detect --in unknown.txt --backend langdetect
 
 # List known LibreTranslate instances
 python scripts/translate.py instances
@@ -53,9 +59,13 @@ python scripts/translate.py instances
 
 ## Language Detection
 
-The `detect` subcommand uses a stdlib trigram cosine-similarity heuristic. It supports: en, vi, fr, de, es, ja, zh, ru. Returns top-3 candidates with confidence scores. No network required.
+The `detect` subcommand is local-only and accepts `--backend auto|langdetect|trigram`:
 
-Optional upgrade: if `langdetect` is pip-installed, it can be preferred for higher accuracy (not implemented yet — future enhancement).
+- `auto` (default) uses deterministic `langdetect` when installed and otherwise falls back safely to the bundled trigram heuristic.
+- `langdetect` explicitly requires the optional package and returns an actionable non-zero error when it is missing. Install it with `python -m pip install -e ".[language-detection]"`.
+- `trigram` always uses the stdlib-only cosine-similarity heuristic. It supports en, vi, fr, de, es, ja, zh, and ru.
+
+All backends return up to three `{lang, confidence}` candidates and never send text over the network. Confidence values are backend-specific and should not be compared across backends. Text shorter than 10 characters returns `unknown` after validating an explicitly requested backend.
 
 ## Multilingual Research Workflow
 
