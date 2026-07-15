@@ -37,8 +37,8 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
 ]
 
-# The bundled scripts are stdlib-only by design. We deliberately do not
-# pin any runtime dependency here. Optional features that *can* use a
+# Core bundled scripts retain dependency-free paths by design. We deliberately
+# do not pin a mandatory runtime dependency here. Optional features that use a
 # third-party library (sentence-transformers, langdetect, deepl,
 # libretranslate, argostranslate, lxml, pdfplumber, openpyxl, beautifulsoup4) are
 # advertised as extras below; install the extra you need explicitly,
@@ -47,8 +47,8 @@ dependencies = []
 
 [project.optional-dependencies]
 embeddings = [
-    "sentence-transformers>=2.2",
-    "numpy>=1.24",
+    "sentence-transformers>=2.2,<6",
+    "numpy>=1.24,<3",
 ]
 translation = [
     "argostranslate>=1.9",

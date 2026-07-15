@@ -7,6 +7,7 @@ Subcommands
 * ``detect``    - detect language via optional langdetect or stdlib trigram fallback
 * ``instances`` - list known LibreTranslate public instances
 * ``self-test`` - run offline self-tests (no network)
+* ``production-self-test`` - exercise the actual optional langdetect package
 
 Translation backends (all opt-in, all soft-fail):
 - LibreTranslate (default remote, requires --allow-remote or D_RESEARCH_ALLOW_REMOTE_TRANSLATION=1)
@@ -574,6 +575,48 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_production_self_test(_args: argparse.Namespace) -> int:
+    """Exercise the installed langdetect backend deterministically."""
+    text = (
+        "Independent researchers validate evidence, compare primary sources, "
+        "and document reproducible findings before publishing a report."
+    )
+    try:
+        first = detect_language(text, top_n=3, backend="langdetect")
+        second = detect_language(text, top_n=3, backend="langdetect")
+        automatic = detect_language(text, top_n=3, backend="auto")
+    except LanguageDetectionBackendUnavailable as exc:
+        print(f"translate production-self-test FAILED: {exc}", file=sys.stderr)
+        return 1
+
+    if (
+        first != second
+        or first != automatic
+        or not first
+        or first[0].get("lang") != "en"
+    ):
+        print(
+            "translate production-self-test FAILED: "
+            "expected deterministic English detection and auto selection, "
+            f"got {first}, {second}, and {automatic}",
+            file=sys.stderr,
+        )
+        return 1
+    if any(
+        not isinstance(item.get("confidence"), float)
+        or not math.isfinite(item["confidence"])
+        for item in first
+    ):
+        print(
+            "translate production-self-test FAILED: invalid confidence values",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("translate production-self-test ok")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -607,6 +650,10 @@ def main() -> int:
 
     sub.add_parser("instances", help="List LibreTranslate instances.")
     sub.add_parser("self-test", help="Run offline self-tests.")
+    sub.add_parser(
+        "production-self-test",
+        help="Exercise the installed langdetect backend without network access.",
+    )
 
     args = p.parse_args()
     if args.cmd == "text":
@@ -617,6 +664,8 @@ def main() -> int:
         return cmd_instances(args)
     if args.cmd == "self-test":
         return cmd_self_test(args)
+    if args.cmd == "production-self-test":
+        return cmd_production_self_test(args)
     p.print_help()
     return 1
 

@@ -54,8 +54,9 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
 v3.2.1-rc.1 nâng semantic retrieval, citation export giàu metadata và language
-detection thành các nhánh optional chất lượng production. Semantic retrieval ưu
-tiên sentence-transformers cục bộ và fail-closed khi chưa cài; citation export hỗ
+detection thành các nhánh optional có backend production. Semantic retrieval ưu
+tiên sentence-transformers cục bộ và dùng fallback lexical deterministic tích
+hợp sẵn khi chưa cài backend model; citation export hỗ
 trợ metadata đã validate cho article, book và conference; language detection có
 thể dùng `langdetect` cục bộ với kết quả deterministic. Đây là release
 candidate, chỉ được promote sau live dogfood, verified tag, CI đúng SHA và
@@ -118,7 +119,7 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 - Citation export/render: BibTeX `@article`/`@book`/`@inproceedings` qua metadata sidecar tùy chọn, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
 - Citation resolver cho academic identifiers: DOI, PMID, arXiv ID, ISBN. `scripts/citation_resolver.py` resolve qua các API công khai miễn phí (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall), emit BibTeX hoặc evidence-ledger row. Là Step 0 fast path khi user paste sẵn DOI/PMID/arXiv ID/ISBN — bỏ qua workflow research đầy đủ vì đã có canonical metadata trong 1 request. Xem `adapters/citation-resolver.md`.
 - Report generator: `scripts/report_render.py` tạo báo cáo Markdown có cấu trúc từ workspace nghiên cứu (plan + evidence ledger + screening log). Hỗ trợ init skeleton, render final report, lint kiểm tra claim coverage, và export PDF/DOCX/HTML qua pandoc. Xem `references/report-generation.md`.
-- Semantic retrieval: `scripts/embed_corpus.py` tìm kiếm ngữ nghĩa trên corpus text hoặc evidence ledger bằng cosine similarity. Mặc định `auto` chọn `sentence-transformers` cục bộ khi đã cài và fail-closed nếu thiếu; stub chỉ dùng khi chỉ định rõ cho test. Xem `references/semantic-retrieval.md`.
+- Semantic retrieval: `scripts/embed_corpus.py` tìm kiếm trên corpus text hoặc evidence ledger bằng cosine similarity. Mặc định `auto` ưu tiên `sentence-transformers` cục bộ khi đã cài, rồi fallback sang `local-hashing` deterministic tích hợp sẵn; stub chỉ dùng khi chỉ định rõ cho test. Cài extra embeddings để có độ tương đồng ngữ nghĩa từ model; fallback phù hợp nhất với lexical overlap và biến thể chính tả. Xem `references/semantic-retrieval.md`.
 - PRISMA 2020 systematic review và template flow diagram.
 - Data extraction toolbox: HTML tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH, REST/GraphQL, PDFs.
 - Long-horizon research protocol: tạo workspace riêng, `research-plan.json`, `PLAN.md`, approval gate, notes, sections, report, checklist.
@@ -196,6 +197,8 @@ Nếu muốn dùng các script helper:
 cd .agents/skills/d-research
 npm ci
 npx --no-install playwright install chromium
+# Tùy chọn: backend semantic và language detection chất lượng production
+python -m pip install -e ".[embeddings,language-detection]"
 npm run self-test
 ```
 

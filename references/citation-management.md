@@ -33,7 +33,8 @@ Each reference follows this structured schema:
   "type": "article|book|conference|report|web|dataset|software",
   "title": "Full title of work",
   "authors": [
-    {"family": "Smith", "given": "John A.", "orcid": "0000-0001-2345-6789"}
+    {"family": "Smith", "given": "John A.", "orcid": "0000-0001-2345-6789"},
+    {"literal": "World Health Organization"}
   ],
   "year": 2024,
   "journal": "Journal Name (optional)",
@@ -157,6 +158,12 @@ is accepted. Records are matched to ledger sources by normalized DOI, then exact
 then normalized title plus year. Conflicting records fail closed; unmatched
 records produce a warning and are not added to the bibliography.
 
+Sidecars use strict JSON: duplicate object keys and non-finite numeric tokens
+(`NaN`, `Infinity`, or `-Infinity`) are rejected. If a record supplies both an
+explicit DOI and a `doi.org` resolver URL, both values must identify the same
+DOI. The access-date aliases `accessed` and `date_accessed` are normalized to
+`date_accessed`; supplying both with different values is an error.
+
 Supported rich mappings are conservative:
 
 | Metadata type | BibTeX entry |
@@ -172,6 +179,9 @@ When no explicit type exists, `journal` implies `@article`, `booktitle` or
 evidence classification, not publication metadata. Rich entries map
 `authors`, `journal`, `booktitle`, `publisher`, `volume`, `issue` (to BibTeX
 `number`), `pages`, `isbn`, `doi`, `url`, and access date when present.
+Use `{"literal": "Organization Name"}` for corporate authors or editors; the
+exporter preserves the entity as a single BibTeX/CSL name instead of parsing it
+as a person's given and family names.
 Rich types are emitted only when their required author/editor, title, year,
 and container or publisher fields are present; incomplete metadata safely
 falls back to `@misc`.

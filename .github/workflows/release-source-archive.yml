@@ -1,6 +1,7 @@
-# Validate an annotated release tag under the frozen RC policy, then build a source archive, SHA256 manifest,
-# and GitHub provenance attestation. Manual dispatch validates the release
-# contract only; it never publishes or attests an untagged branch build.
+# Validate an annotated release tag under the frozen RC policy, then build and
+# upload a source archive plus SHA256 manifest without privileged credentials.
+# release-attest.yml independently reproduces and attests the artifact from the
+# default branch. Manual dispatch validates only the repository contract.
 name: release-source-archive
 
 on:
@@ -22,6 +23,18 @@ jobs:
       # actions/checkout@v7.0.0
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Assert exact event commit checkout
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
 
       # actions/setup-python@v6.3.0
       - name: Set up Python
@@ -32,23 +45,32 @@ jobs:
       - name: Validate repository release contract
         run: python scripts/check_contract.py
 
-  archive:
-    name: validate tag + source archive + sha256 + provenance
+  build:
+    name: validate tag + source archive + sha256
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       actions: read
-      attestations: write
       contents: read
-      id-token: write
       pull-requests: read
     steps:
       # actions/checkout@v7.0.0
       - name: Checkout complete history and tag objects
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
+
+      - name: Assert exact tagged commit checkout
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
 
       # actions/setup-python@v6.3.0
       - name: Set up Python
@@ -92,6 +114,7 @@ jobs:
           baseline_tag="v${baseline_version}"
           release_type="$(git cat-file -t "refs/tags/${RELEASE_TAG}")"
           candidate_type="$(git cat-file -t "refs/tags/${candidate_tag}")"
+          baseline_type="$(git cat-file -t "refs/tags/${baseline_tag}")"
           if [[ "$release_type" != "tag" ]]; then
             echo "release tag must be annotated; got object type: ${release_type}" >&2
             exit 1
@@ -100,14 +123,35 @@ jobs:
             echo "candidate tag must be annotated; got object type: ${candidate_type}" >&2
             exit 1
           fi
+          if [[ "$baseline_type" != "tag" ]]; then
+            echo "baseline tag must be annotated; got object type: ${baseline_type}" >&2
+            exit 1
+          fi
           candidate_commit="$(git rev-parse "refs/tags/${candidate_tag}^{commit}")"
           candidate_tag_object="$(git rev-parse "refs/tags/${candidate_tag}^{tag}")"
           baseline_commit="$(git rev-parse "refs/tags/${baseline_tag}^{commit}")"
+          baseline_tag_object="$(git rev-parse "refs/tags/${baseline_tag}^{tag}")"
+          frozen_baseline_tag_object="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('templates/route-manifest.json').read_text(encoding='utf-8'))
+          print(manifest['stable_release_gate']['baseline_tag']['expected_tag_object_sha'])
+          PY
+          )"
+          if [[ "$baseline_tag_object" != "$frozen_baseline_tag_object" ]]; then
+            echo "baseline tag object drift: expected ${frozen_baseline_tag_object}, got ${baseline_tag_object}" >&2
+            exit 1
+          fi
+          git merge-base --is-ancestor "$baseline_commit" "$candidate_commit" || {
+            echo "release baseline ${baseline_tag} is not an ancestor of ${candidate_tag}" >&2
+            exit 1
+          }
           python scripts/check_contract.py \
             --release-tag "$RELEASE_TAG" \
             --candidate-commit "$candidate_commit" \
             --baseline-commit "$baseline_commit" \
-            --candidate-tag-object "$candidate_tag_object"
+            --candidate-tag-object "$candidate_tag_object" \
+            --baseline-tag-object "$baseline_tag_object"
 
           if [[ "$RELEASE_TAG" != *-rc.* ]]; then
             git merge-base --is-ancestor "$candidate_commit" "$release_commit" || {
@@ -408,6 +452,53 @@ jobs:
           npm run self-test
           npm pack --dry-run --json >/dev/null
 
+      - name: Bind artifact metadata to the exact tag workflow run
+        if: github.event_name == 'push'
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          SOURCE_ARCHIVE: ${{ steps.archive.outputs.archive }}
+          SOURCE_CHECKSUM: ${{ steps.archive.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          release_tag_object="$(git rev-parse "refs/tags/${RELEASE_TAG}^{tag}")"
+          python - "$release_commit" "$release_tag_object" <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          release_commit, release_tag_object = sys.argv[1:]
+          archive = Path(os.environ["SOURCE_ARCHIVE"])
+          checksum = Path(os.environ["SOURCE_CHECKSUM"])
+          metadata_path = archive.parent / "release-artifact.json"
+          payload = {
+              "schema_version": "1.0",
+              "repository": os.environ["REPOSITORY"],
+              "source_workflow": ".github/workflows/release-source-archive.yml",
+              "workflow_run_id": int(os.environ["RUN_ID"]),
+              "workflow_run_attempt": int(os.environ["RUN_ATTEMPT"]),
+              "release_tag": os.environ["RELEASE_TAG"],
+              "release_commit": release_commit,
+              "release_tag_object": release_tag_object,
+              "archive_file": archive.name,
+              "checksum_file": checksum.name,
+              "archive_sha256": "sha256:" + hashlib.sha256(archive.read_bytes()).hexdigest(),
+          }
+          metadata_path.write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+              newline="\n",
+          )
+          PY
+          echo "path=dist/release-artifact.json" >> "$GITHUB_OUTPUT"
+
       # actions/upload-artifact@v7.0.1
       - name: Upload versioned source archive and checksum
         if: github.event_name == 'push'
@@ -418,10 +509,4 @@ jobs:
           path: |
             ${{ steps.archive.outputs.archive }}
             ${{ steps.archive.outputs.checksum }}
-
-      # actions/attest-build-provenance@v4.1.1
-      - name: Attest source archive provenance
-        if: github.event_name == 'push'
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
-        with:
-          subject-path: ${{ steps.archive.outputs.archive }}
+            ${{ steps.metadata.outputs.path }}

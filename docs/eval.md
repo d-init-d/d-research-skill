@@ -130,8 +130,10 @@ python3 scripts/run_dogfood.py list --file examples/evals/frontier-bench.json
 python3 scripts/run_dogfood.py classes --file examples/evals/frontier-bench.json
 python3 scripts/run_dogfood.py baseline --file examples/evals/frontier-bench.json
 
-# Render one task as an agent prompt.
-python3 scripts/run_dogfood.py render FB-001 --file examples/evals/frontier-bench.json
+# Write the canonical UTF-8/LF prompt bytes used by release evidence.
+python3 scripts/run_dogfood.py render FB-001 \
+  --file examples/evals/frontier-bench.json \
+  --out runs/candidate/tier2/FB-001/raw-prompt.txt
 
 # Score one produced ledger and its execution manifest.
 python3 scripts/run_dogfood.py score DF-001 \
@@ -304,7 +306,7 @@ manifest looks like this:
   },
   "candidate_binding": {
     "skill_commit": "0123456789abcdef0123456789abcdef01234567",
-    "version": "3.2.0-rc.2"
+    "version": "3.2.1-rc.1"
   },
   "started_at": "2026-07-10T01:00:00Z",
   "finished_at": "2026-07-10T01:03:00Z"
@@ -322,6 +324,14 @@ raw prompt, and raw output must exist and match their declared SHA-256 hashes.
 Runtime metadata, a full lowercase 40-character skill commit, unique run/session
 IDs, evaluator/candidate bindings, and ordered timezone-aware timestamps are
 mandatory so baseline and candidate runs can be audited for comparability.
+
+For stable-release evidence, the task directory must contain exactly the four
+canonical files shown above, all path fields must use those exact filenames,
+and `run-result.json` may contain only the schema-defined keys (plus
+`reason_code` for a refused task). Render prompts with `--out`; shell redirection
+can change line endings on some hosts and will fail byte-for-byte prompt
+verification. Run manifests and score artifacts use strict JSON: duplicate keys
+and non-finite numeric values are rejected.
 
 Missing or malformed manifests never make a refusal pass. A legacy factual
 ledger can still be scored, but it is marked `run_result_valid=false` and emits
@@ -408,7 +418,7 @@ The score artifact schema is:
       },
       "candidate_binding": {
         "skill_commit": "0123456789abcdef0123456789abcdef01234567",
-        "version": "3.2.0-rc.2"
+        "version": "3.2.1-rc.1"
       }
     }
   ]
@@ -453,11 +463,12 @@ runtime/model/tool-config fingerprints. This prevents accidentally comparing
 different bench definitions or non-equivalent execution environments.
 
 Use one pinned evaluator checkout (bench files plus `run_dogfood.py`) to render
-and score both sides. Point the external agent at the v3.1.1 skill checkout for
-the baseline and the candidate skill checkout for the candidate; do not switch
-the evaluator/bench between runs. The manifest `skill_commit` records which
-skill implementation answered each task, while `bench_fingerprint` proves both
-score artifacts used identical questions, assertions, and ground truth.
+and score both sides. Point the external agent at the baseline version frozen
+in `templates/route-manifest.json` (v3.2.0 for the v3.2.1 line) and the candidate
+skill checkout for the candidate; do not switch the evaluator/bench between
+runs. The manifest `skill_commit` records which skill implementation answered
+each task, while `bench_fingerprint` proves both score artifacts used identical
+questions, assertions, and ground truth.
 
 By default, `compare` rejects either artifact when `counts.not_run > 0`.
 `--allow-incomplete` permits an exploratory comparison, emits a warning, and
@@ -485,6 +496,62 @@ Exit codes:
 - `0`: verdict is `STRONGER` or `SAME`
 - `1`: verdict is `WEAKER` or validation failed
 
+## Stable Promotion Evidence
+
+Exploratory `compare` output is not sufficient for a stable release. In
+`live_evidence` mode, `release-evidence/v<version>/promotion.json` uses strict
+schema 1.2 and names exactly two tiers. Each tier binds four inputs:
+`baseline_scores`, `candidate_scores`, `baseline_runs_path`, and
+`candidate_runs_path`. Score objects contain only `path` and `sha256`; run paths
+use the canonical directories below:
+
+```text
+release-evidence/v<version>/runs/
+├── tier1-baseline/<DF task>/
+├── tier1-candidate/<DF task>/
+├── tier2-baseline/<FB task>/
+└── tier2-candidate/<FB task>/
+```
+
+The stable gate does not trust the submitted score JSON by itself. It requires
+exact bench task coverage, rejects extra/nested task bundles and symlink or
+reparse-point artifacts, verifies each raw hash, compares the prompt bytes to
+the canonical renderer, requires the exact 23-column ledger header, and
+recomputes the complete score artifact with the route-manifest threshold. It
+also enforces globally unique run IDs, session IDs, and UTC-normalized timestamp
+pairs; ordered timestamps preceding promotion generation; exact
+baseline/candidate commit and
+version bindings; one runtime/model/tool configuration; matching evaluator
+bindings per tier; and the candidate commit as the evaluator harness across
+both tiers. Every score must have `not_run = 0`, `failed = 0`, and at least one
+factual pass beyond the
+expected refusal probes. Time ordering is strict for every bundle:
+`run.finished_at <= score.created_at <= promotion.generated_at`.
+
+Both the promotion manifest and its reviewer sign-off are parsed as strict JSON
+with exact key sets. The schema-1.2 sign-off binds the promotion manifest's
+SHA-256 and includes this exact review scope:
+
+```json
+{
+  "live_run_origin_verified": true,
+  "raw_artifacts_reviewed": true,
+  "score_recomputation_reviewed": true
+}
+```
+
+The reviewer must additionally provide the repository-bound pull-request
+attestation required by `templates/route-manifest.json`, and GitHub must show an
+independent `APPROVED` review on the exact stable commit. The release workflow
+pins the exact annotated legacy baseline tag object, proves that its commit is
+an ancestor of the candidate, and proves that the candidate is an ancestor of
+the metadata-only stable commit. The historical baseline tag is explicitly
+recorded as not GitHub-verified; its immutable object SHA is pinned rather than
+misrepresented. These checks
+establish a tamper-evident evidence chain; live execution origin still depends
+on the explicit independent-review attestation and must never be inferred from
+locally self-authored files alone.
+
 ## Manual Upgrade Workflow
 
 The harness does not run Claude, Devin, Cursor, or any other agent runtime.
@@ -506,8 +573,9 @@ explicitly instead of erasing the comparison.
 
 ## CI Policy
 
-CI runs only offline validation through `python3 scripts/run_dogfood.py
-self-test`, currently via `npm run self-test`. It does not run a live agent,
+For this eval harness, CI runs only offline validation through `python3
+scripts/run_dogfood.py self-test`, currently via `npm run self-test`. It does
+not run a live agent,
 does not score runtime-produced ledgers, and does not call `compare` against
 live artifacts. The main workflow runs on every pull request and every push to
 `main`; it therefore cannot silently skip eval validation because a path filter

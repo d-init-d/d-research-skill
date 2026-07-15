@@ -133,6 +133,8 @@
         "canonical_flags": [
           "--release-tag",
           "--require-release-waiver",
+          "--candidate-tag-object",
+          "--baseline-tag-object",
           "--validate-post-rc-paths",
           "--validate-post-rc-metadata"
         ]
@@ -149,6 +151,20 @@
       "exact_candidate_sha": true,
       "exact_release_sha": true,
       "required_conclusion": "success"
+    },
+    "run_evidence": {
+      "canonical_layout": true,
+      "manifest_name": "run-result.json",
+      "run_result_schema_version": "2.1",
+      "bind_raw_artifacts": true,
+      "recompute_scores": true
+    },
+    "baseline_tag": {
+      "annotated": true,
+      "github_verified": false,
+      "bind_tag_object_sha": true,
+      "expected_tag_object_sha": "091997d33825a29ed6f30b089c33de9acf897ae3",
+      "verification_mode": "annotated_tag_object_sha"
     },
     "candidate_tag": {
       "annotated": true,
@@ -176,11 +192,13 @@
     "tiers": {
       "tier1": {
         "bench_path": "examples/evals/dogfood-bench.json",
-        "expected_tier": "regression"
+        "expected_tier": "regression",
+        "pass_threshold": 0.7
       },
       "tier2": {
         "bench_path": "examples/evals/frontier-bench.json",
-        "expected_tier": "frontier"
+        "expected_tier": "frontier",
+        "pass_threshold": null
       }
     }
   },

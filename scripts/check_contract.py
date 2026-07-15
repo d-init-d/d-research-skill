@@ -23,6 +23,7 @@ Self-test includes isolated negative fixtures.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import importlib.util
 import json
@@ -30,7 +31,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -196,6 +197,11 @@ def _strict_json_bytes(raw: bytes, label: str) -> dict:
     return value
 
 
+def _load_strict_json(path: Path, label: str) -> dict:
+    """Load one hash-sensitive JSON object with an unambiguous interpretation."""
+    return _strict_json_bytes(path.read_bytes(), label)
+
+
 def _normalized_pyproject_for_promotion(
     raw: bytes,
     *,
@@ -348,7 +354,8 @@ def _git_candidate_metadata(root: Path, candidate_ref: str) -> dict[str, bytes]:
 
 
 def _load_json(path: Path):
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Load repository JSON with the same unambiguous rules as release evidence."""
+    return _load_strict_json(path, path.as_posix())
 
 
 def _scan_text_for_controls(path: Path, text: str) -> list[str]:
@@ -439,6 +446,129 @@ def check_ruff_pin_sync(root: Path = ROOT) -> list[str]:
                 "Ruff pin mismatch: "
                 f"pyproject.toml={declared!r}, lint-and-self-test.yml={installed!r}"
             )
+    return errors
+
+
+def check_workflow_security(root: Path = ROOT) -> list[str]:
+    """Require exact-SHA CI checkouts and an isolated release attestation boundary."""
+
+    errors: list[str] = []
+    ci_path = root / ".github" / "workflows" / "lint-and-self-test.yml"
+    source_path = root / ".github" / "workflows" / "release-source-archive.yml"
+    attest_path = root / ".github" / "workflows" / "release-attest.yml"
+
+    if not ci_path.is_file():
+        errors.append("missing lint-and-self-test workflow for exact-SHA validation")
+    else:
+        ci_text = ci_path.read_text(encoding="utf-8")
+        checkout_count = ci_text.count("uses: actions/checkout@")
+        exact_ref = (
+            "github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.sha || github.sha"
+        )
+        if checkout_count < 1:
+            errors.append("lint-and-self-test workflow must check out the tested commit")
+        if ci_text.count("persist-credentials: false") != checkout_count:
+            errors.append("every lint-and-self-test checkout must disable credential persistence")
+        if ci_text.count("name: Assert exact event commit checkout") != checkout_count:
+            errors.append("every lint-and-self-test checkout must assert its exact event commit")
+        if ci_text.count(f"ref: ${{{{ {exact_ref} }}}}") != checkout_count:
+            errors.append("every lint-and-self-test checkout must select the exact PR head SHA")
+        if ci_text.count(f"EXPECTED_SHA: ${{{{ {exact_ref} }}}}") != checkout_count:
+            errors.append("every lint-and-self-test assertion must bind the exact PR head SHA")
+
+    if not source_path.is_file():
+        errors.append("missing unprivileged release source workflow")
+    else:
+        source_text = source_path.read_text(encoding="utf-8")
+        checkout_count = source_text.count("uses: actions/checkout@")
+        if checkout_count < 1:
+            errors.append("release source workflow must check out the tagged commit")
+        if source_text.count("persist-credentials: false") != checkout_count:
+            errors.append("every release source checkout must disable credential persistence")
+        if source_text.count("ref: ${{ github.sha }}") != checkout_count:
+            errors.append("every release source checkout must select github.sha explicitly")
+        if source_text.count('actual_sha="$(git rev-parse HEAD)"') != checkout_count:
+            errors.append("every release source checkout must assert its exact commit")
+        for forbidden in (
+            "attestations: write",
+            "id-token: write",
+            "actions/attest-build-provenance@",
+        ):
+            if forbidden in source_text:
+                errors.append(
+                    "release source workflow must remain unprivileged; "
+                    f"found forbidden marker: {forbidden}"
+                )
+        for marker in (
+            "release-artifact.json",
+            '"workflow_run_id"',
+            '"workflow_run_attempt"',
+            '"release_tag_object"',
+            '"archive_sha256"',
+        ):
+            if marker not in source_text:
+                errors.append(f"release source workflow missing artifact binding marker: {marker}")
+
+    if not attest_path.is_file():
+        errors.append("missing default-branch release attestation workflow")
+    else:
+        attest_text = attest_path.read_text(encoding="utf-8")
+        header, separator, jobs_text = attest_text.partition("\njobs:\n")
+        if not separator:
+            errors.append("release attestation workflow has no jobs section")
+            jobs_text = attest_text
+        if "workflow_run:" not in header or "permissions: {}" not in header:
+            errors.append(
+                "release attestation workflow must use workflow_run with empty default permissions"
+            )
+        verify_text, attest_separator, privileged_text = jobs_text.partition("\n  attest:\n")
+        if not attest_separator:
+            errors.append("release attestation workflow has no isolated attest job")
+            privileged_text = ""
+        for forbidden in ("attestations: write", "id-token: write"):
+            if forbidden in verify_text:
+                errors.append(
+                    "release attestation verification job must remain unprivileged; "
+                    f"found {forbidden}"
+                )
+        if privileged_text:
+            if re.search(r"(?m)^\s+(?:run|shell):", privileged_text):
+                errors.append("privileged release attest job must not contain shell or run steps")
+            if "uses: actions/checkout@" in privileged_text:
+                errors.append("privileged release attest job must not check out repository code")
+            if (
+                "attestations: write" not in privileged_text
+                or "id-token: write" not in privileged_text
+            ):
+                errors.append(
+                    "privileged release attest job is missing required narrow permissions"
+                )
+            privileged_uses = re.findall(r"(?m)^\s+uses:\s*(\S+)", privileged_text)
+            expected_uses = {
+                "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16",
+                "actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373",
+            }
+            if set(privileged_uses) != expected_uses or len(privileged_uses) != 2:
+                errors.append(
+                    "privileged release attest job may use only pinned download and attest actions"
+                )
+        for marker in (
+            "workflows: [release-source-archive]",
+            "github.event.workflow_run.conclusion == 'success'",
+            'expected_path = ".github/workflows/release-source-archive.yml"',
+            "workflow_run.head_sha",
+            "release-artifact.json",
+            "/git/ref/tags/${RELEASE_TAG}",
+            "/git/tags/${RELEASE_TAG_OBJECT}",
+            'verification.get("verified") is not True',
+            "git -C source archive",
+            "cmp --silent",
+            "verified-source-archive-",
+            "actions/attest-build-provenance@",
+        ):
+            if marker not in attest_text:
+                errors.append(f"release attestation workflow missing trust marker: {marker}")
     return errors
 
 
@@ -613,7 +743,23 @@ def _parse_rfc3339(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo is not None else None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else None
+
+
+def _first_reparse_component(root: Path, relative: Path) -> Path | None:
+    """Return the first lexical symlink/reparse component without resolving it."""
+    current = root
+    for part in relative.parts:
+        current = current / part
+        try:
+            stat_result = current.lstat()
+        except OSError:
+            continue
+        if current.is_symlink() or bool(
+            getattr(stat_result, "st_file_attributes", 0) & 0x400
+        ):
+            return current
+    return None
 
 
 def _resolve_repo_file(
@@ -629,6 +775,13 @@ def _resolve_repo_file(
         errors.append(f"{label} must be a non-empty repository-relative path")
         return None
     relative = Path(*canonical.split("/"))
+    hostile_component = _first_reparse_component(root, relative)
+    if hostile_component is not None:
+        errors.append(
+            f"{label} contains a symlink or reparse point: "
+            f"{hostile_component.relative_to(root)}"
+        )
+        return None
     resolved_root = root.resolve()
     resolved = (root / relative).resolve()
     try:
@@ -643,6 +796,46 @@ def _resolve_repo_file(
             errors.append(f"{label} must stay inside {contained_by.relative_to(root)}")
             return None
     if not resolved.is_file():
+        errors.append(f"{label} is missing: {value}")
+        return None
+    return resolved
+
+
+def _resolve_repo_dir(
+    root: Path,
+    value: object,
+    label: str,
+    errors: list[str],
+    *,
+    contained_by: Path | None = None,
+) -> Path | None:
+    """Resolve one existing repository directory with containment checks."""
+    canonical = _canonical_repo_relative(value)
+    if canonical is None:
+        errors.append(f"{label} must be a non-empty repository-relative path")
+        return None
+    relative = Path(*canonical.split("/"))
+    hostile_component = _first_reparse_component(root, relative)
+    if hostile_component is not None:
+        errors.append(
+            f"{label} contains a symlink or reparse point: "
+            f"{hostile_component.relative_to(root)}"
+        )
+        return None
+    resolved_root = root.resolve()
+    resolved = (root / relative).resolve()
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError:
+        errors.append(f"{label} escapes the repository: {value!r}")
+        return None
+    if contained_by is not None:
+        try:
+            resolved.relative_to(contained_by.resolve())
+        except ValueError:
+            errors.append(f"{label} must stay inside {contained_by.relative_to(root)}")
+            return None
+    if not resolved.is_dir():
         errors.append(f"{label} is missing: {value}")
         return None
     return resolved
@@ -680,6 +873,256 @@ def _score_commit(record: dict, label: str, errors: list[str]) -> str | None:
         errors.append(f"{label} skill_commit must be a full 40-character lowercase SHA")
         return None
     return commit
+
+
+def _validate_live_runs(
+    *,
+    root: Path,
+    evidence_dir: Path,
+    runs_path_value: object,
+    expected_runs_path: str,
+    label: str,
+    harness: ModuleType,
+    bench: dict,
+    score: dict,
+    canonical_threshold: float | None,
+    expected_skill_commit: str | None,
+    expected_harness_commit: str | None,
+    expected_version: str | None,
+    generated_at: datetime | None,
+    score_created_at: datetime | None,
+    seen_run_ids: set[str],
+    seen_session_ids: set[str],
+    seen_time_pairs: set[tuple[datetime, datetime]],
+    seen_run_dirs: list[Path],
+    evaluator_signatures: set[str],
+    evaluator_harness_commits: set[str],
+) -> list[str]:
+    """Recompute one score artifact from its manifest-backed raw run bundle."""
+    errors: list[str] = []
+    if runs_path_value != expected_runs_path:
+        errors.append(f"{label} must be the canonical path {expected_runs_path!r}")
+    runs_dir = _resolve_repo_dir(
+        root,
+        runs_path_value,
+        label,
+        errors,
+        contained_by=evidence_dir,
+    )
+    if runs_dir is None:
+        return errors
+
+    for existing in seen_run_dirs:
+        try:
+            runs_dir.relative_to(existing)
+            nested = True
+        except ValueError:
+            try:
+                existing.relative_to(runs_dir)
+                nested = True
+            except ValueError:
+                nested = False
+        if nested:
+            errors.append(f"{label} duplicates or nests another run evidence bundle")
+            break
+    seen_run_dirs.append(runs_dir)
+
+    bench_tasks = {
+        str(task.get("task_id")): task
+        for task in bench.get("tasks", [])
+        if isinstance(task, dict) and isinstance(task.get("task_id"), str)
+    }
+    score_tasks = {
+        str(task.get("task_id")): task
+        for task in score.get("tasks", [])
+        if isinstance(task, dict) and isinstance(task.get("task_id"), str)
+    }
+    if set(score_tasks) != set(bench_tasks):
+        errors.append(f"{label} cannot bind a score with incomplete task coverage")
+        return errors
+
+    if score.get("pass_threshold") != canonical_threshold:
+        errors.append(
+            f"{label} score pass_threshold must be frozen at {canonical_threshold!r}"
+        )
+
+    try:
+        actual_children = {child.name: child for child in runs_dir.iterdir()}
+    except OSError as exc:
+        errors.append(f"{label} cannot enumerate run bundle: {exc}")
+        return errors
+    if set(actual_children) != set(bench_tasks):
+        errors.append(
+            f"{label} task directories must exactly match the bench; "
+            f"missing={sorted(set(bench_tasks) - set(actual_children))}, "
+            f"extra={sorted(set(actual_children) - set(bench_tasks))}"
+        )
+
+    template_path = root / "templates" / "evidence-ledger.csv"
+    try:
+        with template_path.open(newline="", encoding="utf-8") as handle:
+            canonical_header = next(csv.reader(handle), None)
+    except OSError as exc:
+        errors.append(f"{label} cannot read canonical ledger template: {exc}")
+        return errors
+
+    bench_fingerprint = harness.bench_fingerprint(bench)
+    bench_version = bench.get("bench_version")
+    expected_bench_version = str(bench_version) if bench_version is not None else None
+    for task_id in sorted(bench_tasks):
+        task_dir = runs_dir / task_id
+        if not task_dir.is_dir():
+            errors.append(f"{label}.{task_id} must be a directory")
+            continue
+        try:
+            task_entries = {entry.name: entry for entry in task_dir.iterdir()}
+        except OSError as exc:
+            errors.append(f"{label}.{task_id} cannot enumerate artifacts: {exc}")
+            continue
+        expected_artifacts = {
+            "run-result.json",
+            "evidence-ledger.csv",
+            "raw-prompt.txt",
+            "raw-output.txt",
+        }
+        if set(task_entries) != expected_artifacts:
+            errors.append(
+                f"{label}.{task_id} artifacts must be exactly "
+                f"{sorted(expected_artifacts)}"
+            )
+        hostile_entry = next(
+            (
+                entry
+                for entry in [task_dir, *task_entries.values()]
+                if entry.is_symlink()
+                or bool(getattr(entry.lstat(), "st_file_attributes", 0) & 0x400)
+            ),
+            None,
+        )
+        if hostile_entry is not None:
+            errors.append(
+                f"{label}.{task_id} contains a symlink or reparse point: "
+                f"{hostile_entry.name}"
+            )
+            continue
+
+        manifest_path = (task_dir / "run-result.json").resolve()
+        try:
+            manifest_path.relative_to(runs_dir.resolve())
+            manifest_path.relative_to(evidence_dir.resolve())
+        except ValueError:
+            errors.append(f"{label}.{task_id} manifest escapes the release evidence directory")
+            continue
+        if not manifest_path.is_file():
+            errors.append(f"{label}.{task_id} missing canonical run-result.json")
+            continue
+        run_result = harness.load_run_result_file(
+            manifest_path,
+            expected_task_id=task_id,
+            runs_root=runs_dir,
+            canonical_layout=True,
+            expected_bench_fingerprint=bench_fingerprint,
+            expected_bench_version=expected_bench_version,
+        )
+        if run_result.get("_manifest_valid") is not True:
+            detail = run_result.get("_manifest_error") or "unknown validation error"
+            errors.append(f"{label}.{task_id} invalid run evidence: {detail}")
+            continue
+        if run_result.get("_execution_eligible") is not True:
+            errors.append(f"{label}.{task_id} is not execution-eligible")
+            continue
+        ledger_path = run_result.get("_ledger_path")
+        if not isinstance(ledger_path, Path):
+            errors.append(f"{label}.{task_id} has no validated ledger artifact")
+            continue
+
+        for key, seen in (
+            ("run_id", seen_run_ids),
+            ("session_id", seen_session_ids),
+        ):
+            value = str(run_result.get(key) or "")
+            if value in seen:
+                errors.append(f"{label}.{task_id} reuses global {key} {value!r}")
+            seen.add(value)
+        started_at = str(run_result.get("started_at") or "")
+        finished_at = str(run_result.get("finished_at") or "")
+        started = _parse_rfc3339(started_at)
+        finished = _parse_rfc3339(finished_at)
+        if started is not None and finished is not None:
+            # Normalize RFC 3339 offsets before checking uniqueness so the
+            # same instant cannot be disguised with a different spelling.
+            time_pair = (started, finished)
+            if time_pair in seen_time_pairs:
+                errors.append(f"{label}.{task_id} reuses a global timestamp pair")
+            seen_time_pairs.add(time_pair)
+        if generated_at is not None and finished is not None and finished > generated_at:
+            errors.append(f"{label}.{task_id} finishes after promotion generated_at")
+        if score_created_at is not None and finished is not None and finished > score_created_at:
+            errors.append(f"{label}.{task_id} finishes after score created_at")
+
+        if (
+            expected_skill_commit is not None
+            and run_result.get("skill_commit") != expected_skill_commit
+        ):
+            errors.append(f"{label}.{task_id} skill_commit does not match its release side")
+        candidate_binding = run_result.get("candidate_binding")
+        if not isinstance(candidate_binding, dict) or candidate_binding.get(
+            "version"
+        ) != expected_version:
+            errors.append(f"{label}.{task_id} candidate_binding.version mismatch")
+        evaluator = run_result.get("evaluator_binding")
+        if isinstance(evaluator, dict):
+            evaluator_signatures.add(
+                json.dumps(evaluator, sort_keys=True, separators=(",", ":"))
+            )
+            harness_commit = str(evaluator.get("harness_commit") or "")
+            evaluator_harness_commits.add(harness_commit)
+            if (
+                expected_harness_commit is not None
+                and harness_commit != expected_harness_commit
+            ):
+                errors.append(
+                    f"{label}.{task_id} evaluator_binding.harness_commit must "
+                    "match the frozen candidate skill commit"
+                )
+
+        try:
+            expected_prompt = harness.render_task_prompt(
+                bench,
+                bench_tasks[task_id],
+            ).encode("utf-8")
+            actual_prompt = (task_dir / "raw-prompt.txt").read_bytes()
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            errors.append(f"{label}.{task_id} cannot verify canonical prompt: {exc}")
+            continue
+        if actual_prompt != expected_prompt:
+            errors.append(f"{label}.{task_id} raw prompt is not the canonical renderer output")
+
+        try:
+            with ledger_path.open(newline="", encoding="utf-8") as handle:
+                ledger_header = next(csv.reader(handle), None)
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"{label}.{task_id} cannot read evidence ledger: {exc}")
+        else:
+            if ledger_header != canonical_header:
+                errors.append(
+                    f"{label}.{task_id} ledger must use the exact canonical 23-column header"
+                )
+
+    try:
+        recomputed_record = harness.build_score_record(
+            bench,
+            runs_dir,
+            threshold=canonical_threshold,
+            frozen_timestamp=score.get("created_at"),
+            canonical_layout=True,
+        )
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        errors.append(f"{label} cannot recompute score artifact: {exc}")
+    else:
+        if score != recomputed_record:
+            errors.append(f"{label} score artifact is not the canonical raw-run recomputation")
+    return errors
 
 
 def check_release_tag(release_tag: str, root: Path = ROOT) -> list[str]:
@@ -1087,6 +1530,7 @@ def check_stable_release_evidence(
     expected_candidate_commit: str | None = None,
     expected_baseline_commit: str | None = None,
     expected_candidate_tag_object: str | None = None,
+    expected_baseline_tag_object: str | None = None,
 ) -> list[str]:
     """Require the release-evidence mode frozen into the dogfooded RC.
 
@@ -1135,14 +1579,33 @@ def check_stable_release_evidence(
     evidence_dir = promotion_path.parent
 
     try:
-        promotion = _load_json(promotion_path)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        promotion = _load_strict_json(promotion_path, "stable promotion manifest")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         return [f"stable promotion manifest is unreadable: {exc}"]
-    if not isinstance(promotion, dict):
-        return ["stable promotion manifest must be a JSON object"]
 
-    if promotion.get("schema_version") != "1.1":
-        errors.append("stable promotion manifest schema_version must be '1.1'")
+    expected_promotion_keys = {
+        "schema_version",
+        "release_version",
+        "baseline_version",
+        "candidate_version",
+        "baseline_skill_commit",
+        "candidate_skill_commit",
+        "baseline_tag",
+        "baseline_tag_object_sha",
+        "candidate_tag",
+        "candidate_tag_object_sha",
+        "generated_at",
+        "tiers",
+        "reviewer_signoff_path",
+    }
+    if set(promotion) != expected_promotion_keys:
+        errors.append(
+            "stable promotion manifest keys must be exactly "
+            f"{sorted(expected_promotion_keys)}"
+        )
+
+    if promotion.get("schema_version") != "1.2":
+        errors.append("stable promotion manifest schema_version must be '1.2'")
     if promotion.get("release_version") != package_version:
         errors.append("stable promotion manifest release_version must match package version")
     for field, contract_key in (
@@ -1158,6 +1621,36 @@ def check_stable_release_evidence(
             )
 
     candidate_version = gate.get("required_candidate_version")
+    baseline_version = gate.get("required_baseline_version")
+    expected_baseline_tag = (
+        f"v{baseline_version}" if isinstance(baseline_version, str) else None
+    )
+    if promotion.get("baseline_tag") != expected_baseline_tag:
+        errors.append(f"stable promotion baseline_tag must be {expected_baseline_tag!r}")
+    baseline_tag_object = promotion.get("baseline_tag_object_sha")
+    baseline_contract = gate.get("baseline_tag")
+    frozen_baseline_tag_object = (
+        baseline_contract.get("expected_tag_object_sha")
+        if isinstance(baseline_contract, dict)
+        else None
+    )
+    if not isinstance(baseline_tag_object, str) or not _FULL_COMMIT_RE.fullmatch(
+        baseline_tag_object
+    ):
+        errors.append("stable promotion baseline_tag_object_sha must be a full lowercase SHA")
+    else:
+        if baseline_tag_object != frozen_baseline_tag_object:
+            errors.append(
+                "stable promotion baseline_tag_object_sha must match the frozen baseline tag object"
+            )
+        if expected_baseline_tag_object is not None:
+            if not _FULL_COMMIT_RE.fullmatch(expected_baseline_tag_object):
+                errors.append("release workflow baseline tag object binding must be a full SHA")
+            elif baseline_tag_object != expected_baseline_tag_object:
+                errors.append(
+                    "stable promotion baseline_tag_object_sha must match the annotated baseline tag object"
+                )
+
     expected_candidate_tag = (
         f"v{candidate_version}" if isinstance(candidate_version, str) else None
     )
@@ -1220,12 +1713,28 @@ def check_stable_release_evidence(
         harness = None
 
     runtime_signatures: set[str] = set()
+    evaluator_harness_commits: set[str] = set()
+    seen_run_ids: set[str] = set()
+    seen_session_ids: set[str] = set()
+    seen_time_pairs: set[tuple[datetime, datetime]] = set()
+    seen_run_dirs: list[Path] = []
     baseline_version = gate.get("required_baseline_version")
     for tier_name in ("tier1", "tier2"):
         tier_contract = tier_contracts.get(tier_name)
         tier_entry = promotion_tiers.get(tier_name)
         if not isinstance(tier_contract, dict) or not isinstance(tier_entry, dict):
             continue
+        expected_tier_entry_keys = {
+            "baseline_scores",
+            "candidate_scores",
+            "baseline_runs_path",
+            "candidate_runs_path",
+        }
+        if set(tier_entry) != expected_tier_entry_keys:
+            errors.append(
+                f"stable promotion {tier_name} keys must be exactly "
+                f"{sorted(expected_tier_entry_keys)}"
+            )
 
         bench_path = _resolve_repo_file(
             root,
@@ -1236,8 +1745,8 @@ def check_stable_release_evidence(
         if bench_path is None or harness is None:
             continue
         try:
-            bench = _load_json(bench_path)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            bench = _load_strict_json(bench_path, f"{tier_name} bench")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             errors.append(f"{tier_name} bench is unreadable: {exc}")
             continue
         bench_errors, _bench_warnings = harness.validate_bench(bench, bench_path)
@@ -1254,6 +1763,7 @@ def check_stable_release_evidence(
         }
 
         records: dict[str, dict] = {}
+        tier_evaluator_signatures: set[str] = set()
         for side in ("baseline", "candidate"):
             artifact_error_start = len(errors)
             artifact = tier_entry.get(f"{side}_scores")
@@ -1261,6 +1771,8 @@ def check_stable_release_evidence(
             if not isinstance(artifact, dict):
                 errors.append(f"{label} must be an object with path and sha256")
                 continue
+            if set(artifact) != {"path", "sha256"}:
+                errors.append(f"{label} keys must be exactly path and sha256")
             artifact_path = _resolve_repo_file(
                 root,
                 artifact.get("path"),
@@ -1279,12 +1791,9 @@ def check_stable_release_evidence(
                     f"{label} hash mismatch: declared={declared_hash!r}, actual={actual_hash!r}"
                 )
             try:
-                score = _load_json(artifact_path)
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                score = _load_strict_json(artifact_path, label)
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                 errors.append(f"{label} is unreadable: {exc}")
-                continue
-            if not isinstance(score, dict):
-                errors.append(f"{label} must contain a JSON object")
                 continue
             score_validation_errors = harness.validate_score_file(score)
             errors.extend(f"{label}: {error}" for error in score_validation_errors)
@@ -1300,8 +1809,26 @@ def check_stable_release_evidence(
             counts = score.get("counts")
             if not isinstance(counts, dict) or counts.get("not_run") != 0:
                 errors.append(f"{label} must have counts.not_run = 0")
-            if _parse_rfc3339(score.get("created_at")) is None:
+            if isinstance(counts, dict) and counts.get("failed") != 0:
+                errors.append(f"{label} must have counts.failed = 0")
+            expected_refusals = sum(
+                1 for task in bench.get("tasks", [])
+                if isinstance(task, dict) and task.get("expected_action") == "refuse"
+            )
+            if (
+                isinstance(counts, dict)
+                and isinstance(counts.get("passed"), int)
+                and counts.get("passed") <= expected_refusals
+            ):
+                errors.append(
+                    f"{label} must pass at least one factual task in addition to "
+                    "the expected refusal probes"
+                )
+            score_created_at = _parse_rfc3339(score.get("created_at"))
+            if score_created_at is None:
                 errors.append(f"{label}.created_at must be timezone-aware RFC3339")
+            elif generated_at is not None and score_created_at > generated_at:
+                errors.append(f"{label}.created_at must not follow promotion generated_at")
 
             metadata_errors, runtime_signature = harness.comparable_run_metadata(
                 score,
@@ -1335,11 +1862,50 @@ def check_stable_release_evidence(
                     f"{label} skill commit {commit!r} does not match promotion "
                     f"{side}_skill_commit {expected_commit!r}"
                 )
+            errors.extend(
+                _validate_live_runs(
+                    root=root,
+                    evidence_dir=evidence_dir,
+                    runs_path_value=tier_entry.get(f"{side}_runs_path"),
+                    expected_runs_path=(
+                        evidence_dir / "runs" / f"{tier_name}-{side}"
+                    ).relative_to(root).as_posix(),
+                    label=f"stable promotion {tier_name}.{side}_runs_path",
+                    harness=harness,
+                    bench=bench,
+                    score=score,
+                    canonical_threshold=tier_contract.get("pass_threshold"),
+                    expected_skill_commit=expected_commits.get(
+                        f"{side}_skill_commit"
+                    ),
+                    expected_harness_commit=expected_commits.get(
+                        "candidate_skill_commit"
+                    ),
+                    expected_version=(
+                        gate.get("required_baseline_version")
+                        if side == "baseline"
+                        else gate.get("required_candidate_version")
+                    ),
+                    generated_at=generated_at,
+                    score_created_at=score_created_at,
+                    seen_run_ids=seen_run_ids,
+                    seen_session_ids=seen_session_ids,
+                    seen_time_pairs=seen_time_pairs,
+                    seen_run_dirs=seen_run_dirs,
+                    evaluator_signatures=tier_evaluator_signatures,
+                    evaluator_harness_commits=evaluator_harness_commits,
+                )
+            )
             if len(errors) == artifact_error_start:
                 records[side] = score
 
         baseline = records.get("baseline")
         candidate = records.get("candidate")
+        if len(tier_evaluator_signatures) > 1:
+            errors.append(
+                f"{tier_name} baseline/candidate runs must use one identical "
+                "evaluator binding"
+            )
         if baseline is None or candidate is None:
             continue
         for key in ("bench_schema_version", "bench_version", "bench_fingerprint"):
@@ -1378,6 +1944,11 @@ def check_stable_release_evidence(
             "stable live dogfood must use one identical runtime/model/tool "
             "configuration across Tier 1 and Tier 2 baseline/candidate runs"
         )
+    if len(evaluator_harness_commits) > 1:
+        errors.append(
+            "stable live dogfood must use one identical evaluator harness commit "
+            "across Tier 1 and Tier 2 baseline/candidate runs"
+        )
 
     signoff_path = _resolve_repo_file(
         root,
@@ -1388,12 +1959,27 @@ def check_stable_release_evidence(
     )
     if signoff_path is not None:
         try:
-            signoff = _load_json(signoff_path)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            signoff = _load_strict_json(signoff_path, "stable reviewer sign-off")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             errors.append(f"stable reviewer sign-off is unreadable: {exc}")
         else:
-            if signoff.get("schema_version") != "1.1":
-                errors.append("stable reviewer sign-off schema_version must be '1.1'")
+            expected_signoff_keys = {
+                "schema_version",
+                "release_version",
+                "decision",
+                "reviewer",
+                "reviewed_at",
+                "promotion_manifest_sha256",
+                "attestation",
+                "review_scope",
+            }
+            if set(signoff) != expected_signoff_keys:
+                errors.append(
+                    "stable reviewer sign-off keys must be exactly "
+                    f"{sorted(expected_signoff_keys)}"
+                )
+            if signoff.get("schema_version") != "1.2":
+                errors.append("stable reviewer sign-off schema_version must be '1.2'")
             if signoff.get("release_version") != package_version:
                 errors.append("stable reviewer sign-off release_version mismatch")
             if signoff.get("decision") != "approved":
@@ -1404,6 +1990,8 @@ def check_stable_release_evidence(
                 for field in ("name", "role")
             ):
                 errors.append("stable reviewer sign-off requires reviewer.name and reviewer.role")
+            elif set(reviewer) != {"name", "role"}:
+                errors.append("stable reviewer sign-off reviewer keys are invalid")
             reviewed_at = _parse_rfc3339(signoff.get("reviewed_at"))
             if reviewed_at is None:
                 errors.append("stable reviewer sign-off reviewed_at must be RFC3339")
@@ -1414,6 +2002,16 @@ def check_stable_release_evidence(
                 errors.append(
                     "stable reviewer sign-off must bind the exact promotion manifest SHA256"
                 )
+            expected_review_scope = {
+                "live_run_origin_verified": True,
+                "raw_artifacts_reviewed": True,
+                "score_recomputation_reviewed": True,
+            }
+            if signoff.get("review_scope") != expected_review_scope:
+                errors.append(
+                    "stable reviewer sign-off must attest live run origin, raw artifacts, "
+                    "and score recomputation"
+                )
             attestation = signoff.get("attestation")
             attestation_contract = gate.get("reviewer_attestation")
             if not isinstance(attestation_contract, dict):
@@ -1421,6 +2019,14 @@ def check_stable_release_evidence(
             elif not isinstance(attestation, dict):
                 errors.append("stable reviewer sign-off requires a verifiable attestation")
             else:
+                expected_attestation_keys = {
+                    "type",
+                    "repository",
+                    "pull_request_number",
+                    "reviewer_login",
+                }
+                if set(attestation) != expected_attestation_keys:
+                    errors.append("stable reviewer attestation keys are invalid")
                 expected_type = attestation_contract.get("type")
                 expected_repository = attestation_contract.get("repository")
                 if attestation.get("type") != expected_type:
@@ -1757,9 +2363,32 @@ def _repository_contract_version_matches(package_version: str, manifest: dict) -
 
 
 def _check_live_tag_contracts(stable_gate: dict) -> list[str]:
-    """Require symmetric, GitHub-verified annotated tag contracts."""
+    """Require an immutable legacy baseline and verified candidate/release tags."""
 
     errors: list[str] = []
+    baseline_contract = stable_gate.get("baseline_tag")
+    baseline_expected_keys = {
+        "annotated",
+        "github_verified",
+        "bind_tag_object_sha",
+        "expected_tag_object_sha",
+        "verification_mode",
+    }
+    if (
+        not isinstance(baseline_contract, dict)
+        or set(baseline_contract) != baseline_expected_keys
+        or baseline_contract.get("annotated") is not True
+        or baseline_contract.get("github_verified") is not False
+        or baseline_contract.get("bind_tag_object_sha") is not True
+        or not isinstance(baseline_contract.get("expected_tag_object_sha"), str)
+        or not _FULL_COMMIT_RE.fullmatch(baseline_contract["expected_tag_object_sha"])
+        or baseline_contract.get("verification_mode") != "annotated_tag_object_sha"
+    ):
+        errors.append(
+            "stable_release_gate.baseline_tag must pin the exact annotated legacy "
+            "tag object and explicitly record its historical verification status"
+        )
+
     expected_keys = {
         "annotated",
         "github_verified",
@@ -2045,6 +2674,19 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                     errors.append("maintainer_override non_waivable gates are invalid")
         else:
             errors.extend(_check_live_tag_contracts(stable_gate))
+            run_evidence = stable_gate.get("run_evidence")
+            expected_run_evidence = {
+                "canonical_layout": True,
+                "manifest_name": "run-result.json",
+                "run_result_schema_version": "2.1",
+                "bind_raw_artifacts": True,
+                "recompute_scores": True,
+            }
+            if run_evidence != expected_run_evidence:
+                errors.append(
+                    "stable_release_gate.run_evidence must require canonical schema-2.1 "
+                    "manifests, raw artifact hashes, and score recomputation"
+                )
         reviewer_attestation = stable_gate.get("reviewer_attestation")
         if not isinstance(reviewer_attestation, dict):
             errors.append("stable_release_gate.reviewer_attestation must be an object")
@@ -2067,14 +2709,18 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
         if not isinstance(stable_tiers, dict) or set(stable_tiers) != {"tier1", "tier2"}:
             errors.append("stable_release_gate.tiers must define exactly tier1 and tier2")
         else:
-            for tier_name, expected_tier in (
-                ("tier1", "regression"),
-                ("tier2", "frontier"),
+            for tier_name, expected_tier, expected_threshold in (
+                ("tier1", "regression", 0.7),
+                ("tier2", "frontier", None),
             ):
                 tier = stable_tiers.get(tier_name)
                 if not isinstance(tier, dict):
                     errors.append(f"stable_release_gate.tiers.{tier_name} must be an object")
                     continue
+                if set(tier) != {"bench_path", "expected_tier", "pass_threshold"}:
+                    errors.append(
+                        f"stable_release_gate.tiers.{tier_name} keys are invalid"
+                    )
                 bench = tier.get("bench_path")
                 if (
                     not isinstance(bench, str)
@@ -2088,6 +2734,11 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                         f"stable_release_gate.tiers.{tier_name}.expected_tier "
                         f"must be {expected_tier!r}"
                     )
+                if tier.get("pass_threshold") != expected_threshold:
+                    errors.append(
+                        f"stable_release_gate.tiers.{tier_name}.pass_threshold "
+                        f"must be {expected_threshold!r}"
+                    )
 
     release_workflow = root / ".github" / "workflows" / "release-source-archive.yml"
     if not release_workflow.is_file():
@@ -2097,12 +2748,15 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
         for marker in (
             "required_candidate_version",
             "--candidate-commit",
-            "git merge-base --is-ancestor",
+            'git merge-base --is-ancestor "$baseline_commit" "$candidate_commit"',
+            'git merge-base --is-ancestor "$candidate_commit" "$release_commit"',
             "git diff --name-only",
             "validate-post-rc-paths",
             "validate_post_rc_changed_paths",
             "validate-post-rc-metadata",
             "--candidate-tag-object",
+            "--baseline-tag-object",
+            "frozen_baseline_tag_object",
             'commits=("$candidate_commit")',
             "verify-ci-response",
             "verify-tag-response",
@@ -2110,7 +2764,6 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
             "--require-release-waiver",
             "git cat-file -t",
             "sha256sum --check",
-            "attest-build-provenance",
         ):
             if marker not in workflow_text:
                 errors.append(f"stable release workflow missing RC binding marker: {marker}")
@@ -2387,10 +3040,12 @@ def collect_errors(
     candidate_commit: str | None = None,
     baseline_commit: str | None = None,
     candidate_tag_object: str | None = None,
+    baseline_tag_object: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     errors.extend(scan_repo_controls())
     errors.extend(check_ruff_pin_sync())
+    errors.extend(check_workflow_security())
     errors.extend(check_versions())
     errors.extend(check_config_safety())
     errors.extend(check_skill_and_routes())
@@ -2406,6 +3061,7 @@ def collect_errors(
             expected_candidate_commit=candidate_commit,
             expected_baseline_commit=baseline_commit,
             expected_candidate_tag_object=candidate_tag_object,
+            expected_baseline_tag_object=baseline_tag_object,
         )
     )
     if release_tag is not None:
@@ -2461,6 +3117,65 @@ def self_test() -> int:
         )
         if check_ruff_pin_sync(ruff_root):
             failures.append("expected synchronized Ruff pins to pass")
+
+        workflow_root = root / "workflow-security"
+        workflow_dir = workflow_root / ".github" / "workflows"
+        workflow_dir.mkdir(parents=True)
+        workflow_names = (
+            "lint-and-self-test.yml",
+            "release-source-archive.yml",
+            "release-attest.yml",
+        )
+        for workflow_name in workflow_names:
+            (workflow_dir / workflow_name).write_bytes(
+                (ROOT / ".github" / "workflows" / workflow_name).read_bytes()
+            )
+        workflow_errors = check_workflow_security(workflow_root)
+        if workflow_errors:
+            failures.append(
+                "valid workflow security contract rejected: "
+                + "; ".join(workflow_errors[:3])
+            )
+        ci_security_path = workflow_dir / "lint-and-self-test.yml"
+        original_ci_security = ci_security_path.read_text(encoding="utf-8")
+        ci_security_path.write_text(
+            original_ci_security.replace(
+                "persist-credentials: false", "persist-credentials: true", 1
+            ),
+            encoding="utf-8",
+        )
+        if not any(
+            "disable credential persistence" in error
+            for error in check_workflow_security(workflow_root)
+        ):
+            failures.append("expected persisted CI checkout credentials to fail")
+        ci_security_path.write_text(original_ci_security, encoding="utf-8")
+        release_security_path = workflow_dir / "release-source-archive.yml"
+        original_release_security = release_security_path.read_text(encoding="utf-8")
+        release_security_path.write_text(
+            original_release_security + "\n# id-token: write\n",
+            encoding="utf-8",
+        )
+        if not any(
+            "unprivileged" in error for error in check_workflow_security(workflow_root)
+        ):
+            failures.append("expected privileged tag workflow to fail")
+        release_security_path.write_text(original_release_security, encoding="utf-8")
+        attest_security_path = workflow_dir / "release-attest.yml"
+        original_attest_security = attest_security_path.read_text(encoding="utf-8")
+        attest_security_path.write_text(
+            original_attest_security.replace(
+                "      # This privileged job intentionally has no checkout or run step.\n",
+                "      - name: Unsafe repository command\n        run: ./from-tag.sh\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        if not any(
+            "must not contain shell or run steps" in error
+            for error in check_workflow_security(workflow_root)
+        ):
+            failures.append("expected privileged attestation run step to fail")
 
         references_dir = root / "references"
         references_dir.mkdir()
@@ -2638,6 +3353,13 @@ def self_test() -> int:
             failures.append("stable metadata must reject an RC/gate version mismatch")
 
         valid_live_tags = {
+            "baseline_tag": {
+                "annotated": True,
+                "github_verified": False,
+                "bind_tag_object_sha": True,
+                "expected_tag_object_sha": "0" * 40,
+                "verification_mode": "annotated_tag_object_sha",
+            },
             "candidate_tag": {
                 "annotated": True,
                 "github_verified": True,
@@ -2675,6 +3397,7 @@ def self_test() -> int:
             "examples/evals/frontier-bench.json",
             "examples/evals/fixtures/dogfood-empty-scores.json",
             "examples/evals/fixtures/frontier-empty-scores.json",
+            "templates/evidence-ledger.csv",
         ):
             destination = stable_root / relative
             destination.write_bytes((ROOT / relative).read_bytes())
@@ -2687,6 +3410,20 @@ def self_test() -> int:
                 "exact_candidate_sha": True,
                 "exact_release_sha": True,
                 "required_conclusion": "success",
+            },
+            "run_evidence": {
+                "canonical_layout": True,
+                "manifest_name": "run-result.json",
+                "run_result_schema_version": "2.1",
+                "bind_raw_artifacts": True,
+                "recompute_scores": True,
+            },
+            "baseline_tag": {
+                "annotated": True,
+                "github_verified": False,
+                "bind_tag_object_sha": True,
+                "expected_tag_object_sha": "5" * 40,
+                "verification_mode": "annotated_tag_object_sha",
             },
             "candidate_tag": {
                 "annotated": True,
@@ -2703,10 +3440,12 @@ def self_test() -> int:
                 "tier1": {
                     "bench_path": "examples/evals/dogfood-bench.json",
                     "expected_tier": "regression",
+                    "pass_threshold": 0.7,
                 },
                 "tier2": {
                     "bench_path": "examples/evals/frontier-bench.json",
                     "expected_tier": "frontier",
+                    "pass_threshold": None,
                 },
             },
         }
@@ -2739,92 +3478,155 @@ def self_test() -> int:
         baseline_commit = "1" * 40
         candidate_commit = "2" * 40
         candidate_tag_object = "3" * 40
+        baseline_tag_object = "5" * 40
         selftest_harness = _load_eval_harness(stable_root)
 
-        def completed_score(source: Path, commit: str, bench_path: Path) -> dict:
-            score = _load_json(source)
-            score["bench_fingerprint"] = selftest_harness.bench_fingerprint(_load_json(bench_path))
-            score["pass_threshold"] = 0.7 if score.get("tier") == "regression" else None
-            for index, task in enumerate(score["tasks"]):
-                refusal = task.get("expected_action") == "refuse"
-                task["status"] = "refused" if refusal else "completed"
-                task["refusal"] = "PASS" if refusal else None
-                task["safety_result"] = "pass" if refusal else "not_applicable"
-                task["run_result_valid"] = True
-                task["run_result_error"] = None
-                task["passed"] = refusal
-                if refusal:
-                    task["recall"] = 1.0
-                    task["accuracy"] = 1.0
-                    task["source_recall"] = 1.0
-                    task["assertion_accuracy"] = 1.0
-                task["runtime"] = dict(runtime)
-                task["skill_commit"] = commit
-                task_id = str(task["task_id"])
-                task["started_at"] = f"2026-07-09T00:00:{index:02d}Z"
-                task["finished_at"] = f"2026-07-09T00:01:{index:02d}Z"
-                task["run_id"] = f"contract-run-{commit[:8]}-{task_id}"
-                task["session_id"] = f"contract-session-{commit[:8]}-{task_id}"
-                for artifact in ("raw_prompt", "raw_output", "ledger"):
-                    digest = hashlib.sha256(
-                        f"{commit}:{task_id}:{artifact}".encode("utf-8")
-                    ).hexdigest()
-                    task[f"{artifact}_sha256"] = f"sha256:{digest}"
-                task["evaluator_binding"] = {
-                    "bench_fingerprint": score["bench_fingerprint"],
-                    "bench_version": score.get("bench_version"),
-                    "harness_commit": "4" * 40,
-                }
-                task["candidate_binding"] = {
-                    "skill_commit": commit,
-                    "version": "3.1.1" if commit == baseline_commit else "3.2.0-rc.1",
-                }
-            score["created_at"] = "2026-07-09T00:02:00Z"
-            score["counts"] = {
-                "completed": sum(t["status"] == "completed" for t in score["tasks"]),
-                "failed": 0,
-                "refused": sum(t["status"] == "refused" for t in score["tasks"]),
-                "not_run": 0,
-                "passed": sum(t["passed"] is True for t in score["tasks"]),
-                "tasks": len(score["tasks"]),
-            }
-            return score
-
         score_paths: dict[tuple[str, str], Path] = {}
-        for tier_name, fixture_name in (
-            ("tier1", "dogfood-empty-scores.json"),
-            ("tier2", "frontier-empty-scores.json"),
-        ):
-            fixture = stable_root / "examples" / "evals" / "fixtures" / fixture_name
+        run_paths: dict[tuple[str, str], Path] = {}
+        canonical_ledger_header = (
+            (stable_root / "templates" / "evidence-ledger.csv")
+            .read_text(encoding="utf-8")
+            .splitlines()[0]
+            + "\n"
+        )
+        canonical_ledger_columns = next(csv.reader([canonical_ledger_header]))
+        bundle_hours = {
+            ("tier1", "baseline"): 0,
+            ("tier1", "candidate"): 2,
+            ("tier2", "baseline"): 4,
+            ("tier2", "candidate"): 6,
+        }
+        for tier_name in ("tier1", "tier2"):
             bench_path = stable_root / stable_gate["tiers"][tier_name]["bench_path"]
+            bench = _load_json(bench_path)
+            bench_fingerprint = selftest_harness.bench_fingerprint(bench)
+            factual_task_id = next(
+                str(task["task_id"])
+                for task in sorted(bench["tasks"], key=lambda item: item["task_id"])
+                if task.get("expected_action") != "refuse"
+            )
             for side, commit in (
                 ("baseline", baseline_commit),
                 ("candidate", candidate_commit),
             ):
+                runs_dir = evidence_dir / "runs" / f"{tier_name}-{side}"
+                for index, task in enumerate(
+                    sorted(bench["tasks"], key=lambda item: item["task_id"])
+                ):
+                    task_id = str(task["task_id"])
+                    task_dir = runs_dir / task_id
+                    task_dir.mkdir(parents=True)
+                    prompt_path = task_dir / "raw-prompt.txt"
+                    output_path = task_dir / "raw-output.txt"
+                    ledger_path = task_dir / "evidence-ledger.csv"
+                    with ledger_path.open("w", encoding="utf-8", newline="") as handle:
+                        writer = csv.DictWriter(handle, fieldnames=canonical_ledger_columns)
+                        writer.writeheader()
+                        if task_id == factual_task_id:
+                            assertion_fields: dict[str, list[str]] = {}
+                            for assertion in task.get("required_assertions", []):
+                                if not isinstance(assertion, dict):
+                                    continue
+                                field = assertion.get("field")
+                                values = assertion.get("required_values")
+                                if isinstance(field, str) and isinstance(values, list):
+                                    assertion_fields.setdefault(field, []).extend(
+                                        str(value) for value in values
+                                    )
+                            for source_index, source_group in enumerate(
+                                task.get("ground_truth_sources", [])
+                            ):
+                                if not isinstance(source_group, dict):
+                                    continue
+                                row = {column: "" for column in canonical_ledger_columns}
+                                row["claim_id"] = f"SELFTEST-{tier_name}-{source_index + 1}"
+                                row["source_url"] = str(source_group.get("canonical") or "")
+                                row["source_type"] = "official"
+                                row["access_method"] = "offline_fixture"
+                                row["confidence"] = "high"
+                                row["record_type"] = "claim"
+                                for field, values in assertion_fields.items():
+                                    if field in row:
+                                        row[field] = " | ".join(values)
+                                writer.writerow(row)
+                    prompt_path.write_bytes(
+                        selftest_harness.render_task_prompt(bench, task).encode("utf-8")
+                    )
+                    output_path.write_text("Request refused safely.\n" if task.get(
+                        "expected_action"
+                    ) == "refuse" else "No supported claim found.\n", encoding="utf-8")
+                    refused = task.get("expected_action") == "refuse"
+                    hour = bundle_hours[(tier_name, side)]
+                    manifest = {
+                        "schema_version": "2.1",
+                        "task_id": task_id,
+                        "status": "refused" if refused else "completed",
+                        "ledger_path": ledger_path.name,
+                        "ledger_sha256": _sha256_path(ledger_path),
+                        "raw_prompt_path": prompt_path.name,
+                        "raw_prompt_sha256": _sha256_path(prompt_path),
+                        "raw_output_path": output_path.name,
+                        "raw_output_sha256": _sha256_path(output_path),
+                        "run_id": f"contract-run-{side}-{tier_name}-{task_id}",
+                        "session_id": f"contract-session-{side}-{tier_name}-{task_id}",
+                        "runtime": dict(runtime),
+                        "skill_commit": commit,
+                        "evaluator_binding": {
+                            "bench_fingerprint": bench_fingerprint,
+                            "bench_version": bench.get("bench_version"),
+                            "harness_commit": candidate_commit,
+                        },
+                        "candidate_binding": {
+                            "skill_commit": commit,
+                            "version": (
+                                "3.1.1" if commit == baseline_commit else "3.2.0-rc.1"
+                            ),
+                        },
+                        "started_at": f"2026-07-09T{hour:02d}:00:{index:02d}Z",
+                        "finished_at": f"2026-07-09T{hour:02d}:01:{index:02d}Z",
+                    }
+                    if refused:
+                        manifest["reason_code"] = "unsafe_request"
+                    (task_dir / "run-result.json").write_text(
+                        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+
+                score = selftest_harness.build_score_record(
+                    bench,
+                    runs_dir,
+                    threshold=(0.7 if tier_name == "tier1" else None),
+                    frozen_timestamp="2026-07-09T10:00:00Z",
+                    canonical_layout=True,
+                )
+                score_errors = selftest_harness.validate_score_file(score)
+                if score_errors:
+                    failures.append(
+                        f"self-test could not build valid {tier_name}/{side} raw evidence: "
+                        + "; ".join(score_errors[:3])
+                    )
                 score_path = evidence_dir / f"{tier_name}-{side}-scores.json"
                 score_path.write_text(
-                    json.dumps(
-                        completed_score(fixture, commit, bench_path),
-                        indent=2,
-                        sort_keys=True,
-                    )
-                    + "\n",
+                    json.dumps(score, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
                 score_paths[(tier_name, side)] = score_path
+                run_paths[(tier_name, side)] = runs_dir
 
         promotion_path = evidence_dir / "promotion.json"
         signoff_path = evidence_dir / "reviewer-signoff.json"
         promotion = {
-            "schema_version": "1.1",
+            "schema_version": "1.2",
             "release_version": "3.2.0",
             "baseline_version": "3.1.1",
             "candidate_version": "3.2.0-rc.1",
             "baseline_skill_commit": baseline_commit,
             "candidate_skill_commit": candidate_commit,
+            "baseline_tag": "v3.1.1",
+            "baseline_tag_object_sha": baseline_tag_object,
             "candidate_tag": "v3.2.0-rc.1",
             "candidate_tag_object_sha": candidate_tag_object,
-            "generated_at": "2026-07-09T00:03:00Z",
+            "generated_at": "2026-07-09T12:00:00Z",
             "tiers": {},
             "reviewer_signoff_path": signoff_path.relative_to(stable_root).as_posix(),
         }
@@ -2839,17 +3641,27 @@ def self_test() -> int:
                         "path": score_path.relative_to(stable_root).as_posix(),
                         "sha256": _sha256_path(score_path),
                     }
+                    promotion["tiers"][tier_name][f"{side}_runs_path"] = (
+                        run_paths[(tier_name, side)]
+                        .relative_to(stable_root)
+                        .as_posix()
+                    )
             promotion_path.write_text(
                 json.dumps(promotion, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
             signoff = {
-                "schema_version": "1.1",
+                "schema_version": "1.2",
                 "release_version": "3.2.0",
                 "decision": "approved",
                 "reviewer": {"name": "Contract self-test", "role": "test fixture"},
-                "reviewed_at": "2026-07-09T00:04:00Z",
+                "reviewed_at": "2026-07-09T13:00:00Z",
                 "promotion_manifest_sha256": _sha256_path(promotion_path),
+                "review_scope": {
+                    "live_run_origin_verified": True,
+                    "raw_artifacts_reviewed": True,
+                    "score_recomputation_reviewed": True,
+                },
                 "attestation": {
                     "type": "github_verified_pull_request_review",
                     "repository": "d-init-d/d-research-skill",
@@ -2885,6 +3697,168 @@ def self_test() -> int:
         )
         if not any("annotated RC tag object" in error for error in tag_object_mismatch):
             failures.append("stable gate must bind the exact annotated RC tag object")
+        baseline_tag_object_mismatch = check_stable_release_evidence(
+            stable_root,
+            expected_baseline_tag_object="6" * 40,
+        )
+        if not any(
+            "annotated baseline tag object" in error
+            for error in baseline_tag_object_mismatch
+        ):
+            failures.append("stable gate must bind the exact annotated baseline tag object")
+
+        # Raw-evidence anti-bypass checks: every hash-sensitive JSON document and
+        # canonical run artifact must fail closed when its interpretation drifts.
+        valid_promotion_bytes = promotion_path.read_bytes()
+        promotion_path.write_bytes(
+            valid_promotion_bytes.replace(
+                b'"schema_version": "1.2",',
+                b'"schema_version": "1.2",\n  "schema_version": "1.2",',
+                1,
+            )
+        )
+        duplicate_promotion = check_stable_release_evidence(stable_root)
+        if not any("duplicate key" in error for error in duplicate_promotion):
+            failures.append("stable gate accepted a duplicate-key promotion manifest")
+        write_promotion_and_signoff()
+
+        sample_runs_dir = run_paths[("tier1", "candidate")]
+        sample_task_dir = next(
+            path for path in sorted(sample_runs_dir.iterdir()) if path.is_dir()
+        )
+        sample_output = sample_task_dir / "raw-output.txt"
+        valid_output_bytes = sample_output.read_bytes()
+        sample_output.write_bytes(valid_output_bytes + b"tampered\n")
+        tampered_output = check_stable_release_evidence(stable_root)
+        if not any("raw_output_sha256" in error for error in tampered_output):
+            failures.append("stable gate accepted a raw-output hash mismatch")
+        sample_output.write_bytes(valid_output_bytes)
+
+        sample_prompt = sample_task_dir / "raw-prompt.txt"
+        sample_manifest = sample_task_dir / "run-result.json"
+        valid_prompt_bytes = sample_prompt.read_bytes()
+        valid_manifest_bytes = sample_manifest.read_bytes()
+        wrong_harness_manifest = _strict_json_bytes(
+            valid_manifest_bytes, "self-test run manifest"
+        )
+        wrong_harness_manifest["evaluator_binding"]["harness_commit"] = "4" * 40
+        sample_manifest.write_text(
+            json.dumps(wrong_harness_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        wrong_harness_errors = check_stable_release_evidence(stable_root)
+        if not any(
+            "harness_commit must match the frozen candidate" in error
+            for error in wrong_harness_errors
+        ):
+            failures.append("stable gate accepted a non-candidate evaluator harness")
+        sample_manifest.write_bytes(valid_manifest_bytes)
+        peer_task_dir = next(
+            path
+            for path in sorted(sample_runs_dir.iterdir())
+            if path.is_dir() and path != sample_task_dir
+        )
+        peer_manifest = _load_strict_json(
+            peer_task_dir / "run-result.json", "self-test peer run manifest"
+        )
+        equivalent_offset_manifest = _strict_json_bytes(
+            valid_manifest_bytes, "self-test run manifest"
+        )
+        equivalent_offset_manifest["started_at"] = str(
+            peer_manifest["started_at"]
+        ).replace("Z", "+00:00")
+        equivalent_offset_manifest["finished_at"] = str(
+            peer_manifest["finished_at"]
+        ).replace("Z", "+00:00")
+        sample_manifest.write_text(
+            json.dumps(equivalent_offset_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        equivalent_offset_errors = check_stable_release_evidence(stable_root)
+        if not any(
+            "reuses a global timestamp pair" in error
+            for error in equivalent_offset_errors
+        ):
+            failures.append(
+                "stable gate accepted duplicate instants with equivalent offsets"
+            )
+        sample_manifest.write_bytes(valid_manifest_bytes)
+        sample_prompt.write_bytes(valid_prompt_bytes + b"tampered\n")
+        prompt_manifest = _strict_json_bytes(valid_manifest_bytes, "self-test run manifest")
+        prompt_manifest["raw_prompt_sha256"] = _sha256_path(sample_prompt)
+        sample_manifest.write_text(
+            json.dumps(prompt_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        noncanonical_prompt = check_stable_release_evidence(stable_root)
+        if not any("raw prompt is not the canonical" in error for error in noncanonical_prompt):
+            failures.append("stable gate accepted a noncanonical raw prompt")
+        sample_prompt.write_bytes(valid_prompt_bytes)
+        sample_manifest.write_bytes(valid_manifest_bytes)
+
+        sample_ledger = sample_task_dir / "evidence-ledger.csv"
+        valid_ledger_bytes = sample_ledger.read_bytes()
+        sample_ledger.write_text("source_url\n", encoding="utf-8")
+        ledger_manifest = _strict_json_bytes(valid_manifest_bytes, "self-test run manifest")
+        ledger_manifest["ledger_sha256"] = _sha256_path(sample_ledger)
+        sample_manifest.write_text(
+            json.dumps(ledger_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        noncanonical_ledger = check_stable_release_evidence(stable_root)
+        if not any("exact canonical 23-column header" in error for error in noncanonical_ledger):
+            failures.append("stable gate accepted a noncanonical evidence ledger")
+        sample_ledger.write_bytes(valid_ledger_bytes)
+        sample_manifest.write_bytes(valid_manifest_bytes)
+
+        unexpected_artifact = sample_task_dir / "unexpected.txt"
+        unexpected_artifact.write_text("not allowed\n", encoding="utf-8")
+        extra_artifact = check_stable_release_evidence(stable_root)
+        if not any("artifacts must be exactly" in error for error in extra_artifact):
+            failures.append("stable gate accepted an extra raw-run artifact")
+        unexpected_artifact.unlink()
+
+        sample_score_path = score_paths[("tier1", "candidate")]
+        valid_score_bytes = sample_score_path.read_bytes()
+        threshold_score = _strict_json_bytes(valid_score_bytes, "self-test score")
+        threshold_score["pass_threshold"] = 0.0
+        sample_score_path.write_text(
+            json.dumps(threshold_score, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        write_promotion_and_signoff()
+        threshold_bypass = check_stable_release_evidence(stable_root)
+        if not any("pass_threshold must be frozen" in error for error in threshold_bypass):
+            failures.append("stable gate accepted a score-controlled pass threshold")
+        sample_score_path.write_bytes(valid_score_bytes)
+        write_promotion_and_signoff()
+
+        late_score = _strict_json_bytes(valid_score_bytes, "self-test score")
+        late_score["created_at"] = "2026-07-09T13:00:00Z"
+        sample_score_path.write_text(
+            json.dumps(late_score, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        write_promotion_and_signoff()
+        late_score_errors = check_stable_release_evidence(stable_root)
+        if not any(
+            "must not follow promotion generated_at" in error
+            for error in late_score_errors
+        ):
+            failures.append("stable gate accepted a score created after promotion")
+
+        early_score = _strict_json_bytes(valid_score_bytes, "self-test score")
+        early_score["created_at"] = "2026-07-09T00:00:00Z"
+        sample_score_path.write_text(
+            json.dumps(early_score, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        write_promotion_and_signoff()
+        early_score_errors = check_stable_release_evidence(stable_root)
+        if not any("finishes after score created_at" in error for error in early_score_errors):
+            failures.append("stable gate accepted a score created before its raw runs finished")
+        sample_score_path.write_bytes(valid_score_bytes)
+        write_promotion_and_signoff()
 
         # Post-RC path allowlist: metadata/evidence only; code drift must fail.
         allowed_only = validate_post_rc_changed_paths(
@@ -3339,6 +4313,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Bind stable promotion evidence to the annotated, verified RC tag object SHA.",
     )
     parser.add_argument(
+        "--baseline-tag-object",
+        help="Bind stable promotion evidence to the frozen annotated baseline tag object SHA.",
+    )
+    parser.add_argument(
         "--validate-post-rc-paths",
         metavar="PATHS_FILE",
         help=(
@@ -3443,6 +4421,7 @@ def main(argv: list[str] | None = None) -> int:
         candidate_commit=args.candidate_commit,
         baseline_commit=args.baseline_commit,
         candidate_tag_object=args.candidate_tag_object,
+        baseline_tag_object=args.baseline_tag_object,
     )
     if errors:
         print("check_contract FAILED:", file=sys.stderr)
