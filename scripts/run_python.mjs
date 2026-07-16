@@ -4,8 +4,10 @@ const scriptArgs = process.argv.slice(2);
 const configured = [process.env.D_RESEARCH_PYTHON, process.env.PYTHON]
   .filter((value) => typeof value === 'string' && value.trim() !== '')
   .map((value) => [value.trim(), []]);
+// Prefer the PATH interpreter selected by a venv or setup-python. The Windows
+// py launcher may otherwise select a newer global runtime than the requested CI matrix.
 const defaults = process.platform === 'win32'
-  ? [['py', ['-3']], ['python', []], ['python3', []]]
+  ? [['python', []], ['py', ['-3']], ['python3', []]]
   : [['python3', []], ['python', []]];
 const candidates = [];
 

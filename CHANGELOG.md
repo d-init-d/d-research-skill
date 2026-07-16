@@ -86,6 +86,11 @@ schema and read-only research contract are unchanged.
 - Crossref and DataCite enrichment now preserves structured personal names,
   editors, and organizational contributors instead of flattening corporate
   identities into ambiguous strings.
+- Stable-evidence path derivation now resolves both sides before computing
+  repository-relative paths, preventing Windows 8.3 temporary-directory aliases
+  from crashing contract validation.
+- The Windows Python launcher now prefers the active PATH interpreter before the
+  global `py` launcher, so virtual environments and CI matrix versions are honored.
 
 ## [3.2.0] - 2026-07-13
 

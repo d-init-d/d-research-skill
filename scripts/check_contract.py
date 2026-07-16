@@ -1869,7 +1869,11 @@ def check_stable_release_evidence(
                     runs_path_value=tier_entry.get(f"{side}_runs_path"),
                     expected_runs_path=(
                         evidence_dir / "runs" / f"{tier_name}-{side}"
-                    ).relative_to(root).as_posix(),
+                    )
+                    # Windows may spell the same temporary root as RUNNER~1
+                    # before resolve() and runneradmin afterwards.
+                    .relative_to(root.resolve())
+                    .as_posix(),
                     label=f"stable promotion {tier_name}.{side}_runs_path",
                     harness=harness,
                     bench=bench,

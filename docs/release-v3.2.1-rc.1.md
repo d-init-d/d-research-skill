@@ -52,6 +52,10 @@ See [semantic retrieval](../references/semantic-retrieval.md),
   behavior without model downloads or network access.
 - The development and CI Ruff pin is synchronized at `0.15.21`, and the
   contract check rejects future pin drift.
+- Windows evidence paths normalize both the repository root and resolved
+  artifacts before containment checks, including 8.3 temporary-directory aliases.
+- The Node-to-Python launcher prefers the active PATH interpreter before the
+  global Windows `py` launcher, preserving virtual-environment and CI matrix intent.
 - The source-archive workflow now derives the dogfood baseline from the frozen
   route manifest, allowing each release line to bind the correct stable tag.
 - The workflow verifies baseline-to-candidate ancestry before accepting any
