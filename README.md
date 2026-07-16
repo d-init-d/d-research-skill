@@ -87,14 +87,14 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.2.1-rc.1 upgrades semantic retrieval, rich citation export, and language
+v3.2.1-rc.2 upgrades semantic retrieval, rich citation export, and language
 detection to production-capable optional paths. Semantic retrieval now prefers
 local sentence-transformers and uses deterministic built-in lexical retrieval
 when the optional model backend is unavailable; citation export
 supports validated article, book, and conference metadata; language detection
 can use deterministic local `langdetect`. This is a release candidate governed
 by live dogfood, verified-tag, exact-SHA CI, and independent-review gates. See
-[`docs/release-v3.2.1-rc.1.md`](docs/release-v3.2.1-rc.1.md).
+[`docs/release-v3.2.1-rc.2.md`](docs/release-v3.2.1-rc.2.md).
 
 v3.2.0 is the production-ready schema-2.0 release. It includes immutable
 approval fingerprints, portable output locking, canonical checklist IDs,
@@ -357,7 +357,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── release-v3.2.0-rc.2.md            # second RC hardening record
 │   ├── release-v3.2.0-rc.3.md            # final RC scope and ship gates
 │   ├── release-v3.2.0.md                 # stable release notes
-│   ├── release-v3.2.1-rc.1.md            # production-capable optional helper RC
+│   ├── release-v3.2.1-rc.1.md            # initial production-capable optional helper RC
+│   ├── release-v3.2.1-rc.2.md            # attestation-hardened release candidate
 │   └── release-v3.2.1.md                 # stable promotion note (candidate-frozen path)
 │
 ├── .github/

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.2.1-rc.2] - 2026-07-16
+
+Release-assurance correction for the v3.2.1 candidate. Skill behavior,
+dependencies, routes, and evidence-ledger schemas are unchanged from rc.1.
+
+### Fixed
+
+- Fixed the default-branch provenance workflow to read the `workflow_run`
+  webhook from GitHub Actions' guaranteed `GITHUB_EVENT_PATH` environment
+  variable. The prior expression-derived alias could be empty in a live run,
+  preventing artifact selection before independent checksum, signed-tag,
+  archive-reproduction, and provenance checks.
+- Added a dynamic contract assertion and mutation self-test that reject the
+  expression-derived alias and require both webhook validation stages to use
+  `GITHUB_EVENT_PATH` directly.
+
+### Changed
+
+- Rebound release metadata and the frozen live-evidence promotion contract to
+  `v3.2.1-rc.2`; stable v3.2.1 must dogfood and promote this exact candidate.
+
 ## [3.2.1-rc.1] - 2026-07-15
 
 Production-hardening release candidate that upgrades three optional helper
@@ -981,7 +1002,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.1-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.1-rc.2...HEAD
+[3.2.1-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.2
 [3.2.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.1
 [3.2.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0
 [3.2.0-rc.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.3
