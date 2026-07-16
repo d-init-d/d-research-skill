@@ -7,6 +7,16 @@ retrieval, bibliographic-export, and language-detection upgrades frozen in
 v3.2.1-rc.2. The stable tree promotes that exact candidate without executable-
 code, dependency, workflow, route, or package-path drift.
 
+## Maintainer-directed publication
+
+The maintainer explicitly directed publication after the completed technical
+test and live-dogfood runs without waiting for the independent-review gate.
+No reviewer approval or `reviewer-signoff.json` is claimed or manufactured.
+As a result, this GitHub Release is a maintainer-published build rather than a
+contract-compliant `live_evidence` promotion. The dogfood artifacts remain
+included for audit, but independent review was not treated as a publication
+blocker.
+
 ## Highlights
 
 - Semantic retrieval now defaults to an offline `auto` path that prefers an
@@ -91,12 +101,13 @@ configuration, and evaluator binding across baseline and candidate runs; zero
 failed or not-run tasks; frozen regression thresholds; and an independent
 review of live-run origin, raw artifacts, and score recomputation.
 
-The tag-triggered archive workflow is read-only. GitHub provenance is issued
-only by the default-branch verifier after it independently revalidates the
-signed tag, artifact metadata, checksum, reproduced archive, exact-SHA CI, and
-repository-bound review. The published GitHub Release records the stable tag,
-archive, checksum, attestation, and verification results that necessarily
-exist only after the stable commit and tag.
+The tag-triggered archive workflow remains read-only. Under the normal
+contract, GitHub provenance is issued only after the default-branch verifier
+revalidates the signed tag, artifact metadata, checksum, reproduced archive,
+exact-SHA CI, and repository-bound review. This maintainer-directed publication
+claims only the signed stable tag, the tests reported above, and the included
+raw evidence; it does not claim an independent reviewer sign-off or a green
+stable-promotion attestation.
 
 See [`release-v3.2.1-rc.2.md`](release-v3.2.1-rc.2.md) for the complete frozen
 candidate scope and promotion contract.

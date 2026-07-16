@@ -46,6 +46,10 @@ executable-code, dependency, workflow, route, or package-path drift.
   unchanged, and neither tier contains a contract-defined regression or safety
   regression; per-task metric movement remains preserved in the score
   artifacts.
+- At the maintainer's explicit direction, publication proceeded without an
+  independent GitHub review or `reviewer-signoff.json`. No such sign-off or
+  green stable-promotion attestation is claimed; this is a maintainer-published
+  release rather than a contract-compliant `live_evidence` promotion.
 
 ## [3.2.1-rc.2] - 2026-07-16
 
