@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Citation export utility with BibTeX/RIS export and DOI enrichment."""
+"""Citation export with rich JSON sidecars, legacy fallbacks, and DOI enrichment."""
 
 import argparse
 import csv
@@ -14,7 +14,7 @@ import tempfile
 import urllib.error
 import urllib.request
 import urllib.parse
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from resource_limits import (
     ResourceLimitError,
@@ -31,6 +31,32 @@ CSV_COLUMNS = [
     'evidence', 'quote_or_anchor', 'contradiction', 'confidence', 'notes'
 ]
 
+# Bibliographic metadata stays outside the canonical evidence-ledger schema.
+CITATION_METADATA_FIELDS = {
+    "accessed", "author", "authors", "booktitle", "citation_type",
+    "container_title", "date_accessed", "doi", "edition", "editor",
+    "editors", "isbn", "issue", "journal", "number", "pages",
+    "proceedings", "provider_type", "publisher", "resource_type", "title",
+    "type", "url", "volume", "year",
+}
+
+BIBTEX_TYPE_ALIASES = {
+    "article": "article",
+    "data-paper": "article",
+    "datapaper": "article",
+    "journal-article": "article",
+    "journalarticle": "article",
+    "book": "book",
+    "edited-book": "book",
+    "monograph": "book",
+    "reference-book": "book",
+    "conference": "inproceedings",
+    "conference-paper": "inproceedings",
+    "conferencepaper": "inproceedings",
+    "inproceedings": "inproceedings",
+    "proceedings-article": "inproceedings",
+}
+
 
 def read_csv(file_path: str) -> List[Dict[str, str]]:
     """Read CSV file and return list of row dictionaries."""
@@ -42,15 +68,15 @@ def read_csv(file_path: str) -> List[Dict[str, str]]:
     return rows
 
 
-def get_unique_sources(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def get_unique_sources(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Extract unique sources by DOI, then URL, then title/year metadata."""
     seen = set()
     sources = []
     for row in rows:
-        doi = _normalize_doi(row.get("doi", "")).lower()
-        title = _single_line(row.get("source_title", "")).strip()
-        url = _single_line(row.get("source_url", "")).strip()
-        year = _year_only(row.get("date_published", ""))
+        doi = _source_doi(row).lower()
+        title = _source_title(row)
+        url = _source_url(row)
+        year = _source_year(row)
         if doi:
             key = ("doi", doi)
         elif url:
@@ -70,6 +96,58 @@ def _single_line(value: object) -> str:
         " ",
         str(value or ""),
     )
+
+
+def _first_text(source: Dict[str, Any], *keys: str) -> str:
+    """Return the first non-empty scalar value for the requested keys."""
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, (dict, list, tuple)):
+            continue
+        text = _single_line(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _source_title(source: Dict[str, Any]) -> str:
+    return _first_text(source, "title", "source_title")
+
+
+def _source_url(source: Dict[str, Any]) -> str:
+    return _first_text(source, "url", "source_url")
+
+
+def _source_doi(source: Dict[str, Any]) -> str:
+    """Return an explicit DOI without changing legacy URL-based identities."""
+    return _normalize_doi(_first_text(source, "doi", "DOI"))
+
+
+def _identity_doi(source: Dict[str, Any]) -> str:
+    doi = _source_doi(source)
+    if doi:
+        return doi
+    url = _source_url(source)
+    if url.lower().startswith(("https://doi.org/", "http://doi.org/")):
+        return _normalize_doi(url)
+    return ""
+
+
+def _reject_conflicting_doi_url(source: Dict[str, Any]) -> None:
+    """Reject metadata whose explicit DOI disagrees with its DOI resolver URL."""
+    explicit = _source_doi(source)
+    url = _source_url(source)
+    url_doi = ""
+    if url.lower().startswith(("https://doi.org/", "http://doi.org/")):
+        url_doi = _normalize_doi(url)
+    if explicit and url_doi and explicit.casefold() != url_doi.casefold():
+        raise ValueError(
+            f"Citation metadata DOI {explicit!r} conflicts with resolver URL DOI {url_doi!r}"
+        )
+
+
+def _source_year(source: Dict[str, Any]) -> str:
+    return _year_only(_first_text(source, "year", "date_published"))
 
 
 def _bibtex_escape(value: object) -> str:
@@ -136,6 +214,234 @@ def _year_only(date_pub: object) -> str:
     return f"{year:04d}"
 
 
+def _citation_identities(source: Dict[str, Any]) -> List[Tuple[str, ...]]:
+    """Return strong-to-weak identities used to match a metadata sidecar."""
+    _reject_conflicting_doi_url(source)
+    identities: List[Tuple[str, ...]] = []
+    doi = _identity_doi(source).lower()
+    url = _source_url(source)
+    title = re.sub(r"\s+", " ", _source_title(source)).strip().casefold()
+    year = _source_year(source)
+    if doi:
+        identities.append(("doi", doi))
+    if url:
+        identities.append(("url", url))
+    if title and year:
+        identities.append(("title_year", title, year))
+    return identities
+
+
+def load_citation_metadata(paths: Optional[List[str]]) -> List[Dict[str, Any]]:
+    """Load JSON sidecars, each containing one object or an object array."""
+    def reject_duplicate_keys(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate key {key!r}")
+            result[key] = value
+        return result
+
+    def reject_nonfinite(value: str) -> None:
+        raise ValueError(f"non-finite JSON number {value!r}")
+
+    records: List[Dict[str, Any]] = []
+    seen_payloads = set()
+    for path in paths or []:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(
+                    f,
+                    object_pairs_hook=reject_duplicate_keys,
+                    parse_constant=reject_nonfinite,
+                )
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"Cannot read citation metadata {path}: {exc}") from exc
+        if isinstance(payload, dict):
+            items = [payload]
+        elif isinstance(payload, list):
+            items = payload
+        else:
+            raise ValueError(f"Citation metadata {path} must contain an object or array")
+        for position, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"Citation metadata {path} item {position} must be an object")
+            canonical = json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            if canonical not in seen_payloads:
+                seen_payloads.add(canonical)
+                records.append(item)
+    return records
+
+
+def merge_citation_metadata(
+    rows: List[Dict[str, str]], metadata_records: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Overlay matched sidecar fields without mutating ledger rows."""
+    if not metadata_records:
+        return [dict(row) for row in rows]
+    identity_index: Dict[Tuple[str, ...], List[int]] = {}
+    for index, record in enumerate(metadata_records):
+        identities = _citation_identities(record)
+        if not identities:
+            raise ValueError(
+                f"Citation metadata record {index + 1} needs DOI, URL, or title and year"
+            )
+        for identity in identities:
+            previous = identity_index.setdefault(identity, [])
+            if (
+                identity[0] in {"doi", "url"}
+                and previous
+                and any(metadata_records[item] != record for item in previous)
+            ):
+                raise ValueError(f"Conflicting citation metadata for {':'.join(identity)}")
+            previous.append(index)
+
+    merged_rows: List[Dict[str, Any]] = []
+    used_records = set()
+    for row in rows:
+        strong_matches = set()
+        weak_matches = set()
+        for identity in _citation_identities(row):
+            matches = identity_index.get(identity, [])
+            (strong_matches if identity[0] in {"doi", "url"} else weak_matches).update(matches)
+        if len(strong_matches) > 1:
+            label = _source_title(row) or _source_url(row) or "untitled source"
+            raise ValueError(f"Ledger source {label!r} matches conflicting metadata records")
+        if not strong_matches and len(weak_matches) > 1:
+            label = _source_title(row) or "untitled source"
+            raise ValueError(f"Ledger source {label!r} has ambiguous title/year metadata")
+        merged: Dict[str, Any] = dict(row)
+        selected = strong_matches or weak_matches
+        if selected:
+            metadata_index = next(iter(selected))
+            used_records.add(metadata_index)
+            metadata_record = metadata_records[metadata_index]
+            accessed = metadata_record.get("accessed")
+            date_accessed = metadata_record.get("date_accessed")
+            if (
+                accessed not in (None, "")
+                and date_accessed not in (None, "")
+                and _single_line(accessed).strip() != _single_line(date_accessed).strip()
+            ):
+                raise ValueError(
+                    "Citation metadata accessed and date_accessed values conflict"
+                )
+            for key in CITATION_METADATA_FIELDS:
+                if key in {"accessed", "date_accessed"}:
+                    continue
+                value = metadata_record.get(key)
+                if value is not None and value != "" and value != []:
+                    merged[key] = value
+            access_value = date_accessed if date_accessed not in (None, "") else accessed
+            if access_value not in (None, ""):
+                merged["date_accessed"] = access_value
+        merged_rows.append(merged)
+    for index in sorted(set(range(len(metadata_records))) - used_records):
+        print(
+            f"warning: citation metadata record {index + 1} did not match any ledger source",
+            file=sys.stderr,
+        )
+    return merged_rows
+
+
+def _person_name(person: object) -> Tuple[str, bool]:
+    """Return a normalized BibTeX name and whether it is a literal entity."""
+    if isinstance(person, dict):
+        literal = _single_line(person.get("literal") or "").strip()
+        if literal:
+            return literal, True
+        family = _single_line(person.get("family") or "").strip()
+        given = _single_line(person.get("given") or "").strip()
+        if family and given:
+            return f"{family}, {given}", False
+        return (
+            family or given or _single_line(person.get("name") or "").strip(),
+            False,
+        )
+    return _single_line(person).strip(), False
+
+
+def _people(source: Dict[str, Any], singular: str, plural: str) -> List[Tuple[str, bool]]:
+    """Return normalized names while preserving explicit corporate authors."""
+    value = source.get(plural)
+    if value is None or value == "" or value == []:
+        value = source.get(singular)
+    if isinstance(value, (list, tuple)):
+        people = [_person_name(person) for person in value]
+    else:
+        text = _single_line(value).strip()
+        names = [part.strip() for part in text.split(";")] if ";" in text else [text]
+        people = [(name, False) for name in names]
+    return [(name, literal) for name, literal in people if name]
+
+
+def _people_value(source: Dict[str, Any], singular: str, plural: str) -> str:
+    return " and ".join(name for name, _literal in _people(source, singular, plural))
+
+
+def _append_people_field(
+    lines: List[str],
+    name: str,
+    source: Dict[str, Any],
+    singular: str,
+    plural: str,
+) -> None:
+    """Append a person-list field with braces around literal organizations."""
+    encoded = []
+    for person, literal in _people(source, singular, plural):
+        escaped = _bibtex_escape(person)
+        encoded.append("{" + escaped + "}" if literal else escaped)
+    if encoded:
+        lines.append(f"  {name} = {{{' and '.join(encoded)}}},")
+
+
+def _bibtex_entry_type(source: Dict[str, Any]) -> str:
+    """Return a conservative BibTeX type with all required fields present."""
+    explicit = _first_text(source, "citation_type", "type", "provider_type", "resource_type")
+    if explicit:
+        normalized = re.sub(r"[\s_]+", "-", explicit.casefold()).strip("-")
+        candidate = BIBTEX_TYPE_ALIASES.get(normalized, "misc")
+    elif _first_text(source, "booktitle", "proceedings"):
+        candidate = "inproceedings"
+    elif _first_text(source, "journal", "container_title"):
+        candidate = "article"
+    elif _first_text(source, "isbn") and _first_text(source, "publisher"):
+        candidate = "book"
+    else:
+        candidate = "misc"
+
+    if candidate == "misc":
+        return candidate
+
+    title = _source_title(source)
+    year = _source_year(source)
+    authors = _people_value(source, "author", "authors")
+    editors = _people_value(source, "editor", "editors")
+    if candidate == "article":
+        container = _first_text(source, "journal", "container_title")
+        return candidate if title and year and authors and container else "misc"
+    if candidate == "book":
+        publisher = _first_text(source, "publisher")
+        return candidate if title and year and publisher and (authors or editors) else "misc"
+    if candidate == "inproceedings":
+        booktitle = _first_text(
+            source, "booktitle", "proceedings", "container_title", "journal"
+        )
+        return candidate if title and year and authors and booktitle else "misc"
+    return "misc"
+
+
+def _append_literal_field(lines: List[str], name: str, value: object) -> None:
+    text = _single_line(value).strip()
+    if text:
+        lines.append(f"  {name} = {{{_bibtex_escape(text)}}},")
+
+
+def _append_verbatim_field(lines: List[str], name: str, value: object) -> None:
+    text = _single_line(value).strip()
+    if text:
+        lines.append(f"  {name} = {{{_bibtex_verbatim(text)}}},")
+
+
 RIS_TYPE_MAP = {
     "paper": "JOUR",
     "official": "ELEC",
@@ -150,38 +456,64 @@ RIS_TYPE_MAP = {
 }
 
 
-def format_bibtex(source: Dict[str, str], citation_key: str) -> str:
-    """Format a source as BibTeX @misc entry."""
-    lines = [f"@misc{{{citation_key},"]
+def format_bibtex(source: Dict[str, Any], citation_key: str) -> str:
+    """Format a rich BibTeX entry or the backward-compatible @misc fallback."""
+    _reject_conflicting_doi_url(source)
+    entry_type = _bibtex_entry_type(source)
+    lines = [f"@{entry_type}{{{citation_key},"]
 
-    title = _single_line(source.get("source_title", "")).strip()
+    authors = _people_value(source, "author", "authors")
+    editors = _people_value(source, "editor", "editors")
+    if authors:
+        _append_people_field(lines, "author", source, "author", "authors")
+    if entry_type == "book" and editors:
+        _append_people_field(lines, "editor", source, "editor", "editors")
+
+    title = _source_title(source)
     if title:
         # The inner braces preserve title capitalization through BibTeX.
         lines.append("  title = {{" + _bibtex_escape(title) + "}},")
 
-    url = _bibtex_verbatim(source.get("source_url", "")).strip()
-    if url:
-        lines.append(f"  url = {{{url}}},")
+    if entry_type == "article":
+        _append_literal_field(lines, "journal", _first_text(source, "journal", "container_title"))
+        _append_literal_field(lines, "volume", _first_text(source, "volume"))
+        _append_literal_field(lines, "number", _first_text(source, "issue", "number"))
+        _append_literal_field(lines, "pages", _first_text(source, "pages"))
+    elif entry_type == "book":
+        _append_literal_field(lines, "publisher", _first_text(source, "publisher"))
+        _append_literal_field(lines, "edition", _first_text(source, "edition"))
+        _append_literal_field(lines, "isbn", _first_text(source, "isbn"))
+    elif entry_type == "inproceedings":
+        booktitle = _first_text(
+            source, "booktitle", "proceedings", "container_title", "journal"
+        )
+        _append_literal_field(lines, "booktitle", booktitle)
+        _append_literal_field(lines, "publisher", _first_text(source, "publisher"))
+        _append_literal_field(lines, "volume", _first_text(source, "volume"))
+        _append_literal_field(lines, "number", _first_text(source, "issue", "number"))
+        _append_literal_field(lines, "pages", _first_text(source, "pages"))
 
-    doi = _normalize_doi(source.get("doi", ""))
-    if doi:
-        lines.append(f"  doi = {{{_bibtex_verbatim(doi)}}},")
-
-    source_type = _single_line(source.get("source_type", "")).strip()
-    if source_type:
-        lines.append(f"  note = {{{_bibtex_escape(source_type)}}},")
-
-    year = _year_only(source.get("date_published", ""))
-    if year:
-        lines.append(f"  year = {{{year}}},")
-
-    date_acc = _single_line(source.get("date_accessed", "")).strip()
-    if date_acc:
-        lines.append(f"  howpublished = {{{_bibtex_escape('Accessed: ' + date_acc)}}},")
-
-    access_method = _single_line(source.get("access_method", "")).strip()
-    if access_method:
-        lines.append(f"  organization = {{{_bibtex_escape(access_method)}}},")
+    year = _source_year(source)
+    if entry_type == "misc":
+        _append_verbatim_field(lines, "url", _source_url(source))
+        _append_verbatim_field(lines, "doi", _source_doi(source))
+        _append_literal_field(lines, "note", source.get("source_type", ""))
+        if year:
+            lines.append(f"  year = {{{year}}},")
+        date_acc = _first_text(source, "date_accessed", "accessed")
+        if date_acc:
+            _append_literal_field(lines, "howpublished", "Accessed: " + date_acc)
+        _append_literal_field(lines, "organization", source.get("access_method", ""))
+    else:
+        if year:
+            lines.append(f"  year = {{{year}}},")
+        _append_verbatim_field(lines, "doi", _source_doi(source))
+        _append_verbatim_field(lines, "url", _source_url(source))
+        _append_literal_field(
+            lines,
+            "urldate",
+            _first_text(source, "date_accessed", "accessed"),
+        )
 
     if lines[-1].endswith(","):
         lines[-1] = lines[-1][:-1]
@@ -190,7 +522,7 @@ def format_bibtex(source: Dict[str, str], citation_key: str) -> str:
     return "\n".join(lines)
 
 
-def format_ris(source: Dict[str, str]) -> str:
+def format_ris(source: Dict[str, Any]) -> str:
     """Format a source as RIS entry (exactly one TY field)."""
     lines: List[str] = []
     source_type = _ris_value(source.get("source_type", "")).lower()
@@ -215,7 +547,7 @@ def format_ris(source: Dict[str, str]) -> str:
     if date_pub:
         lines.append(f"DA  - {date_pub}")
 
-    date_acc = _ris_value(source.get("date_accessed", ""))
+    date_acc = _ris_value(_first_text(source, "date_accessed", "accessed"))
     if date_acc:
         lines.append(f"Y2  - {date_acc}")
 
@@ -229,15 +561,15 @@ def format_ris(source: Dict[str, str]) -> str:
 
 
 def generate_citation_key(
-    source: Dict[str, str], index: int, used: Optional[set] = None
+    source: Dict[str, Any], index: int, used: Optional[set] = None
 ) -> str:
     """Generate a source-stable ASCII key using canonical identity + SHA-256."""
     used = used if used is not None else set()
     _ = index  # retained for CLI/API compatibility; keys do not depend on order
-    doi = _normalize_doi(source.get("doi") or "").lower()
-    url = _single_line(source.get("source_url") or "").strip()
-    title = _single_line(source.get("source_title") or "").strip()
-    year = _year_only(source.get("date_published", ""))
+    doi = _source_doi(source).lower()
+    url = _source_url(source)
+    title = _source_title(source)
+    year = _source_year(source)
     words = re.sub(r"[^A-Za-z0-9 ]+", " ", title).split()
 
     if doi:
@@ -281,10 +613,16 @@ def generate_citation_key(
     return key
 
 
-def export_csv_to_format(file_path: str, format_type: str, output_path: str) -> None:
+def export_csv_to_format(
+    file_path: str,
+    format_type: str,
+    output_path: str,
+    metadata_paths: Optional[List[str]] = None,
+) -> None:
     """Export CSV to specified format."""
     rows = read_csv(file_path)
-    sources = get_unique_sources(rows)
+    metadata_records = load_citation_metadata(metadata_paths)
+    sources = get_unique_sources(merge_citation_metadata(rows, metadata_records))
 
     if not sources:
         raise ValueError("No valid sources found in CSV")
@@ -317,7 +655,53 @@ def _normalize_doi(doi: object) -> str:
     return doi.strip()
 
 
-def _enrich_doi_crossref(doi: str) -> Optional[Dict[str, str]]:
+def _crossref_people(items: object) -> List[object]:
+    """Preserve Crossref personal and name-only corporate contributors."""
+    people: List[object] = []
+    if not isinstance(items, list):
+        return people
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        literal = _single_line(item.get("name", "")).strip()
+        if literal:
+            people.append({"literal": literal})
+            continue
+        family = _single_line(item.get("family", "")).strip()
+        given = _single_line(item.get("given", "")).strip()
+        if family:
+            person: Dict[str, str] = {"family": family}
+            if given:
+                person["given"] = given
+            people.append(person)
+    return people
+
+
+def _datacite_people(items: object) -> List[object]:
+    """Preserve DataCite organizational names and structured personal names."""
+    people: List[object] = []
+    if not isinstance(items, list):
+        return people
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = _single_line(item.get("name", "")).strip()
+        if item.get("nameType") == "Organizational" and name:
+            people.append({"literal": name})
+            continue
+        family = _single_line(item.get("familyName", "")).strip()
+        given = _single_line(item.get("givenName", "")).strip()
+        if family:
+            person: Dict[str, str] = {"family": family}
+            if given:
+                person["given"] = given
+            people.append(person)
+        elif name:
+            people.append(name)
+    return people
+
+
+def _enrich_doi_crossref(doi: str) -> Optional[Dict[str, Any]]:
     """Resolve DOI metadata via Crossref. Returns None on miss/error."""
     url = f"https://api.crossref.org/works/{urllib.parse.quote(doi)}"
     try:
@@ -335,20 +719,17 @@ def _enrich_doi_crossref(doi: str) -> Optional[Dict[str, str]]:
         if "message" not in data:
             return None
         work = data["message"]
-        result: Dict[str, str] = {"resolver": "crossref", "doi": doi}
+        result: Dict[str, Any] = {"resolver": "crossref", "doi": doi}
         if "title" in work and work["title"]:
             result["title"] = (
                 work["title"][0] if isinstance(work["title"], list) else work["title"]
             )
-        if "author" in work:
-            authors = []
-            for author in work["author"]:
-                if "given" in author and "family" in author:
-                    authors.append(f"{author['given']} {author['family']}")
-                elif "family" in author:
-                    authors.append(author["family"])
-            if authors:
-                result["authors"] = "; ".join(authors)
+        authors = _crossref_people(work.get("author"))
+        if authors:
+            result["authors"] = authors
+        editors = _crossref_people(work.get("editor"))
+        if editors:
+            result["editors"] = editors
         year = None
         for date_key in ("published-print", "published-online", "created"):
             if date_key in work:
@@ -360,14 +741,23 @@ def _enrich_doi_crossref(doi: str) -> Optional[Dict[str, str]]:
             result["year"] = year
         if "publisher" in work:
             result["publisher"] = work["publisher"]
+        provider_type = _single_line(work.get("type", "")).strip()
+        if provider_type:
+            result["type"] = provider_type
         if "container-title" in work and work["container-title"]:
-            result["journal"] = work["container-title"][0]
+            container_title = work["container-title"][0]
+            result["journal"] = container_title
+            if BIBTEX_TYPE_ALIASES.get(provider_type) == "inproceedings":
+                result["booktitle"] = container_title
         if "volume" in work:
             result["volume"] = work["volume"]
         if "issue" in work:
             result["issue"] = work["issue"]
         if "page" in work:
             result["pages"] = work["page"]
+        if work.get("ISBN"):
+            isbn = work["ISBN"][0] if isinstance(work["ISBN"], list) else work["ISBN"]
+            result["isbn"] = str(isbn)
         if "URL" in work:
             result["url"] = work["URL"]
         return result
@@ -383,7 +773,7 @@ def _enrich_doi_crossref(doi: str) -> Optional[Dict[str, str]]:
         raise SystemExit(1) from e
 
 
-def _enrich_doi_datacite(doi: str) -> Optional[Dict[str, str]]:
+def _enrich_doi_datacite(doi: str) -> Optional[Dict[str, Any]]:
     """Resolve DOI metadata via DataCite. Returns None on miss/error."""
     url = f"https://api.datacite.org/dois/{urllib.parse.quote(doi, safe='')}"
     try:
@@ -403,8 +793,14 @@ def _enrich_doi_datacite(doi: str) -> Optional[Dict[str, str]]:
             return None
         titles = attrs.get("titles") or []
         title = titles[0].get("title", "") if titles else ""
-        creators = [c.get("name", "") for c in (attrs.get("creators") or []) if c.get("name")]
-        result: Dict[str, str] = {
+        creators = _datacite_people(attrs.get("creators"))
+        editors = _datacite_people([
+            contributor
+            for contributor in (attrs.get("contributors") or [])
+            if isinstance(contributor, dict)
+            and contributor.get("contributorType") == "Editor"
+        ])
+        result: Dict[str, Any] = {
             "resolver": "datacite",
             "doi": doi,
             "url": f"https://doi.org/{doi}",
@@ -412,11 +808,18 @@ def _enrich_doi_datacite(doi: str) -> Optional[Dict[str, str]]:
         if title:
             result["title"] = title
         if creators:
-            result["authors"] = "; ".join(creators)
+            result["authors"] = creators
+        if editors:
+            result["editors"] = editors
         if attrs.get("publicationYear"):
             result["year"] = str(attrs["publicationYear"])
         if attrs.get("publisher"):
             result["publisher"] = attrs["publisher"]
+        resource_type = _single_line(
+            (attrs.get("types") or {}).get("resourceTypeGeneral", "")
+        ).strip()
+        if resource_type:
+            result["type"] = resource_type
         return result
     except ResourceLimitError as exc:
         emit_blocker_and_exit(exc)
@@ -425,7 +828,7 @@ def _enrich_doi_datacite(doi: str) -> Optional[Dict[str, str]]:
         return None
 
 
-def enrich_doi(doi: str) -> Optional[Dict[str, str]]:
+def enrich_doi(doi: str) -> Optional[Dict[str, Any]]:
     """Enrich a DOI via Crossref, falling back to DataCite on failure/miss."""
     doi = _normalize_doi(doi)
     if not doi:
@@ -444,9 +847,10 @@ def _parse_bibtex_entry(text: str) -> Dict[str, str]:
     import re
 
     fields: Dict[str, str] = {}
-    m = re.search(r"@\w+\{([^,]+),", text)
+    m = re.search(r"@(\w+)\{([^,]+),", text)
     if m:
-        fields["_key"] = m.group(1)
+        fields["_type"] = m.group(1).lower()
+        fields["_key"] = m.group(2)
     for m in re.finditer(r"(\w+)\s*=\s*\{", text):
         name = m.group(1)
         i = m.end()
@@ -502,6 +906,262 @@ def _parse_ris_entry(text: str) -> Dict[str, List[str]]:
         tag = tag.strip()
         fields.setdefault(tag, []).append(val)
     return fields
+
+
+def _run_sidecar_self_tests(temp_dir: str) -> None:
+    """Exercise rich types, matching conflicts, and structural injection."""
+    def ledger_row(claim_id: str, title: str, url: str, year: str) -> Dict[str, str]:
+        row = {field: "" for field in CSV_COLUMNS}
+        row.update({
+            "claim_id": claim_id,
+            "claim": title,
+            "source_title": title,
+            "source_url": url,
+            "source_type": "paper",
+            "date_published": year,
+            "date_accessed": "2026-07-15",
+            "access_method": "citation_resolver",
+            "contradiction": "none",
+            "confidence": "high",
+        })
+        return row
+
+    rich_csv = os.path.join(temp_dir, "rich.csv")
+    rich_metadata = os.path.join(temp_dir, "rich-metadata.json")
+    rich_bibtex = os.path.join(temp_dir, "rich.bib")
+    rows = [
+        ledger_row("article", "Ledger article", "https://doi.org/10.1000/article", "2024"),
+        ledger_row("book", "Ledger book", "https://books.example.test/book", "2023"),
+        ledger_row("conference", "Ledger paper", "https://doi.org/10.1000/conf", "2025"),
+    ]
+    with open(rich_csv, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    metadata = [
+        {
+            "type": "journal-article",
+            "title": "Production Article",
+            "authors": [
+                {"family": "Smith", "given": "Jane"},
+                {"family": "Doe", "given": "Alex"},
+            ],
+            "year": 2024,
+            "journal": "Journal of Reliable Systems",
+            "volume": "12",
+            "issue": "3",
+            "pages": "10--20",
+            "doi": "10.1000/article",
+            "url": "https://doi.org/10.1000/article",
+            "accessed": "2026-07-14",
+        },
+        {
+            "type": "book",
+            "title": "Production Book",
+            "authors": [{"family": "Nguyen", "given": "Minh"}],
+            "editors": [{"family": "Le", "given": "Lan"}],
+            "year": 2023,
+            "publisher": "Reliable Press",
+            "isbn": "978-1-23456-789-0",
+            "url": "https://books.example.test/book",
+        },
+        {
+            "type": "proceedings-article",
+            "title": "Production Conference Paper",
+            "authors": "Tran, An; Patel, Ravi",
+            "year": 2025,
+            "booktitle": "Proceedings of Reliable Systems",
+            "pages": "100--115",
+            "doi": "10.1000/conf",
+            "url": "https://doi.org/10.1000/conf",
+        },
+    ]
+    with open(rich_metadata, "w", encoding="utf-8") as f:
+        json.dump(metadata, f)
+    export_csv_to_format(rich_csv, "bibtex", rich_bibtex, [rich_metadata])
+    with open(rich_bibtex, "r", encoding="utf-8") as f:
+        rich_content = f.read()
+    parsed = [
+        _parse_bibtex_entry(entry)
+        for entry in rich_content.split("\n\n")
+        if entry.strip()
+    ]
+    assert [entry.get("_type") for entry in parsed] == [
+        "article", "book", "inproceedings"
+    ]
+    article, book, conference = parsed
+    assert article.get("author") == "Smith, Jane and Doe, Alex"
+    assert article.get("journal") == "Journal of Reliable Systems"
+    assert article.get("volume") == "12" and article.get("number") == "3"
+    assert article.get("pages") == "10--20"
+    assert article.get("urldate") == "2026-07-14"
+    assert book.get("author") == "Nguyen, Minh"
+    assert book.get("editor") == "Le, Lan"
+    assert book.get("publisher") == "Reliable Press"
+    assert book.get("isbn") == "978-1-23456-789-0"
+    assert conference.get("author") == "Tran, An and Patel, Ravi"
+    assert conference.get("booktitle") == "Proceedings of Reliable Systems"
+    assert conference.get("pages") == "100--115"
+    print("  [PASS] Sidecar @article/@book/@inproceedings export")
+
+    literal_source = {
+        "type": "journal-article",
+        "title": "Corporate Author Article",
+        "authors": [
+            {"literal": "World Health Organization"},
+            {"family": "Doe", "given": "Jane"},
+        ],
+        "year": 2024,
+        "journal": "Journal of Reliable Systems",
+    }
+    literal_entry = format_bibtex(literal_source, "literal-author")
+    assert "author = {{World Health Organization} and Doe, Jane}," in literal_entry
+    parsed_literal = _parse_bibtex_entry(literal_entry)
+    assert parsed_literal.get("author") == "{World Health Organization} and Doe, Jane"
+    assert _crossref_people([
+        {"name": "World Health Organization"},
+        {"given": "Jane", "family": "Doe"},
+    ]) == [
+        {"literal": "World Health Organization"},
+        {"given": "Jane", "family": "Doe"},
+    ]
+    assert _datacite_people([
+        {"name": "Research Consortium", "nameType": "Organizational"},
+        {"name": "Doe, Jane", "givenName": "Jane", "familyName": "Doe"},
+    ]) == [
+        {"literal": "Research Consortium"},
+        {"given": "Jane", "family": "Doe"},
+    ]
+    literal_bibtex = os.path.join(temp_dir, "literal-author.bib")
+    with open(literal_bibtex, "w", encoding="utf-8") as f:
+        f.write(literal_entry)
+    print("  [PASS] Corporate author braces and resolver metadata preserve identity")
+
+    incomplete_rich_entries = [
+        {"type": "journal-article", "title": "Missing journal", "year": 2024},
+        {"type": "book", "title": "Missing publisher", "year": 2024, "author": "A"},
+        {
+            "type": "proceedings-article",
+            "title": "Missing proceedings",
+            "year": 2024,
+            "author": "A",
+        },
+    ]
+    for index, incomplete in enumerate(incomplete_rich_entries):
+        entry = format_bibtex(incomplete, f"incomplete-{index}")
+        assert _parse_bibtex_entry(entry).get("_type") == "misc"
+    print("  [PASS] Incomplete rich metadata falls back to @misc")
+
+    paper = format_bibtex({
+        "source_title": "Unclassified paper",
+        "source_url": "https://example.test/paper",
+        "source_type": "paper",
+        "date_published": "2024",
+    }, "paper-fallback")
+    assert _parse_bibtex_entry(paper).get("_type") == "misc"
+    print("  [PASS] Legacy paper without metadata remains @misc")
+
+    conflict_path = os.path.join(temp_dir, "conflict.json")
+    with open(conflict_path, "w", encoding="utf-8") as f:
+        json.dump([
+            {"doi": "10.1000/article", "title": "First", "year": 2024},
+            {"doi": "10.1000/article", "title": "Second", "year": 2024},
+        ], f)
+    try:
+        export_csv_to_format(
+            rich_csv, "bibtex", os.path.join(temp_dir, "conflict.bib"), [conflict_path]
+        )
+    except ValueError as exc:
+        assert "Conflicting citation metadata" in str(exc)
+    else:
+        raise AssertionError("conflicting sidecar identities must fail closed")
+    print("  [PASS] Conflicting sidecar identities fail closed")
+
+    resolver_conflict_path = os.path.join(temp_dir, "resolver-conflict.json")
+    with open(resolver_conflict_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "doi": "10.1000/article",
+            "url": "https://doi.org/10.1000/other",
+            "title": "Conflicting resolver identity",
+            "year": 2024,
+        }, f)
+    try:
+        export_csv_to_format(
+            rich_csv,
+            "bibtex",
+            os.path.join(temp_dir, "resolver-conflict.bib"),
+            [resolver_conflict_path],
+        )
+    except ValueError as exc:
+        assert "conflicts with resolver URL DOI" in str(exc)
+    else:
+        raise AssertionError("conflicting DOI and resolver URL must fail closed")
+    print("  [PASS] DOI/resolver URL conflicts fail closed")
+
+    duplicate_key_path = os.path.join(temp_dir, "duplicate-key.json")
+    with open(duplicate_key_path, "w", encoding="utf-8") as f:
+        f.write(
+            '{"doi":"10.1000/article","doi":"10.1000/other",'
+            '"title":"Ambiguous duplicate"}'
+        )
+    try:
+        load_citation_metadata([duplicate_key_path])
+    except ValueError as exc:
+        assert "duplicate key 'doi'" in str(exc)
+    else:
+        raise AssertionError("duplicate JSON keys must fail closed")
+    print("  [PASS] Duplicate-key metadata fails closed")
+
+    injection_csv = os.path.join(temp_dir, "injection.csv")
+    injection_json = os.path.join(temp_dir, "injection.json")
+    injection_bib = os.path.join(temp_dir, "injection.bib")
+    with open(injection_csv, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerow(ledger_row(
+            "injection", "Injection fixture", "https://example.test/injection", "2026"
+        ))
+    with open(injection_json, "w", encoding="utf-8") as f:
+        json.dump({
+            "type": "article}\n@evil{owned",
+            "title": "Safe }\n@evil{still-data",
+            "authors": [{"literal": "Org }\n@evil{author"}],
+            "year": 2026,
+            "url": "https://example.test/injection",
+        }, f)
+    export_csv_to_format(injection_csv, "bibtex", injection_bib, [injection_json])
+    with open(injection_bib, "r", encoding="utf-8") as f:
+        injected = f.read()
+    parsed_injection = _parse_bibtex_entry(injected)
+    assert parsed_injection.get("_type") == "misc"
+    assert parsed_injection.get("title") == "Safe } @evil{still-data"
+    assert len(re.findall(r"(?m)^@", injected)) == 1 and "\n@evil" not in injected
+    print("  [PASS] Sidecar type/field injection remains one safe entry")
+
+    pandoc = shutil.which("pandoc")
+    if pandoc:
+        for input_format in ("bibtex", "biblatex"):
+            proc = subprocess.run(
+                [pandoc, "--from", input_format, "--to", "csljson", rich_bibtex],
+                capture_output=True, text=True, encoding="utf-8", timeout=15, check=False,
+            )
+            assert proc.returncode == 0, proc.stderr
+            assert [entry.get("type") for entry in json.loads(proc.stdout)] == [
+                "article-journal", "book", "paper-conference"
+            ]
+        literal_proc = subprocess.run(
+            [pandoc, "--from", "bibtex", "--to", "csljson", literal_bibtex],
+            capture_output=True, text=True, encoding="utf-8", timeout=15, check=False,
+        )
+        assert literal_proc.returncode == 0, literal_proc.stderr
+        literal_csl = json.loads(literal_proc.stdout)[0]
+        assert literal_csl["author"] == [
+            {"literal": "World Health Organization"},
+            {"family": "Doe", "given": "Jane"},
+        ]
+        print("  [PASS] Rich BibTeX/BibLaTeX Pandoc semantic round-trip")
+    else:
+        print("  [SKIP] Rich Pandoc semantic round-trip (pandoc not installed)")
 
 
 def run_self_test() -> bool:
@@ -592,10 +1252,13 @@ def run_self_test() -> bool:
         entries = [e.strip() for e in bibtex_content.split("\n\n") if e.strip()]
         assert len(entries) == 2, f"Expected 2 BibTeX entries, got {len(entries)}"
         parsed0 = _parse_bibtex_entry(entries[0])
+        assert parsed0.get("_type") == "misc"
         assert parsed0.get("title") == "Example Article Title"
         assert parsed0.get("year") == "2023"
         assert parsed0.get("_key")
         print("  [PASS] BibTeX export (parsed round-trip)")
+
+        _run_sidecar_self_tests(temp_dir)
 
         # Test RIS export — exactly one TY per record
         export_csv_to_format(csv_path, 'ris', output_ris)
@@ -905,6 +1568,12 @@ def main():
         required=True,
         help='Output file path'
     )
+    export_parser.add_argument(
+        '--metadata',
+        action='append',
+        default=[],
+        help='Optional JSON object/array; repeat for multiple metadata sidecars'
+    )
     
     # Enrich subcommand
     enrich_parser = subparsers.add_parser(
@@ -927,7 +1596,9 @@ def main():
     
     if args.command == 'export':
         try:
-            export_csv_to_format(args.file, args.format, args.out)
+            export_csv_to_format(
+                args.file, args.format, args.out, metadata_paths=args.metadata
+            )
             print(f"Exported to {args.out}")
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)

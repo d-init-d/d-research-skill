@@ -7,8 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.2.1-rc.1] - 2026-07-15
+
+Production-hardening release candidate that upgrades three optional helper
+paths from fallback- or test-oriented defaults to production-capable behavior
+while retaining dependency-free fallbacks. The canonical evidence-ledger
+schema and read-only research contract are unchanged.
+
+### Added
+
+- Added optional JSON citation-metadata sidecars to export conservative
+  `@article`, `@book`, and `@inproceedings` BibTeX entries while preserving the
+  canonical evidence-ledger schema and the legacy `@misc` fallback.
+- Added explicit corporate-author and corporate-editor support through
+  `{"literal": "Organization Name"}` metadata, preserving organizations as
+  single BibTeX and CSL names.
+- Added deterministic, local `langdetect` support through the optional
+  `language-detection` extra, with explicit backend selection and a stdlib
+  trigram fallback.
+- Added CI integration tests that exercise the real `sentence-transformers`
+  and `langdetect` packages offline, using a generated local embedding model
+  so the test never downloads model weights.
+- Added schema-1.2 stable-promotion evidence that binds each Tier-1/Tier-2
+  score artifact to its complete canonical raw-run bundle and records an
+  independent review scope covering live-run origin, raw artifacts, and score
+  recomputation.
+
 ### Changed
 
+- Semantic indexing and direct ledger queries now default to an `auto` backend
+  that selects local `sentence-transformers` when installed and otherwise uses
+  a deterministic built-in word/character hashing backend. Auto never selects
+  a remote backend or the test-only stub, and existing dependency-free
+  invocations continue to work. Install `.[embeddings]` for trained semantic
+  similarity; explicitly pass `--backend stub` only for test fixtures.
 - Upgraded the SHA-pinned release actions to
   `actions/upload-artifact@v7.0.1` and
   `actions/attest-build-provenance@v4.1.1` for future release tags.
@@ -18,6 +50,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - The contract check now rejects drift between the Ruff version declared in
   `pyproject.toml` and the version installed by CI.
+- The release archive workflow now resolves the dogfood baseline tag from the
+  frozen route manifest instead of hard-coding the v3.1.1 release line.
+- The release archive workflow now proves that the frozen baseline commit is
+  an ancestor of the dogfooded candidate before evaluating either RC or stable
+  release evidence.
+- The historical annotated `v3.2.0` baseline tag is now pinned to its exact tag
+  object SHA. Its legacy unsigned status is recorded explicitly instead of
+  being treated as GitHub-verified.
+- Stable promotion now re-verifies successful full CI for both the exact
+  dogfooded candidate SHA and the metadata-only stable SHA.
+- Pull-request CI now explicitly checks out and asserts the PR head SHA instead
+  of testing GitHub's synthetic merge ref while labeling the run as candidate CI.
+- Tag validation/build runs with read-only permissions; privileged provenance
+  attestation moved to a default-branch `workflow_run` that re-verifies the
+  signed tag, metadata, checksum, and reproduced archive without executing tag code.
+- Stable promotion now rejects self-declared scores: it validates the exact
+  canonical task-directory set, hashes raw prompt/output/ledger artifacts,
+  binds canonical rendered prompts and the 23-column ledger header, freezes
+  per-tier thresholds, and recomputes score artifacts from the raw runs.
+- Stable evidence now rejects failed or not-run executions, requires a factual
+  pass beyond refusal probes in every tier, pins the evaluator harness to the
+  candidate commit, rejects duplicate timestamp instants even when RFC 3339
+  offsets differ, and enforces
+  `run.finished_at <= score.created_at <= promotion.generated_at`.
+- Sentence-transformers model load and encode failures now return a controlled,
+  actionable backend error instead of escaping as a Python traceback.
+- Semantic indexes and backend responses now reject duplicate/non-finite JSON,
+  wrong vector counts, ragged or non-numeric embeddings, invalid entry fields,
+  and blank queries with controlled diagnostics; empty local-hashing documents
+  produce zero vectors instead of false duplicate matches.
+- Citation metadata now rejects duplicate/non-finite JSON values and conflicting
+  explicit DOI versus DOI-resolver URL identities. The `accessed` alias is
+  normalized to `date_accessed`, with conflicting aliases rejected.
+- Crossref and DataCite enrichment now preserves structured personal names,
+  editors, and organizational contributors instead of flattening corporate
+  identities into ambiguous strings.
+- Stable-evidence path derivation now resolves both sides before computing
+  repository-relative paths, preventing Windows 8.3 temporary-directory aliases
+  from crashing contract validation.
+- The Windows Python launcher now prefers the active PATH interpreter before the
+  global `py` launcher, so virtual environments and CI matrix versions are honored.
 
 ## [3.2.0] - 2026-07-13
 
@@ -908,7 +981,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.1-rc.1...HEAD
+[3.2.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.1
 [3.2.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0
 [3.2.0-rc.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.3
 [3.2.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0-rc.2

@@ -7,11 +7,14 @@ Subcommands
 * ``query``        - find top-k similar documents to a query
 * ``query-ledger`` - query an evidence-ledger CSV directly
 * ``dedupe``       - find near-duplicate documents by similarity
-* ``self-test``    - run offline self-tests with stub embedder
+* ``self-test``    - run dependency-free offline self-tests
+* ``production-self-test`` - exercise the real optional local backend offline
 
-Embedding backends (all optional, all soft-fail):
-- stub: deterministic hash-based fake (for testing, always available)
-- sentence-transformers: pip install sentence-transformers (local, default if available)
+Embedding backends:
+- auto: sentence-transformers when importable, otherwise built-in local hashing
+- local-hashing: deterministic word/character feature hashing (offline fallback)
+- stub: deterministic hash-based fake (explicit testing only, always available)
+- sentence-transformers: optional local production backend
 - cohere: remote, requires COHERE_API_KEY + --allow-remote or D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS=1
 - llama-cli: local shellout to llama-embedding binary
 
@@ -22,11 +25,14 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.util
 import json
 import math
 import os
+import re
 import shutil
 import sys
+import unicodedata
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -41,7 +47,101 @@ from resource_limits import (
 )
 
 EMBED_DIM_STUB = 32
+EMBED_DIM_LOCAL_HASHING = 512
 INDEX_SCHEMA_VERSION = "1.0"
+AUTO_BACKEND = "auto"
+LOCAL_HASHING_BACKEND = "local-hashing"
+LOCAL_HASHING_MODEL = "word-char-hashing-v1"
+SENTENCE_TRANSFORMERS_BACKEND = "sentence-transformers"
+CONCRETE_BACKENDS = (
+    "stub",
+    LOCAL_HASHING_BACKEND,
+    SENTENCE_TRANSFORMERS_BACKEND,
+    "cohere",
+    "llama-cli",
+)
+BACKEND_CHOICES = (AUTO_BACKEND, *CONCRETE_BACKENDS)
+
+
+class EmbeddingBackendUnavailable(RuntimeError):
+    """Raised when a requested optional embedding backend is unavailable."""
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build a JSON object while rejecting ambiguous duplicate keys."""
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json(token: str) -> None:
+    """Reject JSON extensions such as NaN and Infinity."""
+    raise ValueError(f"non-finite JSON number: {token}")
+
+
+def _strict_json_loads(payload: str | bytes, *, context: str) -> Any:
+    """Decode standards-compliant JSON with unambiguous object keys."""
+    try:
+        return json.loads(
+            payload,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonfinite_json,
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        raise ValueError(f"{context}: invalid JSON ({exc})") from exc
+
+
+def _validate_embedding_batch(
+    vectors: Any,
+    *,
+    expected_count: int,
+    expected_dim: int | None = None,
+    context: str,
+) -> int:
+    """Validate backend/index vectors and return their common dimension."""
+    if not isinstance(vectors, list):
+        raise ValueError(f"{context}: embeddings must be a list")
+    if len(vectors) != expected_count:
+        raise ValueError(
+            f"{context}: backend returned {len(vectors)} embedding(s) "
+            f"for {expected_count} input(s)"
+        )
+
+    common_dim = expected_dim
+    for row_index, vector in enumerate(vectors):
+        if not isinstance(vector, list) or not vector:
+            raise ValueError(
+                f"{context}: embedding {row_index} must be a non-empty list"
+            )
+        if common_dim is None:
+            common_dim = len(vector)
+        if len(vector) != common_dim:
+            raise ValueError(
+                f"{context}: embedding {row_index} has dimension {len(vector)}; "
+                f"expected {common_dim}"
+            )
+        for value_index, value in enumerate(vector):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    f"{context}: embedding {row_index} value {value_index} "
+                    "must be a number, not a boolean"
+                )
+            try:
+                finite = math.isfinite(value)
+            except (OverflowError, TypeError):
+                finite = False
+            if not finite:
+                raise ValueError(
+                    f"{context}: embedding {row_index} value {value_index} "
+                    "must be finite"
+                )
+
+    if common_dim is None or common_dim <= 0:
+        raise ValueError(f"{context}: embeddings must have a positive dimension")
+    return common_dim
 
 
 # ---------------------------------------------------------------------------
@@ -59,20 +159,85 @@ def _stub_embed(text: str) -> list[float]:
     return vec
 
 
+def _local_hashing_embed(text: str) -> list[float]:
+    """Embed text with deterministic word and character feature hashing.
+
+    This built-in backend is intentionally lexical rather than a substitute
+    for a trained semantic model. It preserves useful overlap and spelling
+    similarity for offline retrieval without dependencies, model downloads,
+    network access, or the random-looking behavior of the test stub.
+    """
+    normalized = " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+    if not normalized:
+        return [0.0] * EMBED_DIM_LOCAL_HASHING
+    words = re.findall(r"[^\W_]+", normalized, flags=re.UNICODE)
+    features: list[tuple[str, float]] = []
+    features.extend((f"word:{word}", 2.0) for word in words)
+    features.extend(
+        (f"bigram:{left}\u0000{right}", 1.25)
+        for left, right in zip(words, words[1:])
+    )
+    padded = f"  {normalized}  "
+    for width, weight in ((3, 0.35), (4, 0.25)):
+        features.extend(
+            (f"char{width}:{padded[offset:offset + width]}", weight)
+            for offset in range(max(0, len(padded) - width + 1))
+        )
+
+    vector = [0.0] * EMBED_DIM_LOCAL_HASHING
+    for feature, weight in features:
+        digest = hashlib.sha256(feature.encode("utf-8")).digest()
+        bucket = int.from_bytes(digest[:4], "big") % EMBED_DIM_LOCAL_HASHING
+        sign = 1.0 if digest[4] & 1 else -1.0
+        vector[bucket] += sign * weight
+
+    magnitude = math.sqrt(math.fsum(value * value for value in vector))
+    if magnitude:
+        return [value / magnitude for value in vector]
+    return vector
+
+
+def _sentence_transformers_available() -> bool:
+    """Return whether the optional local production backend is importable."""
+    try:
+        return importlib.util.find_spec("sentence_transformers") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _resolve_backend(backend: str) -> str:
+    """Resolve a selection policy to a concrete backend without remote fallback."""
+    if backend != AUTO_BACKEND:
+        return backend
+    if _sentence_transformers_available():
+        return SENTENCE_TRANSFORMERS_BACKEND
+    return LOCAL_HASHING_BACKEND
+
+
 def _sentence_transformers_embed(texts: list[str], model_name: str) -> list[list[float]]:
     """Embed via sentence-transformers (optional pip package)."""
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
-    except ImportError:
-        print(
-            "error: sentence-transformers is not installed.\n"
-            "  Install: pip install sentence-transformers>=2.2",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    model = SentenceTransformer(model_name)
-    embeddings = model.encode(texts, show_progress_bar=False)
-    return [e.tolist() for e in embeddings]
+    except ImportError as exc:
+        raise EmbeddingBackendUnavailable(
+            "sentence-transformers is not installed.\n"
+            "  Install: python -m pip install -e \".[embeddings]\""
+        ) from exc
+    try:
+        model = SentenceTransformer(model_name)
+        embeddings = model.encode(texts, show_progress_bar=False)
+        return [e.tolist() for e in embeddings]
+    except Exception as exc:
+        # Optional model loading may fail because the model is unavailable,
+        # the local cache is corrupt, or the backend runtime cannot encode.
+        # Normalize those library-specific failures for CLI and API callers
+        # without catching BaseException control flow such as Ctrl+C.
+        raise EmbeddingBackendUnavailable(
+            "sentence-transformers could not load or run the requested model "
+            f"({type(exc).__name__}).\n"
+            "  Ensure the model is available locally and the embeddings extra is healthy.\n"
+            "  Install/repair: python -m pip install -e \".[embeddings]\""
+        ) from exc
 
 
 def _cohere_embed(
@@ -90,7 +255,7 @@ def _cohere_embed(
         "texts": texts,
         "model": model_name,
         "input_type": input_type,
-    }).encode()
+    }, allow_nan=False).encode()
     req = urllib.request.Request(
         "https://api.cohere.ai/v1/embed",
         data=data,
@@ -102,7 +267,12 @@ def _cohere_embed(
             req,
             timeout=limits.http_timeout_sec,
         ) as resp:
-            result = json.loads(read_http_response_bounded(resp, limits))
+            result = _strict_json_loads(
+                read_http_response_bounded(resp, limits),
+                context="Cohere response",
+            )
+            if not isinstance(result, dict):
+                raise ValueError("Cohere response: expected a JSON object")
             return result.get("embeddings", [])
     except ResourceLimitError as exc:
         emit_blocker_and_exit(exc)
@@ -138,8 +308,19 @@ def _llama_cli_embed(texts: list[str]) -> list[list[float]]:
             if result.returncode != 0:
                 print(f"error: llama-embedding failed: {result.stderr}", file=sys.stderr)
                 raise SystemExit(1)
-            vec = json.loads(result.stdout)
-            embeddings.append(vec if isinstance(vec, list) else vec.get("embedding", []))
+            parsed = _strict_json_loads(
+                result.stdout,
+                context="llama-embedding response",
+            )
+            if isinstance(parsed, list):
+                vec = parsed
+            elif isinstance(parsed, dict):
+                vec = parsed.get("embedding", [])
+            else:
+                raise ValueError(
+                    "llama-embedding response: expected a vector or object"
+                )
+            embeddings.append(vec)
         finally:
             Path(tmp_path).unlink(missing_ok=True)
     return embeddings
@@ -147,8 +328,10 @@ def _llama_cli_embed(texts: list[str]) -> list[list[float]]:
 
 def _resolved_model_name(backend: str, model: str = "") -> str:
     """Return the concrete model name stored in index metadata."""
-    if backend == "sentence-transformers":
+    if backend == SENTENCE_TRANSFORMERS_BACKEND:
         return model or "all-MiniLM-L6-v2"
+    if backend == LOCAL_HASHING_BACKEND:
+        return LOCAL_HASHING_MODEL
     if backend == "cohere":
         return model or "embed-english-v3.0"
     if backend == "llama-cli":
@@ -157,13 +340,16 @@ def _resolved_model_name(backend: str, model: str = "") -> str:
 
 
 def embed_texts(
-    texts: list[str], backend: str = "stub", model: str = "",
+    texts: list[str], backend: str = AUTO_BACKEND, model: str = "",
     input_type: str = "search_document",
 ) -> list[list[float]]:
     """Embed a list of texts using the specified backend."""
+    backend = _resolve_backend(backend)
     if backend == "stub":
         return [_stub_embed(t) for t in texts]
-    if backend == "sentence-transformers":
+    if backend == LOCAL_HASHING_BACKEND:
+        return [_local_hashing_embed(t) for t in texts]
+    if backend == SENTENCE_TRANSFORMERS_BACKEND:
         model_name = _resolved_model_name(backend, model)
         return _sentence_transformers_embed(texts, model_name)
     if backend == "cohere":
@@ -171,8 +357,7 @@ def embed_texts(
         return _cohere_embed(texts, model_name, input_type)
     if backend == "llama-cli":
         return _llama_cli_embed(texts)
-    print(f"error: unknown backend: {backend}", file=sys.stderr)
-    raise SystemExit(1)
+    raise ValueError(f"unknown backend: {backend}")
 
 
 # ---------------------------------------------------------------------------
@@ -184,12 +369,19 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     """Cosine similarity between two vectors (stdlib math only)."""
     if len(a) != len(b):
         raise ValueError(f"embedding dimension mismatch: {len(a)} != {len(b)}")
-    dot = math.fsum(x * y for x, y in zip(a, b))
-    mag_a = math.sqrt(math.fsum(x * x for x in a))
-    mag_b = math.sqrt(math.fsum(x * x for x in b))
-    if mag_a == 0 or mag_b == 0:
+    scale_a = max((abs(value) for value in a), default=0.0)
+    scale_b = max((abs(value) for value in b), default=0.0)
+    if scale_a == 0 or scale_b == 0:
         return 0.0
-    return dot / (mag_a * mag_b)
+    scaled_a = [value / scale_a for value in a]
+    scaled_b = [value / scale_b for value in b]
+    dot = math.fsum(x * y for x, y in zip(scaled_a, scaled_b))
+    mag_a = math.sqrt(math.fsum(x * x for x in scaled_a))
+    mag_b = math.sqrt(math.fsum(x * x for x in scaled_b))
+    similarity = dot / (mag_a * mag_b)
+    if not math.isfinite(similarity):
+        raise ValueError("cosine similarity is not finite")
+    return max(-1.0, min(1.0, similarity))
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +394,22 @@ def _write_index(
     backend: str, model: str, embedding_dim: int,
 ) -> None:
     """Write index with metadata header line."""
+    if backend not in CONCRETE_BACKENDS:
+        raise ValueError(f"index metadata requires a concrete backend, got {backend!r}")
+    if (
+        isinstance(embedding_dim, bool)
+        or not isinstance(embedding_dim, int)
+        or embedding_dim <= 0
+    ):
+        raise ValueError(f"invalid output embedding dimension: {embedding_dim!r}")
+    if not entries or not all(isinstance(entry, dict) for entry in entries):
+        raise ValueError("index output entries must be a non-empty list of objects")
+    _validate_embedding_batch(
+        [entry.get("embedding") for entry in entries],
+        expected_count=len(entries),
+        expected_dim=embedding_dim,
+        context="index output",
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     header = {
         "_meta": True,
@@ -211,9 +419,9 @@ def _write_index(
         "embedding_dim": embedding_dim,
     }
     with out_path.open("w", encoding="utf-8") as f:
-        f.write(json.dumps(header, ensure_ascii=False) + "\n")
+        f.write(json.dumps(header, ensure_ascii=False, allow_nan=False) + "\n")
         for entry in entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            f.write(json.dumps(entry, ensure_ascii=False, allow_nan=False) + "\n")
 
 
 def _read_index(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -221,12 +429,23 @@ def _read_index(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     meta: dict[str, Any] = {}
     entries: list[dict[str, Any]] = []
     with path.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
+        for line_number, raw_line in enumerate(f, start=1):
+            line = raw_line.strip()
             if not line:
                 continue
-            obj = json.loads(line)
+            obj = _strict_json_loads(
+                line,
+                context=f"index line {line_number}",
+            )
+            if not isinstance(obj, dict):
+                raise ValueError(
+                    f"index line {line_number}: expected a JSON object"
+                )
             if obj.get("_meta"):
+                if meta:
+                    raise ValueError(
+                        f"index line {line_number}: duplicate metadata header"
+                    )
                 meta = obj
             else:
                 entries.append(obj)
@@ -242,20 +461,58 @@ def _validate_index(meta: dict[str, Any], entries: list[dict[str, Any]]) -> int:
         print("error: index is empty", file=sys.stderr)
         return 1
 
+    backend = meta.get("backend")
+    if backend not in CONCRETE_BACKENDS:
+        print(
+            f"error: invalid concrete backend in index metadata: {backend!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if "_meta" in meta:
+        if meta.get("_meta") is not True:
+            print("error: index metadata _meta must be true", file=sys.stderr)
+            return 1
+        if meta.get("schema_version") != INDEX_SCHEMA_VERSION:
+            print(
+                f"error: unsupported index schema_version: {meta.get('schema_version')!r}",
+                file=sys.stderr,
+            )
+            return 1
+    if not isinstance(meta.get("model", ""), str):
+        print("error: index metadata model must be a string", file=sys.stderr)
+        return 1
+
     expected_dim = meta.get("embedding_dim")
-    if not isinstance(expected_dim, int) or expected_dim <= 0:
+    if (
+        isinstance(expected_dim, bool)
+        or not isinstance(expected_dim, int)
+        or expected_dim <= 0
+    ):
         print(f"error: invalid embedding_dim in index metadata: {expected_dim!r}", file=sys.stderr)
         return 1
 
-    for i, entry in enumerate(entries):
-        embedding = entry.get("embedding")
-        if not isinstance(embedding, list) or not embedding:
-            print(f"error: index entry {i} has missing or invalid embedding", file=sys.stderr)
+    try:
+        _validate_embedding_batch(
+            [entry.get("embedding") for entry in entries],
+            expected_count=len(entries),
+            expected_dim=expected_dim,
+            context="index",
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    for entry_index, entry in enumerate(entries):
+        entry_id = entry.get("id")
+        if isinstance(entry_id, bool) or not isinstance(entry_id, (int, str)):
+            print(f"error: index entry {entry_index} has an invalid id", file=sys.stderr)
             return 1
-        if len(embedding) != expected_dim:
+        if not isinstance(entry.get("path"), str) or not entry["path"].strip():
+            print(f"error: index entry {entry_index} has an invalid path", file=sys.stderr)
+            return 1
+        if "text_preview" in entry and not isinstance(entry["text_preview"], str):
             print(
-                f"error: index entry {i} embedding length {len(embedding)} "
-                f"does not match embedding_dim {expected_dim}",
+                f"error: index entry {entry_index} text_preview must be a string",
                 file=sys.stderr,
             )
             return 1
@@ -283,6 +540,29 @@ def _check_remote(backend: str, allow_remote: bool) -> int:
     return 0
 
 
+def _resolve_cli_backend(requested_backend: str) -> str | None:
+    """Resolve a CLI backend and convert optional-backend errors to diagnostics."""
+    try:
+        return _resolve_backend(requested_backend)
+    except EmbeddingBackendUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return None
+
+
+def _read_index_for_cli(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+    """Read an index while converting malformed data into a CLI diagnostic."""
+    try:
+        return _read_index(path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        print(f"error: could not read index: {exc}", file=sys.stderr)
+        return None
+
+
+def _query_is_blank(query: Any) -> bool:
+    """Return whether a query is absent or contains only whitespace."""
+    return not isinstance(query, str) or not query.strip()
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Build embedding index from text files in a directory."""
     in_dir = Path(args.input)
@@ -290,7 +570,10 @@ def cmd_index(args: argparse.Namespace) -> int:
         print(f"error: directory not found: {in_dir}", file=sys.stderr)
         return 1
 
-    backend = args.backend
+    requested_backend = getattr(args, "backend", AUTO_BACKEND) or AUTO_BACKEND
+    backend = _resolve_cli_backend(requested_backend)
+    if backend is None:
+        return 1
     model = getattr(args, "model", "") or ""
     allow_remote = getattr(args, "allow_remote", False)
 
@@ -314,8 +597,16 @@ def cmd_index(args: argparse.Namespace) -> int:
         paths.append(str(f.relative_to(in_dir)))
 
     model = _resolved_model_name(backend, model)
-    embeddings = embed_texts(texts, backend, model, input_type="search_document")
-    embedding_dim = len(embeddings[0]) if embeddings else 0
+    try:
+        embeddings = embed_texts(texts, backend, model, input_type="search_document")
+        embedding_dim = _validate_embedding_batch(
+            embeddings,
+            expected_count=len(texts),
+            context=f"{backend} backend",
+        )
+    except (EmbeddingBackendUnavailable, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     entries = []
     for i, (path, vec) in enumerate(zip(paths, embeddings)):
@@ -327,19 +618,30 @@ def cmd_index(args: argparse.Namespace) -> int:
         })
 
     out_path = Path(args.out)
-    _write_index(entries, out_path, backend, model, embedding_dim)
+    try:
+        _write_index(entries, out_path, backend, model, embedding_dim)
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"error: could not write index: {exc}", file=sys.stderr)
+        return 1
     print(f"indexed {len(entries)} files -> {out_path} (backend={backend}, dim={embedding_dim})")
     return 0
 
 
 def cmd_query(args: argparse.Namespace) -> int:
     """Find top-k similar documents to a query."""
+    if _query_is_blank(getattr(args, "q", None)):
+        print("error: query must not be blank", file=sys.stderr)
+        return 1
+
     index_path = Path(args.index)
     if not index_path.is_file():
         print(f"error: index not found: {index_path}", file=sys.stderr)
         return 1
 
-    meta, entries = _read_index(index_path)
+    loaded = _read_index_for_cli(index_path)
+    if loaded is None:
+        return 1
+    meta, entries = loaded
     if not entries:
         print("error: index is empty", file=sys.stderr)
         return 1
@@ -356,26 +658,18 @@ def cmd_query(args: argparse.Namespace) -> int:
         return 1
 
     # Embed query with same backend
-    query_vecs = embed_texts([args.q], backend, model, input_type="search_query")
+    try:
+        query_vecs = embed_texts([args.q], backend, model, input_type="search_query")
+        _validate_embedding_batch(
+            query_vecs,
+            expected_count=1,
+            expected_dim=expected_dim,
+            context=f"{backend} query backend",
+        )
+    except (EmbeddingBackendUnavailable, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     query_vec = query_vecs[0]
-
-    # Dimension check
-    if expected_dim and len(query_vec) != expected_dim:
-        print(
-            f"error: embedding dimension mismatch: query has {len(query_vec)} dims "
-            f"but index expects {expected_dim}",
-            file=sys.stderr,
-        )
-        return 1
-
-    # Check first entry dimension matches
-    if entries[0]["embedding"] and len(entries[0]["embedding"]) != len(query_vec):
-        print(
-            f"error: embedding dimension mismatch: index entries have "
-            f"{len(entries[0]['embedding'])} dims but query has {len(query_vec)}",
-            file=sys.stderr,
-        )
-        return 1
 
     # Score all entries
     scored: list[tuple[float, dict[str, Any]]] = []
@@ -400,7 +694,7 @@ def cmd_query(args: argparse.Namespace) -> int:
             "text_preview": entry.get("text_preview", ""),
         })
 
-    output = json.dumps(results, indent=2, ensure_ascii=False)
+    output = json.dumps(results, indent=2, ensure_ascii=False, allow_nan=False)
     if args.out:
         Path(args.out).write_text(output + "\n", encoding="utf-8")
         print(f"wrote {args.out} ({len(results)} results)")
@@ -411,12 +705,19 @@ def cmd_query(args: argparse.Namespace) -> int:
 
 def cmd_query_ledger(args: argparse.Namespace) -> int:
     """Query an evidence-ledger CSV directly."""
+    if _query_is_blank(getattr(args, "q", None)):
+        print("error: query must not be blank", file=sys.stderr)
+        return 1
+
     ledger_path = Path(args.ledger)
     if not ledger_path.is_file():
         print(f"error: ledger not found: {ledger_path}", file=sys.stderr)
         return 1
 
-    backend = getattr(args, "backend", "stub") or "stub"
+    requested_backend = getattr(args, "backend", AUTO_BACKEND) or AUTO_BACKEND
+    backend = _resolve_cli_backend(requested_backend)
+    if backend is None:
+        return 1
     model = getattr(args, "model", "") or ""
     allow_remote = getattr(args, "allow_remote", False)
 
@@ -436,18 +737,24 @@ def cmd_query_ledger(args: argparse.Namespace) -> int:
         text = f"{row.get('claim', '')} {row.get('evidence', '')} {row.get('source_title', '')}"
         texts.append(text.strip())
 
-    embeddings = embed_texts(texts, backend, model, input_type="search_document")
-    query_vecs = embed_texts([args.q], backend, model, input_type="search_query")
-    query_vec = query_vecs[0]
-
-    # Dimension check
-    if embeddings and len(embeddings[0]) != len(query_vec):
-        print(
-            f"error: embedding dimension mismatch: ledger has {len(embeddings[0])} dims "
-            f"but query has {len(query_vec)}",
-            file=sys.stderr,
+    try:
+        embeddings = embed_texts(texts, backend, model, input_type="search_document")
+        embedding_dim = _validate_embedding_batch(
+            embeddings,
+            expected_count=len(texts),
+            context=f"{backend} ledger backend",
         )
+        query_vecs = embed_texts([args.q], backend, model, input_type="search_query")
+        _validate_embedding_batch(
+            query_vecs,
+            expected_count=1,
+            expected_dim=embedding_dim,
+            context=f"{backend} query backend",
+        )
+    except (EmbeddingBackendUnavailable, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 1
+    query_vec = query_vecs[0]
 
     scored: list[tuple[float, int]] = []
     for i, vec in enumerate(embeddings):
@@ -472,7 +779,7 @@ def cmd_query_ledger(args: argparse.Namespace) -> int:
             "source_url": row.get("source_url", ""),
         })
 
-    print(json.dumps(results, indent=2, ensure_ascii=False))
+    print(json.dumps(results, indent=2, ensure_ascii=False, allow_nan=False))
     return 0
 
 
@@ -483,7 +790,10 @@ def cmd_dedupe(args: argparse.Namespace) -> int:
         print(f"error: index not found: {index_path}", file=sys.stderr)
         return 1
 
-    _meta, entries = _read_index(index_path)
+    loaded = _read_index_for_cli(index_path)
+    if loaded is None:
+        return 1
+    _meta, entries = loaded
     if _validate_index(_meta, entries) != 0:
         return 1
     threshold = args.threshold
@@ -506,7 +816,13 @@ def cmd_dedupe(args: argparse.Namespace) -> int:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
-        json.dumps(duplicates, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(
+            duplicates,
+            indent=2,
+            ensure_ascii=False,
+            allow_nan=False,
+        ) + "\n",
+        encoding="utf-8",
     )
     print(f"found {len(duplicates)} duplicate pair(s) -> {out_path}")
     return 0
@@ -518,8 +834,11 @@ def cmd_dedupe(args: argparse.Namespace) -> int:
 
 
 def cmd_self_test(_args: argparse.Namespace) -> int:
-    """Offline self-test with stub embedder."""
+    """Dependency-free offline self-test."""
+    import contextlib
+    import io
     import tempfile
+    from unittest import mock
 
     errors: list[str] = []
 
@@ -545,6 +864,9 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
     sim_self = cosine_similarity(vec, vec)
     if abs(sim_self - 1.0) > 0.001:
         errors.append(f"cosine self-similarity should be 1.0, got {sim_self}")
+    huge_similarity = cosine_similarity([1e308, 1e308], [1e308, 1e308])
+    if not math.isfinite(huge_similarity) or abs(huge_similarity - 1.0) > 1e-12:
+        errors.append("cosine similarity must remain finite for large finite vectors")
 
     # Test 5: cosine with dimension mismatch fails loudly
     try:
@@ -583,8 +905,6 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 errors.append(f"index metadata dim should be {EMBED_DIM_STUB}, got {meta.get('embedding_dim')}")
 
             # Query
-            import contextlib
-            import io
             captured = io.StringIO()
             query_ns = argparse.Namespace(
                 index=str(index_path), q="neural networks AI", k=2, out=None, allow_remote=False,
@@ -609,13 +929,13 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 "backend": "stub",
                 "model": "",
                 "embedding_dim": EMBED_DIM_STUB,
-            }) + "\n")
+            }, allow_nan=False) + "\n")
             f.write(json.dumps({
                 "id": 0,
                 "path": "x.txt",
                 "text_preview": "x",
                 "embedding": [0.1] * (EMBED_DIM_STUB - 1),
-            }) + "\n")
+            }, allow_nan=False) + "\n")
 
         captured_err = io.StringIO()
         query_bad_ns = argparse.Namespace(
@@ -649,13 +969,13 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 "backend": "cohere",
                 "model": "embed-english-v3.0",
                 "embedding_dim": EMBED_DIM_STUB,
-            }) + "\n")
+            }, allow_nan=False) + "\n")
             f.write(json.dumps({
                 "id": 0,
                 "path": "x.txt",
                 "text_preview": "x",
                 "embedding": _stub_embed("x"),
-            }) + "\n")
+            }, allow_nan=False) + "\n")
         cohere_query_ns = argparse.Namespace(
             index=str(cohere_query_path), q="test", k=1, out=None, allow_remote=False,
         )
@@ -664,6 +984,287 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         sys.stderr = old_stderr
         if rc == 0:
             errors.append("cohere query without --allow-remote should fail")
+
+        # Test 9: auto resolves to a concrete local production backend
+        module = sys.modules[__name__]
+        with mock.patch.object(module, "_sentence_transformers_available", return_value=True):
+            if _resolve_backend(AUTO_BACKEND) != SENTENCE_TRANSFORMERS_BACKEND:
+                errors.append("auto backend should select sentence-transformers when available")
+            if _resolve_backend("stub") != "stub":
+                errors.append("explicit stub backend should remain available for tests")
+
+            auto_index_path = Path(tmpdir) / "auto_index.jsonl"
+            with mock.patch.object(
+                module,
+                "_sentence_transformers_embed",
+                side_effect=lambda values, _model: [_stub_embed(value) for value in values],
+            ):
+                auto_index_ns = argparse.Namespace(
+                    input=str(corpus_dir), out=str(auto_index_path),
+                    backend=AUTO_BACKEND, model="", allow_remote=False,
+                )
+                rc = cmd_index(auto_index_ns)
+            if rc != 0:
+                errors.append("auto index command failed with available local backend")
+            else:
+                auto_meta, _auto_entries = _read_index(auto_index_path)
+                if auto_meta.get("backend") != SENTENCE_TRANSFORMERS_BACKEND:
+                    errors.append("auto index metadata must store the concrete backend")
+                if auto_meta.get("model") != "all-MiniLM-L6-v2":
+                    errors.append("auto index metadata must store the resolved model")
+
+        # Test 10: auto falls back to deterministic local hashing, never the stub
+        fallback_index_path = Path(tmpdir) / "fallback_auto.jsonl"
+        with mock.patch.object(module, "_sentence_transformers_available", return_value=False):
+            if _resolve_backend(AUTO_BACKEND) != LOCAL_HASHING_BACKEND:
+                errors.append("auto backend should select local hashing when ST is unavailable")
+            fallback_vectors = embed_texts(
+                ["neural network research", "neural networks for research"],
+                backend=AUTO_BACKEND,
+            )
+            if any(len(vector) != EMBED_DIM_LOCAL_HASHING for vector in fallback_vectors):
+                errors.append("auto local-hashing fallback returned an invalid dimension")
+            if fallback_vectors[0] != _local_hashing_embed("neural network research"):
+                errors.append("auto local-hashing fallback is not deterministic")
+
+            fallback_ns = argparse.Namespace(
+                input=str(corpus_dir), out=str(fallback_index_path),
+                backend=AUTO_BACKEND, model="", allow_remote=False,
+            )
+            rc = cmd_index(fallback_ns)
+            if rc != 0 or not fallback_index_path.exists():
+                errors.append("auto local-hashing fallback should produce an index")
+            else:
+                fallback_meta, _fallback_entries = _read_index(fallback_index_path)
+                if fallback_meta.get("backend") != LOCAL_HASHING_BACKEND:
+                    errors.append("fallback index must persist the concrete local backend")
+                if fallback_meta.get("model") != LOCAL_HASHING_MODEL:
+                    errors.append("fallback index must persist the local hashing model")
+
+        related = _local_hashing_embed("secure evidence ledger validation")
+        related_variant = _local_hashing_embed("validating secure evidence ledgers")
+        unrelated = _local_hashing_embed("tropical weather and ocean tides")
+        if cosine_similarity(related, related_variant) <= cosine_similarity(related, unrelated):
+            errors.append("local hashing should rank lexical variants above unrelated text")
+        if _local_hashing_embed(" \t\r\n ") != [0.0] * EMBED_DIM_LOCAL_HASHING:
+            errors.append("local hashing should return a zero vector for blank text")
+
+        # Test 11: model load/encode failures become controlled backend errors
+        import types
+
+        class _LoadFailure:
+            def __init__(self, _model: str) -> None:
+                raise OSError("simulated model load failure")
+
+        class _EncodeFailure:
+            def __init__(self, _model: str) -> None:
+                pass
+
+            def encode(self, _texts: list[str], *, show_progress_bar: bool) -> list:
+                _ = show_progress_bar
+                raise RuntimeError("simulated model encode failure")
+
+        for label, fake_class in (
+            ("load", _LoadFailure),
+            ("encode", _EncodeFailure),
+        ):
+            fake_module = types.ModuleType("sentence_transformers")
+            fake_module.SentenceTransformer = fake_class
+            with mock.patch.dict(sys.modules, {"sentence_transformers": fake_module}):
+                try:
+                    _sentence_transformers_embed(["test"], "test-model")
+                except EmbeddingBackendUnavailable as exc:
+                    if type(exc.__cause__).__name__ not in {"OSError", "RuntimeError"}:
+                        errors.append(
+                            f"sentence-transformers {label} failure lost its exception cause"
+                        )
+                except Exception as exc:
+                    errors.append(
+                        f"sentence-transformers {label} failure escaped as {type(exc).__name__}"
+                    )
+                else:
+                    errors.append(
+                        f"sentence-transformers {label} failure was not reported"
+                    )
+
+        failed_model_path = Path(tmpdir) / "failed_model.jsonl"
+        fake_module = types.ModuleType("sentence_transformers")
+        fake_module.SentenceTransformer = _LoadFailure
+        failed_model_ns = argparse.Namespace(
+            input=str(corpus_dir), out=str(failed_model_path),
+            backend=SENTENCE_TRANSFORMERS_BACKEND, model="test-model", allow_remote=False,
+        )
+        with mock.patch.dict(sys.modules, {"sentence_transformers": fake_module}):
+            with contextlib.redirect_stderr(io.StringIO()):
+                rc = cmd_index(failed_model_ns)
+        if rc == 0 or failed_model_path.exists():
+            errors.append("model load failure must return nonzero without writing an index")
+
+        # Test 12: an index must never persist the auto selection token
+        invalid_auto_path = Path(tmpdir) / "invalid_auto_index.jsonl"
+        with invalid_auto_path.open("w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "_meta": True,
+                "schema_version": INDEX_SCHEMA_VERSION,
+                "backend": AUTO_BACKEND,
+                "model": "all-MiniLM-L6-v2",
+                "embedding_dim": EMBED_DIM_STUB,
+            }, allow_nan=False) + "\n")
+            f.write(json.dumps({
+                "id": 0,
+                "path": "x.txt",
+                "text_preview": "x",
+                "embedding": _stub_embed("x"),
+            }, allow_nan=False) + "\n")
+        invalid_auto_ns = argparse.Namespace(
+            index=str(invalid_auto_path), q="test", k=1, out=None, allow_remote=False,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc = cmd_query(invalid_auto_ns)
+        if rc == 0:
+            errors.append("query should reject an auto token persisted as index backend")
+
+        # Test 13: backend batches must have exact, finite, rectangular vectors
+        invalid_batches = (
+            ("wrong count", [_stub_embed("one")], 2),
+            ("empty vector", [[]], 1),
+            ("ragged vectors", [[0.1, 0.2], [0.3]], 2),
+            ("boolean value", [[True]], 1),
+            ("string value", [["0.1"]], 1),
+            ("non-finite value", [[float("nan")]], 1),
+        )
+        for label, batch, expected_count in invalid_batches:
+            try:
+                _validate_embedding_batch(
+                    batch,
+                    expected_count=expected_count,
+                    context="test backend",
+                )
+            except ValueError:
+                pass
+            else:
+                errors.append(f"embedding validation accepted {label}")
+
+        invalid_backend_path = Path(tmpdir) / "invalid_backend.jsonl"
+        invalid_backend_ns = argparse.Namespace(
+            input=str(corpus_dir),
+            out=str(invalid_backend_path),
+            backend="stub",
+            model="",
+            allow_remote=False,
+        )
+        with mock.patch.object(module, "embed_texts", return_value=[_stub_embed("one")]):
+            with contextlib.redirect_stderr(io.StringIO()):
+                rc = cmd_index(invalid_backend_ns)
+        if rc == 0 or invalid_backend_path.exists():
+            errors.append("invalid backend vector count must not write an index")
+
+        # Test 14: JSONL input rejects duplicate keys and non-finite numbers
+        strict_header = (
+            '{"_meta":true,"schema_version":"1.0","backend":"stub",'
+            f'"model":"","embedding_dim":{EMBED_DIM_STUB}}}'
+        )
+        strict_entry = json.dumps({
+            "id": 0,
+            "path": "x.txt",
+            "text_preview": "x",
+            "embedding": _stub_embed("x"),
+        }, allow_nan=False)
+        invalid_json_indexes = (
+            (
+                "duplicate JSON key",
+                strict_header.replace(
+                    '"backend":"stub"',
+                    '"backend":"stub","backend":"cohere"',
+                ) + "\n" + strict_entry + "\n",
+                "duplicate JSON key",
+            ),
+            (
+                "non-finite JSON number",
+                strict_header + "\n" + strict_entry.replace(
+                    '"embedding": [',
+                    '"embedding": [NaN, ',
+                ) + "\n",
+                "non-finite JSON number",
+            ),
+            (
+                "missing metadata schema",
+                strict_header.replace('"schema_version":"1.0",', "")
+                + "\n"
+                + strict_entry
+                + "\n",
+                "unsupported index schema_version",
+            ),
+        )
+        for filename, payload, expected_message in invalid_json_indexes:
+            strict_path = Path(tmpdir) / f"{filename.replace(' ', '_')}.jsonl"
+            strict_path.write_text(payload, encoding="utf-8")
+            strict_ns = argparse.Namespace(
+                index=str(strict_path),
+                q="test",
+                k=1,
+                out=None,
+                allow_remote=False,
+            )
+            captured_err = io.StringIO()
+            with contextlib.redirect_stderr(captured_err):
+                rc = cmd_query(strict_ns)
+            diagnostic = captured_err.getvalue()
+            if rc == 0 or expected_message not in diagnostic:
+                errors.append(f"query did not reject {filename} cleanly")
+            if "Traceback" in diagnostic:
+                errors.append(f"query leaked a traceback for {filename}")
+
+        # Test 15: stored vectors reject booleans and blank queries fail early
+        bool_index_path = Path(tmpdir) / "bool_index.jsonl"
+        bool_entry = {
+            "id": 0,
+            "path": "x.txt",
+            "text_preview": "x",
+            "embedding": [True] + [0.0] * (EMBED_DIM_STUB - 1),
+        }
+        bool_index_path.write_text(
+            strict_header + "\n" + json.dumps(bool_entry, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        bool_ns = argparse.Namespace(
+            index=str(bool_index_path),
+            q="test",
+            k=1,
+            out=None,
+            allow_remote=False,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc = cmd_query(bool_ns)
+        if rc == 0:
+            errors.append("query accepted a boolean embedding value")
+
+        blank_query_ns = argparse.Namespace(
+            index=str(index_path),
+            q=" \t\n ",
+            k=1,
+            out=None,
+            allow_remote=False,
+        )
+        captured_err = io.StringIO()
+        with contextlib.redirect_stderr(captured_err):
+            rc = cmd_query(blank_query_ns)
+        if rc == 0 or "query must not be blank" not in captured_err.getvalue():
+            errors.append("query command accepted a blank query")
+
+        blank_ledger_ns = argparse.Namespace(
+            ledger=str(Path(tmpdir) / "missing.csv"),
+            q="   ",
+            k=1,
+            backend="stub",
+            model="",
+            allow_remote=False,
+        )
+        captured_err = io.StringIO()
+        with contextlib.redirect_stderr(captured_err):
+            rc = cmd_query_ledger(blank_ledger_ns)
+        if rc == 0 or "query must not be blank" not in captured_err.getvalue():
+            errors.append("query-ledger command accepted a blank query")
 
         # Dedupe
         dedup_path = Path(tmpdir) / "dupes.json"
@@ -674,7 +1275,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if rc != 0:
             errors.append("dedupe command failed")
 
-    # Test 9: remote check enforcement
+    # Test 13: remote check enforcement
     os.environ.pop("D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS", None)
     if _is_remote_allowed():
         errors.append("_is_remote_allowed should be False when env not set")
@@ -694,6 +1295,72 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_production_self_test(_args: argparse.Namespace) -> int:
+    """Exercise sentence-transformers with a generated local model only."""
+    import tempfile
+
+    try:
+        from sentence_transformers import (  # type: ignore[import-not-found]
+            SentenceTransformer,
+            models,
+        )
+    except ImportError:
+        print(
+            "embed_corpus production-self-test FAILED: install .[embeddings]",
+            file=sys.stderr,
+        )
+        return 1
+
+    if _resolve_backend(AUTO_BACKEND) != SENTENCE_TRANSFORMERS_BACKEND:
+        print(
+            "embed_corpus production-self-test FAILED: auto did not select "
+            "sentence-transformers",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_path = Path(tmpdir) / "local-bow-model"
+            vocabulary = [
+                "evidence",
+                "ledger",
+                "research",
+                "semantic",
+                "source",
+                "validation",
+            ]
+            local_model = SentenceTransformer(modules=[models.BoW(vocab=vocabulary)])
+            local_model.save(str(model_path))
+            vectors = _sentence_transformers_embed(
+                ["evidence ledger validation", "semantic research source"],
+                str(model_path),
+            )
+    except Exception as exc:
+        print(
+            "embed_corpus production-self-test FAILED: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if len(vectors) != 2 or not vectors[0] or len(vectors[0]) != len(vectors[1]):
+        print(
+            "embed_corpus production-self-test FAILED: invalid embedding shape",
+            file=sys.stderr,
+        )
+        return 1
+    if vectors[0] == vectors[1] or not all(math.isfinite(value) for row in vectors for value in row):
+        print(
+            "embed_corpus production-self-test FAILED: invalid embedding values",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("embed_corpus production-self-test ok")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -709,8 +1376,13 @@ def main() -> int:
     idx_p = sub.add_parser("index", help="Build embedding index from text files.")
     idx_p.add_argument("--in", dest="input", required=True, help="Directory of text files.")
     idx_p.add_argument("--out", required=True, help="Output JSONL index path.")
-    idx_p.add_argument("--backend", default="stub",
-                       choices=["stub", "sentence-transformers", "cohere", "llama-cli"])
+    idx_p.add_argument(
+        "--backend", default=AUTO_BACKEND, choices=BACKEND_CHOICES,
+        help=(
+            "Embedding backend (default: auto; prefers sentence-transformers, "
+            "falls back to local-hashing)."
+        ),
+    )
     idx_p.add_argument("--model", default="", help="Model name (for sentence-transformers).")
     idx_p.add_argument("--allow-remote", action="store_true", default=False)
 
@@ -725,8 +1397,13 @@ def main() -> int:
     ql_p.add_argument("--ledger", required=True, help="Evidence-ledger CSV.")
     ql_p.add_argument("--q", required=True, help="Query text.")
     ql_p.add_argument("--k", type=int, default=10, help="Number of results.")
-    ql_p.add_argument("--backend", default="stub",
-                      choices=["stub", "sentence-transformers", "cohere", "llama-cli"])
+    ql_p.add_argument(
+        "--backend", default=AUTO_BACKEND, choices=BACKEND_CHOICES,
+        help=(
+            "Embedding backend (default: auto; prefers sentence-transformers, "
+            "falls back to local-hashing)."
+        ),
+    )
     ql_p.add_argument("--model", default="", help="Model name.")
     ql_p.add_argument("--allow-remote", action="store_true", default=False)
 
@@ -736,6 +1413,10 @@ def main() -> int:
     dd_p.add_argument("--out", required=True, help="Output JSON path.")
 
     sub.add_parser("self-test", help="Run offline self-tests.")
+    sub.add_parser(
+        "production-self-test",
+        help="Exercise the installed sentence-transformers backend without network access.",
+    )
 
     args = p.parse_args()
     if args.cmd == "index":
@@ -748,6 +1429,8 @@ def main() -> int:
         return cmd_dedupe(args)
     if args.cmd == "self-test":
         return cmd_self_test(args)
+    if args.cmd == "production-self-test":
+        return cmd_production_self_test(args)
     p.print_help()
     return 1
 

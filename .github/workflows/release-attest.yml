@@ -1,0 +1,371 @@
+# Privileged release provenance runs only from this default-branch workflow.
+# The tag-triggered build workflow never receives OIDC or attestation write access.
+name: release-source-attestation
+
+on:
+  workflow_run:
+    workflows: [release-source-archive]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  verify:
+    name: independently verify tagged source artifact
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      archive_file: ${{ steps.bundle.outputs.archive_file }}
+    steps:
+      - name: Select the exact upstream artifact
+        id: source
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$RUNNER_TEMP/source-artifacts.json"
+          run_id="$(python - "$EVENT_PATH" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          event = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          run = event.get("workflow_run")
+          if not isinstance(run, dict):
+              raise SystemExit("workflow_run payload is missing")
+          expected = {
+              "name": "release-source-archive",
+              "event": "push",
+              "status": "completed",
+              "conclusion": "success",
+          }
+          for key, value in expected.items():
+              if run.get(key) != value:
+                  raise SystemExit(
+                      f"unexpected upstream workflow {key}: {run.get(key)!r}"
+                  )
+          workflow_path = run.get("path")
+          expected_path = ".github/workflows/release-source-archive.yml"
+          if not isinstance(workflow_path, str) or not (
+              workflow_path == expected_path
+              or re.fullmatch(re.escape(expected_path) + r"@[^\r\n]+", workflow_path)
+          ):
+              raise SystemExit("unexpected upstream workflow path")
+          if not isinstance(run.get("id"), int) or run["id"] < 1:
+              raise SystemExit("upstream workflow run id is invalid")
+          if not isinstance(run.get("run_attempt"), int) or run["run_attempt"] < 1:
+              raise SystemExit("upstream workflow run attempt is invalid")
+          if not re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", ""))):
+              raise SystemExit("upstream workflow head SHA is invalid")
+          print(run["id"])
+          PY
+          )"
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+            -o "$response"
+          python - "$EVENT_PATH" "$response" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          event_path, response_path, output_path = map(Path, sys.argv[1:])
+          run = json.loads(event_path.read_text(encoding="utf-8"))["workflow_run"]
+          response = json.loads(response_path.read_text(encoding="utf-8"))
+          artifacts = response.get("artifacts")
+          total_count = response.get("total_count")
+          if not isinstance(artifacts, list) or total_count != len(artifacts):
+              raise SystemExit("artifact response is missing entries or is paginated")
+          pattern = re.compile(
+              r"source-archive-v\d+\.\d+\.\d+(?:-rc\.\d+)?\Z"
+          )
+          matches = [
+              item
+              for item in artifacts
+              if isinstance(item, dict)
+              and isinstance(item.get("name"), str)
+              and pattern.fullmatch(item["name"])
+              and item.get("expired") is False
+          ]
+          if len(matches) != 1:
+              raise SystemExit(
+                  f"expected exactly one live release artifact, found {len(matches)}"
+              )
+          values = {
+              "artifact_name": matches[0]["name"],
+              "run_id": str(run["id"]),
+              "run_attempt": str(run["run_attempt"]),
+              "head_sha": run["head_sha"],
+          }
+          with output_path.open("a", encoding="utf-8", newline="\n") as output:
+              for key, value in values.items():
+                  output.write(f"{key}={value}\n")
+          PY
+
+      # actions/download-artifact@v4.1.8
+      - name: Download the selected upstream artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: ${{ steps.source.outputs.artifact_name }}
+          path: dist
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Validate artifact metadata and checksum
+        id: bundle
+        env:
+          EXPECTED_ARTIFACT_NAME: ${{ steps.source.outputs.artifact_name }}
+          EXPECTED_ATTEMPT: ${{ steps.source.outputs.run_attempt }}
+          EXPECTED_COMMIT: ${{ steps.source.outputs.head_sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_RUN_ID: ${{ steps.source.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$GITHUB_OUTPUT" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          def reject_constant(value: str):
+              raise ValueError(f"non-finite JSON number is forbidden: {value}")
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          root = Path("dist")
+          if not root.is_dir() or root.is_symlink():
+              raise SystemExit("downloaded artifact root is invalid")
+          entries = sorted(root.iterdir(), key=lambda item: item.name)
+          if any(not item.is_file() or item.is_symlink() for item in entries):
+              raise SystemExit("downloaded artifact must contain only regular files")
+          if {item.name for item in entries} != {"release-artifact.json"} | {
+              item.name for item in entries if item.name.endswith((".tar.gz", ".tar.gz.sha256"))
+          }:
+              raise SystemExit("downloaded artifact contains an unexpected file")
+          metadata_path = root / "release-artifact.json"
+          try:
+              metadata = json.loads(
+                  metadata_path.read_text(encoding="utf-8"),
+                  object_pairs_hook=unique_object,
+                  parse_constant=reject_constant,
+              )
+          except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"invalid release artifact metadata: {exc}") from exc
+          expected_keys = {
+              "schema_version",
+              "repository",
+              "source_workflow",
+              "workflow_run_id",
+              "workflow_run_attempt",
+              "release_tag",
+              "release_commit",
+              "release_tag_object",
+              "archive_file",
+              "checksum_file",
+              "archive_sha256",
+          }
+          if not isinstance(metadata, dict) or set(metadata) != expected_keys:
+              raise SystemExit("release artifact metadata has an invalid shape")
+          if metadata["schema_version"] != "1.0":
+              raise SystemExit("release artifact metadata schema is unsupported")
+          if metadata["repository"] != os.environ["EXPECTED_REPOSITORY"]:
+              raise SystemExit("release artifact repository binding is invalid")
+          if metadata["source_workflow"] != ".github/workflows/release-source-archive.yml":
+              raise SystemExit("release artifact workflow binding is invalid")
+          if metadata["workflow_run_id"] != int(os.environ["EXPECTED_RUN_ID"]):
+              raise SystemExit("release artifact run id binding is invalid")
+          if metadata["workflow_run_attempt"] != int(os.environ["EXPECTED_ATTEMPT"]):
+              raise SystemExit("release artifact run attempt binding is invalid")
+          tag = metadata["release_tag"]
+          if not isinstance(tag, str) or not re.fullmatch(
+              r"v\d+\.\d+\.\d+(?:-rc\.\d+)?", tag
+          ):
+              raise SystemExit("release artifact tag is invalid")
+          if os.environ["EXPECTED_ARTIFACT_NAME"] != f"source-archive-{tag}":
+              raise SystemExit("release artifact name does not match its tag metadata")
+          commit = metadata["release_commit"]
+          tag_object = metadata["release_tag_object"]
+          if commit != os.environ["EXPECTED_COMMIT"]:
+              raise SystemExit("release artifact commit does not match workflow_run.head_sha")
+          if not isinstance(tag_object, str) or not re.fullmatch(
+              r"[0-9a-f]{40}", tag_object
+          ):
+              raise SystemExit("release artifact tag object is invalid")
+          archive_name = f"d-research-skill-{tag}.tar.gz"
+          checksum_name = f"{archive_name}.sha256"
+          if metadata["archive_file"] != archive_name:
+              raise SystemExit("release artifact archive filename is invalid")
+          if metadata["checksum_file"] != checksum_name:
+              raise SystemExit("release artifact checksum filename is invalid")
+          if {item.name for item in entries} != {
+              "release-artifact.json",
+              archive_name,
+              checksum_name,
+          }:
+              raise SystemExit("release artifact file set is not exact")
+          archive = root / archive_name
+          checksum = root / checksum_name
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if metadata["archive_sha256"] != f"sha256:{digest}":
+              raise SystemExit("release artifact digest does not match metadata")
+          if checksum.read_bytes() != f"{digest}  {archive_name}\n".encode("ascii"):
+              raise SystemExit("release artifact SHA256 manifest is non-canonical")
+          output_path = Path(sys.argv[1])
+          values = {
+              "release_tag": tag,
+              "release_commit": commit,
+              "release_tag_object": tag_object,
+              "archive_file": archive_name,
+              "archive_sha256": digest,
+          }
+          with output_path.open("a", encoding="utf-8", newline="\n") as output:
+              for key, value in values.items():
+                  output.write(f"{key}={value}\n")
+          PY
+
+      - name: Require the exact annotated GitHub-verified release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ steps.bundle.outputs.release_commit }}
+          RELEASE_TAG: ${{ steps.bundle.outputs.release_tag }}
+          RELEASE_TAG_OBJECT: ${{ steps.bundle.outputs.release_tag_object }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref_response="$RUNNER_TEMP/release-tag-ref.json"
+          tag_response="$RUNNER_TEMP/release-tag-object.json"
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+            -o "$ref_response"
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/git/tags/${RELEASE_TAG_OBJECT}" \
+            -o "$tag_response"
+          python - "$ref_response" "$tag_response" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          ref = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          tag = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+          expected_tag = os.environ["RELEASE_TAG"]
+          expected_tag_object = os.environ["RELEASE_TAG_OBJECT"]
+          expected_commit = os.environ["RELEASE_COMMIT"]
+          ref_object = ref.get("object") or {}
+          if ref.get("ref") != f"refs/tags/{expected_tag}":
+              raise SystemExit("GitHub tag ref name does not match release metadata")
+          if ref_object.get("type") != "tag" or ref_object.get("sha") != expected_tag_object:
+              raise SystemExit("GitHub tag ref is not the expected annotated tag object")
+          tag_object = tag.get("object") or {}
+          if tag.get("sha") != expected_tag_object or tag.get("tag") != expected_tag:
+              raise SystemExit("GitHub annotated tag object does not match release metadata")
+          if tag_object.get("type") != "commit" or tag_object.get("sha") != expected_commit:
+              raise SystemExit("GitHub annotated tag does not target the release commit")
+          verification = tag.get("verification") or {}
+          if verification.get("verified") is not True or verification.get("reason") != "valid":
+              raise SystemExit("GitHub does not report a valid signature for the release tag")
+          if not verification.get("signature") or not verification.get("payload"):
+              raise SystemExit("GitHub tag verification is missing signature material")
+          PY
+
+      # Checkout is read-only; no file from the tagged commit is executed in this workflow.
+      # actions/checkout@v7.0.0
+      - name: Checkout the exact tagged commit for archive reproduction
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.bundle.outputs.release_commit }}
+          path: source
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Reproduce and compare the source archive
+        env:
+          ARCHIVE_FILE: ${{ steps.bundle.outputs.archive_file }}
+          ARCHIVE_SHA256: ${{ steps.bundle.outputs.archive_sha256 }}
+          RELEASE_COMMIT: ${{ steps.bundle.outputs.release_commit }}
+          RELEASE_TAG: ${{ steps.bundle.outputs.release_tag }}
+          RELEASE_TAG_OBJECT: ${{ steps.bundle.outputs.release_tag_object }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$RELEASE_COMMIT"
+          test "$(git -C source cat-file -t "refs/tags/${RELEASE_TAG}")" = "tag"
+          test "$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{tag}")" = "$RELEASE_TAG_OBJECT"
+          test "$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "$RELEASE_COMMIT"
+          rebuilt="$RUNNER_TEMP/${ARCHIVE_FILE}"
+          git -C source archive \
+            --format=tar.gz \
+            --prefix="d-research-skill-${RELEASE_TAG}/" \
+            -o "$rebuilt" \
+            "$RELEASE_COMMIT"
+          test "$(sha256sum "$rebuilt" | cut -d ' ' -f 1)" = "$ARCHIVE_SHA256"
+          cmp --silent "$rebuilt" "dist/${ARCHIVE_FILE}"
+
+      # actions/upload-artifact@v7.0.1
+      - name: Upload independently verified source artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-source-archive-${{ github.event.workflow_run.id }}
+          if-no-files-found: error
+          path: |
+            dist/${{ steps.bundle.outputs.archive_file }}
+            dist/${{ steps.bundle.outputs.archive_file }}.sha256
+            dist/release-artifact.json
+
+  attest:
+    name: attest independently verified source archive
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      # This privileged job intentionally has no checkout or run step.
+      # actions/download-artifact@v4.1.8
+      - name: Download independently verified source artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: verified-source-archive-${{ github.event.workflow_run.id }}
+          path: dist
+
+      # actions/attest-build-provenance@v4.1.1
+      - name: Attest source archive provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
+        with:
+          subject-path: dist/${{ needs.verify.outputs.archive_file }}

@@ -12,7 +12,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/evidence_ledger.py`: initialize, validate, and **HMAC-sign / verify** CSV evidence ledgers
 - `scripts/api_fetch.mjs`: paginated API fetch with rate limiting, retry, and multiple output formats
 - `scripts/data_clean.py`: data cleaning, deduplication, validation, statistics, and merging
-- `scripts/citation_export.py`: BibTeX/RIS citation export and DOI enrichment via Crossref with DataCite fallback
+- `scripts/citation_export.py`: backward-compatible BibTeX/RIS citation export, optional JSON-sidecar `@article`/`@book`/`@inproceedings` metadata overlay, and DOI enrichment via Crossref with DataCite fallback
 - `scripts/resource_limits.py`: conservative HTTP/file/Excel/PDF/OCR/subprocess/table/Wayback/social caps; structured incomplete blockers on violation
 - `scripts/check_contract.py`: dynamic version/config/path/count/CLI checks, strict post-RC metadata/path validation, and version-scoped release-waiver verification
 - `scripts/package_manifest_check.mjs`: fail-closed npm tarball validation in Git worktrees and extracted source archives; rejects untracked/local/sensitive artifacts, missing tracked runtime files, and path-fingerprint drift
@@ -36,8 +36,8 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/citation_resolver.py`: doi / pmid / arxiv / isbn / oa / to-ledger / to-bibtex / batch / self-test — academic identifier resolution via free public APIs (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall); see `adapters/citation-resolver.md`
 - `scripts/report_render.py`: init / render / to-pdf / to-docx / to-html / list-styles / lint / self-test — final report generator with workspace containment, inert generated ledger metadata, and HTTP(S)-only source rendering; see `references/report-generation.md`
 - `scripts/ocr.py`: text / pdf / to-ledger / langs / self-test — OCR via tesseract (optional system binary, soft-fail if missing); see `references/ocr.md`
-- `scripts/translate.py`: text / detect / instances / self-test — translation adapter with stdlib trigram language detection and LibreTranslate/DeepL/Google/Argos backends; see `adapters/translation.md`
-- `scripts/embed_corpus.py`: index / query / query-ledger / dedupe / self-test — semantic retrieval over text corpora using cosine similarity with stub/sentence-transformers/cohere/llama-cli backends; see `references/semantic-retrieval.md`
+- `scripts/translate.py`: text / detect / instances / self-test / production-self-test — translation adapter with optional deterministic langdetect, stdlib trigram fallback, and LibreTranslate/DeepL/Google/Argos backends; the production self-test exercises the real optional package offline; see `adapters/translation.md`
+- `scripts/embed_corpus.py`: index / query / query-ledger / dedupe / self-test / production-self-test — retrieval over text corpora using cosine similarity; auto prefers the optional local sentence-transformers backend and otherwise uses built-in deterministic local hashing, while stub/remote/CLI backends require explicit selection; the production self-test uses a generated local model without downloads; see `references/semantic-retrieval.md`
 - `scripts/citation_graph.py`: cited-by / references / expand / to-frontier / coauthors / self-test — citation graph traversal via OpenAlex for snowball sampling and network analysis; see `references/citation-graph.md`
 - `scripts/multi_extract.py`: text / meta / tables / structured / mbox-search / to-ledger / self-test — unified extraction from DOCX, EPUB, XLSX, mbox, and HTML structured data; see `references/multi-format-extraction.md`
 - `scripts/dedup_near.py`: fingerprint / scan / ledger / self-test — near-duplicate detection via SimHash + Hamming distance; see `references/deduplication.md`

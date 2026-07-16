@@ -21,6 +21,18 @@ jobs:
       # actions/checkout@v7.0.0
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Assert exact event commit checkout
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
 
       # actions/setup-python@v6.3.0
       - name: Set up Python
@@ -76,6 +88,50 @@ jobs:
           python scripts/check_internal_refs.py --decision-tree
           python scripts/check_contract.py
 
+  optional-python-backends:
+    name: real optional backends (ubuntu / py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      # actions/checkout@v7.0.0
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Assert exact event commit checkout
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
+
+      # actions/setup-python@v6.3.0
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install production-quality optional backends
+        run: python -m pip install --disable-pip-version-check -e ".[embeddings,language-detection]"
+
+      - name: Exercise real local backends without model downloads
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: |
+          python scripts/embed_corpus.py production-self-test
+          python scripts/translate.py production-self-test
+
   node-unit:
     name: node syntax + self-tests (ubuntu / node${{ matrix.node-version }})
     runs-on: ubuntu-latest
@@ -87,6 +143,18 @@ jobs:
       # actions/checkout@v7.0.0
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Assert exact event commit checkout
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
 
       # actions/setup-node@v6.4.0
       - name: Set up Node
@@ -146,6 +214,18 @@ jobs:
       # actions/checkout@v7.0.0
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Assert exact event commit checkout
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
 
       # actions/setup-node@v6.4.0
       - name: Set up Node
@@ -190,6 +270,19 @@ jobs:
       # actions/checkout@v7.0.0
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Assert exact event commit checkout
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        shell: pwsh
+        run: |
+          $actualSha = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actualSha -ne $env:EXPECTED_SHA) {
+            throw "checked out $actualSha instead of $env:EXPECTED_SHA"
+          }
 
       # actions/setup-node@v6.4.0
       - name: Set up Node
@@ -234,6 +327,18 @@ jobs:
       # actions/checkout@v7.0.0
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Assert exact event commit checkout
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
 
       # actions/setup-python@v6.3.0
       - name: Set up Python

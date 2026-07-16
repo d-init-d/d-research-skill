@@ -87,6 +87,15 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
+v3.2.1-rc.1 upgrades semantic retrieval, rich citation export, and language
+detection to production-capable optional paths. Semantic retrieval now prefers
+local sentence-transformers and uses deterministic built-in lexical retrieval
+when the optional model backend is unavailable; citation export
+supports validated article, book, and conference metadata; language detection
+can use deterministic local `langdetect`. This is a release candidate governed
+by live dogfood, verified-tag, exact-SHA CI, and independent-review gates. See
+[`docs/release-v3.2.1-rc.1.md`](docs/release-v3.2.1-rc.1.md).
+
 v3.2.0 is the production-ready schema-2.0 release. It includes immutable
 approval fingerprints, portable output locking, canonical checklist IDs,
 fail-closed report signatures, strict eval manifests, and browser-wide
@@ -177,7 +186,7 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 | API and databases | REST/GraphQL/SPARQL/API pagination plus read-only database guidance | `references/api-access-workflow.md`, `adapters/graphql.md`, `adapters/database-readonly.md` |
 | Academic research | OpenAlex/CrossRef/PubMed/Semantic Scholar/arXiv/CORE guidance | `references/academic-databases.md` |
 | Evidence ledger | Claim-level evidence CSV with HMAC signing/verification | `templates/evidence-ledger.csv`, `scripts/evidence_ledger.py` |
-| Citations | BibTeX/RIS export and APA/MLA/IEEE/Chicago/Vancouver/etc. rendering | `scripts/citation_export.py`, `scripts/citation_render.py` |
+| Citations | BibTeX/RIS export, optional rich article/book/conference metadata, and APA/MLA/IEEE/Chicago/Vancouver/etc. rendering | `scripts/citation_export.py`, `scripts/citation_render.py` |
 | Data processing | Clean, deduplicate, validate, merge, summarize CSV data | `scripts/data_clean.py` |
 | Data extraction | HTML tables, JSON-LD, embedded JSON, sitemaps, RSS, OAI-PMH, PDFs | `references/data-extraction-toolbox.md`, `scripts/extract_tables.py` |
 | PRISMA reviews | PRISMA 2020 systematic-review protocol and flow template | `references/systematic-review-protocol.md`, `templates/prisma-flow.json` |
@@ -319,7 +328,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── web_search.mjs                    # new — multi-engine web search w/ fallback chain
 │   ├── evidence_ledger.py                # init/validate/sign/verify ledger
 │   ├── data_clean.py                     # clean/dedup/validate/merge/stats
-│   ├── citation_export.py                # BibTeX/RIS export + CrossRef enrich
+│   ├── citation_export.py                # rich BibTeX/RIS export + CrossRef enrich
 │   ├── citation_render.py                # new — APA/MLA/IEEE/… via pandoc+CSL
 │   ├── extract_tables.py                 # new — HTML tables → CSV
 │   ├── score_source.py                   # new — rubric-based source scoring
@@ -347,7 +356,9 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── release-v3.2.0-rc.1.md            # first RC scope and external gates
 │   ├── release-v3.2.0-rc.2.md            # second RC hardening record
 │   ├── release-v3.2.0-rc.3.md            # final RC scope and ship gates
-│   └── release-v3.2.0.md                 # stable release notes
+│   ├── release-v3.2.0.md                 # stable release notes
+│   ├── release-v3.2.1-rc.1.md            # production-capable optional helper RC
+│   └── release-v3.2.1.md                 # stable promotion note (candidate-frozen path)
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates
@@ -481,9 +492,12 @@ The helper scripts in `scripts/` are independent. Only install what you actually
 npm ci                               # installs the exact locked Playwright version
 npx --no-install playwright install chromium  # downloads the locked Chromium revision
 
-# For the Python scripts (data_clean / citation_export / evidence_ledger / research_plan / etc.)
-# Stdlib only — no pip install needed.
+# Core Python helpers (data_clean / citation_export / evidence_ledger / research_plan / etc.)
+# use only the standard library — no pip install needed.
 python3 --version                    # 3.10+ required
+
+# Optional production-quality semantic and language-detection backends
+python3 -m pip install -e ".[embeddings,language-detection]"
 ```
 
 Run the bundled offline self-tests to confirm everything is wired correctly:

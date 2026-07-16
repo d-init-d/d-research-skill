@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "skill_name": "d-research",
   "repository_contract": {
-    "version": "3.2.0-rc.3",
+    "version": "3.2.1-rc.1",
     "counts": {
       "references_markdown": 48,
       "adapters_markdown": 9,
@@ -133,6 +133,8 @@
         "canonical_flags": [
           "--release-tag",
           "--require-release-waiver",
+          "--candidate-tag-object",
+          "--baseline-tag-object",
           "--validate-post-rc-paths",
           "--validate-post-rc-metadata"
         ]
@@ -140,78 +142,41 @@
     ]
   },
   "stable_release_gate": {
-    "promotion_mode": "maintainer_override",
+    "promotion_mode": "live_evidence",
     "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
-    "required_baseline_version": "3.1.1",
-    "required_candidate_version": "3.2.0-rc.3",
+    "required_baseline_version": "3.2.0",
+    "required_candidate_version": "3.2.1-rc.1",
     "full_ci": {
       "workflow_path": ".github/workflows/lint-and-self-test.yml",
+      "exact_candidate_sha": true,
       "exact_release_sha": true,
       "required_conclusion": "success"
     },
-    "candidate_tag": {
+    "run_evidence": {
+      "canonical_layout": true,
+      "manifest_name": "run-result.json",
+      "run_result_schema_version": "2.1",
+      "bind_raw_artifacts": true,
+      "recompute_scores": true
+    },
+    "baseline_tag": {
       "annotated": true,
       "github_verified": false,
       "bind_tag_object_sha": true,
+      "expected_tag_object_sha": "091997d33825a29ed6f30b089c33de9acf897ae3",
       "verification_mode": "annotated_tag_object_sha"
+    },
+    "candidate_tag": {
+      "annotated": true,
+      "github_verified": true,
+      "bind_tag_object_sha": true,
+      "verification_mode": "github_verified_tag_object_sha"
     },
     "release_tag": {
       "annotated": true,
-      "github_verified": false,
-      "verification_mode": "annotated_tag_object_sha"
-    },
-    "maintainer_override": {
-      "schema_version": "1.0",
-      "manifest_path": "release-evidence/v{version}/maintainer-override.json",
-      "allowed_release_version": "3.2.0",
-      "required_decision": "approved_with_waivers",
-      "required_repository": "d-init-d/d-research-skill",
-      "required_maintainer_login": "d-init-d",
-      "required_waivers": [
-        "github_verified_candidate_tag",
-        "github_verified_release_tag",
-        "independent_reviewer",
-        "live_dogfood"
-      ],
-      "required_checks": [
-        "npm_ci",
-        "python_self_test_310",
-        "python_self_test_312",
-        "node_self_test",
-        "acceptance",
-        "browser_smoke",
-        "package_check",
-        "npm_pack_dry_run",
-        "ruff",
-        "compileall_310",
-        "compileall_312",
-        "node_syntax",
-        "internal_refs",
-        "decision_tree",
-        "contract",
-        "contract_self_test",
-        "bench_strict",
-        "quality_triple",
-        "promotion_anti_spoof",
-        "actionlint",
-        "git_diff_check",
-        "archive_replay",
-        "npm_audit"
-      ],
-      "bind_candidate_commit": true,
-      "bind_candidate_tag_object_sha": true,
-      "require_annotated_tags": true,
-      "require_exact_sha_ci": true,
-      "non_waivable": {
-        "annotated_candidate_tag": true,
-        "annotated_release_tag": true,
-        "candidate_tag_object_binding": true,
-        "candidate_ancestry": true,
-        "exact_release_sha_ci": true,
-        "source_archive": true,
-        "sha256_manifest": true,
-        "provenance_attestation": true
-      }
+      "github_verified": true,
+      "bind_tag_object_sha": true,
+      "verification_mode": "github_verified_tag_object_sha"
     },
     "reviewer_attestation": {
       "type": "github_verified_pull_request_review",
@@ -227,11 +192,13 @@
     "tiers": {
       "tier1": {
         "bench_path": "examples/evals/dogfood-bench.json",
-        "expected_tier": "regression"
+        "expected_tier": "regression",
+        "pass_threshold": 0.7
       },
       "tier2": {
         "bench_path": "examples/evals/frontier-bench.json",
-        "expected_tier": "frontier"
+        "expected_tier": "frontier",
+        "pass_threshold": null
       }
     }
   },

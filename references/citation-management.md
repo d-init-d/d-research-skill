@@ -33,7 +33,8 @@ Each reference follows this structured schema:
   "type": "article|book|conference|report|web|dataset|software",
   "title": "Full title of work",
   "authors": [
-    {"family": "Smith", "given": "John A.", "orcid": "0000-0001-2345-6789"}
+    {"family": "Smith", "given": "John A.", "orcid": "0000-0001-2345-6789"},
+    {"literal": "World Health Organization"}
   ],
   "year": 2024,
   "journal": "Journal Name (optional)",
@@ -134,7 +135,56 @@ python3 scripts/citation_export.py export \
   --out citations.bib
 ```
 
-Note: the bundled `scripts/citation_export.py` currently emits BibTeX `@misc` entries built from the evidence-ledger schema. The richer entry types shown above (`@article`, `@book`, `@inproceedings`, etc.) are the target shape an external tool (Zotero, BibLaTeX) can use after manual editing or extension of the script.
+Without extra metadata, `scripts/citation_export.py` deliberately keeps the
+legacy behavior and emits `@misc`: the evidence ledger classifies evidence, but
+does not contain enough bibliographic fields to distinguish a journal article,
+book, and conference paper safely. Do not add ad-hoc columns to the canonical
+23-column ledger.
+
+For rich BibTeX, pass one or more repeatable JSON sidecars with `--metadata`:
+
+```bash
+python3 scripts/citation_export.py export \
+  --file evidence.csv \
+  --format bibtex \
+  --metadata enriched/10.1234_example.doi.json \
+  --metadata curated-books.json \
+  --out citations.bib
+```
+
+Each sidecar may contain one JSON object or an array of objects following the
+citation data model above. The direct JSON output of `citation_export.py enrich`
+is accepted. Records are matched to ledger sources by normalized DOI, then exact URL,
+then normalized title plus year. Conflicting records fail closed; unmatched
+records produce a warning and are not added to the bibliography.
+
+Sidecars use strict JSON: duplicate object keys and non-finite numeric tokens
+(`NaN`, `Infinity`, or `-Infinity`) are rejected. If a record supplies both an
+explicit DOI and a `doi.org` resolver URL, both values must identify the same
+DOI. The access-date aliases `accessed` and `date_accessed` are normalized to
+`date_accessed`; supplying both with different values is an error.
+
+Supported rich mappings are conservative:
+
+| Metadata type | BibTeX entry |
+|---|---|
+| `article`, `journal-article`, `journal_article`, `data-paper` | `@article` |
+| `book`, `monograph`, `edited-book`, `reference-book` | `@book` |
+| `conference`, `conference-paper`, `proceedings-article`, `inproceedings` | `@inproceedings` |
+| unknown, unsupported, or unsafe value | `@misc` |
+
+When no explicit type exists, `journal` implies `@article`, `booktitle` or
+`proceedings` implies `@inproceedings`, and ISBN plus publisher implies
+`@book`. The ledger's `source_type=paper` alone remains `@misc`; it is an
+evidence classification, not publication metadata. Rich entries map
+`authors`, `journal`, `booktitle`, `publisher`, `volume`, `issue` (to BibTeX
+`number`), `pages`, `isbn`, `doi`, `url`, and access date when present.
+Use `{"literal": "Organization Name"}` for corporate authors or editors; the
+exporter preserves the entity as a single BibTeX/CSL name instead of parsing it
+as a person's given and family names.
+Rich types are emitted only when their required author/editor, title, year,
+and container or publisher fields are present; incomplete metadata safely
+falls back to `@misc`.
 
 ## RIS Export
 
@@ -261,10 +311,11 @@ python3 scripts/citation_export.py enrich --doi 10.1234/example.doi
 ```
 
 It prints a normalized JSON object with available title, authors, year,
-journal, volume, issue, pages, DOI, and resolver metadata. CrossRef
+publication type, journal or proceedings title, publisher, volume, issue,
+pages, ISBN, DOI, and resolver metadata. CrossRef
 HTTP/network/parse/resource-limit failures do not silently fall through to
 DataCite; they remain non-zero errors. Use the command inline or wrap it in a
-loop to enrich every row in your evidence ledger before exporting:
+loop to produce sidecars, then pass each sidecar to the exporter:
 
 ```bash
 # Pseudocode: enrich each DOI then re-export
@@ -272,6 +323,11 @@ for doi in $(cut -d, -f<doi_col> evidence.csv | tail -n +2 | sort -u); do
   python3 scripts/citation_export.py enrich --doi "$doi" \
     > "enriched/$(echo "$doi" | tr '/' '_').json"
 done
+
+python3 scripts/citation_export.py export \
+  --file evidence.csv --format bibtex \
+  --metadata enriched/10.1234_example.doi.json \
+  --out citations.bib
 ```
 
 ## Workflow
@@ -309,10 +365,14 @@ Follow this sequence for citation management:
            seen_dois.add(doi)
    ```
 
-4. **Export**: Generate the format the downstream tool needs
+4. **Export**: Generate the format the downstream tool needs. Repeat
+   `--metadata` for each enrichment or curated sidecar; omit it for the
+   backward-compatible `@misc` export.
    ```bash
    python3 scripts/citation_export.py export \
-     --file evidence.csv --format bibtex --out citations.bib
+     --file evidence.csv --format bibtex \
+     --metadata enriched/10.1234_example.doi.json \
+     --out citations.bib
    ```
 
 5. **Generate formatted list (optional)**: convert BibTeX to APA/MLA/IEEE/etc. with the bundled renderer (or `pandoc` directly if you prefer)

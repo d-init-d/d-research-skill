@@ -4,9 +4,10 @@
 Subcommands
 -----------
 * ``text``      - translate text (requires a backend + --allow-remote for remote engines)
-* ``detect``    - detect language via stdlib trigram heuristic
+* ``detect``    - detect language via optional langdetect or stdlib trigram fallback
 * ``instances`` - list known LibreTranslate public instances
 * ``self-test`` - run offline self-tests (no network)
+* ``production-self-test`` - exercise the actual optional langdetect package
 
 Translation backends (all opt-in, all soft-fail):
 - LibreTranslate (default remote, requires --allow-remote or D_RESEARCH_ALLOW_REMOTE_TRANSLATION=1)
@@ -58,8 +59,14 @@ LIBRETRANSLATE_API = LIBRETRANSLATE_INSTANCES[0]
 
 
 # ---------------------------------------------------------------------------
-# Language detection (stdlib trigram heuristic)
+# Language detection (optional langdetect + stdlib trigram fallback)
 # ---------------------------------------------------------------------------
+
+LANGUAGE_DETECTION_BACKENDS = ("auto", "langdetect", "trigram")
+
+
+class LanguageDetectionBackendUnavailable(RuntimeError):
+    """Raised when an explicitly requested optional detection backend is absent."""
 
 # Trigram frequency profiles for common languages (top 30 trigrams each)
 # These are precomputed from representative text samples.
@@ -121,11 +128,8 @@ def _cosine_sim(a: collections.Counter, b: collections.Counter) -> float:
     return dot / (mag_a * mag_b)
 
 
-def detect_language(text: str, top_n: int = 3) -> list[dict[str, Any]]:
-    """Detect language using trigram cosine similarity.
-
-    Returns top-N candidates with confidence scores.
-    """
+def _detect_language_trigram(text: str, top_n: int) -> list[dict[str, Any]]:
+    """Detect language with the bundled trigram cosine similarity heuristic."""
     if len(text.strip()) < 10:
         return [{"lang": "unknown", "confidence": 0.0}]
 
@@ -144,6 +148,64 @@ def detect_language(text: str, top_n: int = 3) -> list[dict[str, Any]]:
     for lang, score in scores[:top_n]:
         results.append({"lang": lang, "confidence": round(score, 4)})
     return results
+
+
+def _detect_language_langdetect(text: str, top_n: int) -> list[dict[str, Any]]:
+    """Detect language with the optional deterministic langdetect backend."""
+    try:
+        from langdetect import DetectorFactory, detect_langs  # type: ignore[import-not-found]
+        from langdetect.lang_detect_exception import (  # type: ignore[import-not-found]
+            LangDetectException,
+        )
+    except ImportError as exc:
+        raise LanguageDetectionBackendUnavailable(
+            "backend 'langdetect' requires the optional 'langdetect' package.\n"
+            "  Install: python -m pip install -e \".[language-detection]\"\n"
+            "  Or use: --backend trigram"
+        ) from exc
+
+    # langdetect otherwise seeds its internal random sampling from system state.
+    DetectorFactory.seed = 0
+
+    if len(text.strip()) < 10:
+        return [{"lang": "unknown", "confidence": 0.0}]
+
+    try:
+        candidates = detect_langs(text)
+    except LangDetectException:
+        return [{"lang": "unknown", "confidence": 0.0}]
+
+    return [
+        {"lang": candidate.lang, "confidence": round(float(candidate.prob), 4)}
+        for candidate in candidates[:top_n]
+    ]
+
+
+def detect_language(
+    text: str,
+    top_n: int = 3,
+    backend: str = "auto",
+) -> list[dict[str, Any]]:
+    """Detect language and return top-N candidates with confidence scores.
+
+    ``auto`` prefers the optional deterministic ``langdetect`` backend and
+    safely falls back to the bundled offline trigram heuristic when the
+    optional package is unavailable. Explicit ``langdetect`` requests fail
+    clearly instead of silently changing algorithms.
+    """
+    if backend == "trigram":
+        return _detect_language_trigram(text, top_n)
+    if backend == "langdetect":
+        return _detect_language_langdetect(text, top_n)
+    if backend == "auto":
+        try:
+            return _detect_language_langdetect(text, top_n)
+        except LanguageDetectionBackendUnavailable:
+            return _detect_language_trigram(text, top_n)
+    raise ValueError(
+        f"unsupported language-detection backend: {backend!r}; "
+        f"choose one of {', '.join(LANGUAGE_DETECTION_BACKENDS)}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +400,12 @@ def cmd_detect(args: argparse.Namespace) -> int:
         print("error: no input text", file=sys.stderr)
         return 1
 
-    results = detect_language(text, top_n=3)
+    backend = getattr(args, "backend", "auto")
+    try:
+        results = detect_language(text, top_n=3, backend=backend)
+    except LanguageDetectionBackendUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(json.dumps(results, indent=2, ensure_ascii=False))
     return 0
 
@@ -392,29 +459,62 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
 
     errors: list[str] = []
 
-    # Test 1: Language detection — English
+    # Test 1: Bundled trigram language detection — English
     en_text = "The quick brown fox jumps over the lazy dog and the cat sleeps on the mat"
-    results = detect_language(en_text)
+    results = detect_language(en_text, backend="trigram")
     if not results or results[0]["lang"] != "en":
         errors.append(f"detect English failed: got {results}")
 
-    # Test 2: Language detection — Vietnamese
+    # Test 2: Bundled trigram language detection — Vietnamese
     vi_text = "Việt Nam là một quốc gia nằm ở phía đông bán đảo Đông Dương thuộc khu vực Đông Nam Á"
-    results = detect_language(vi_text)
+    results = detect_language(vi_text, backend="trigram")
     if not results or results[0]["lang"] != "vi":
         errors.append(f"detect Vietnamese failed: got {results}")
 
     # Test 3: Language detection — short text returns unknown
-    results = detect_language("hi")
+    results = detect_language("hi", backend="trigram")
     if not results or results[0]["lang"] != "unknown":
         errors.append(f"detect short text should return unknown: got {results}")
 
     # Test 4: detect returns top-3
-    results = detect_language(en_text, top_n=3)
+    results = detect_language(en_text, top_n=3, backend="trigram")
     if len(results) != 3:
         errors.append(f"detect should return 3 candidates: got {len(results)}")
 
-    # Test 5: Mock translation via local server (with --allow-remote)
+    # Test 5: auto is safe without the optional package; explicit use is actionable
+    import builtins as _builtins
+    from unittest import mock as _mock
+
+    original_import = _builtins.__import__
+
+    def _import_without_langdetect(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "langdetect" or name.startswith("langdetect."):
+            raise ImportError("simulated missing optional langdetect package")
+        return original_import(name, *args, **kwargs)
+
+    with _mock.patch("builtins.__import__", side_effect=_import_without_langdetect):
+        results = detect_language(en_text, backend="auto")
+        if not results or results[0]["lang"] != "en":
+            errors.append(f"auto trigram fallback failed: got {results}")
+        try:
+            detect_language(en_text, backend="langdetect")
+        except LanguageDetectionBackendUnavailable as exc:
+            if "language-detection" not in str(exc) or "--backend trigram" not in str(exc):
+                errors.append(f"langdetect install error is not actionable: {exc}")
+        else:
+            errors.append("explicit langdetect should fail when its optional package is absent")
+
+    # Test 6: langdetect is deterministic when the optional package is installed
+    try:
+        first = detect_language(en_text, backend="langdetect")
+        second = detect_language(en_text, backend="langdetect")
+    except LanguageDetectionBackendUnavailable:
+        pass
+    else:
+        if first != second:
+            errors.append(f"langdetect should be deterministic: got {first} then {second}")
+
+    # Test 7: Mock translation via local server (with --allow-remote)
     server = http.server.HTTPServer(("127.0.0.1", 0), _MockTranslateHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -439,7 +539,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         server.shutdown()
         server.server_close()
 
-    # Test 6: Remote without opt-in should be blocked by cmd_text
+    # Test 8: Remote without opt-in should be blocked by cmd_text
     import io as _io
     import tempfile as _tf
     with _tf.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
@@ -461,7 +561,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
     finally:
         Path(tmp_input).unlink(missing_ok=True)
 
-    # Test 7: instances list
+    # Test 9: instances list
     if not LIBRETRANSLATE_INSTANCES:
         errors.append("LIBRETRANSLATE_INSTANCES is empty")
 
@@ -472,6 +572,48 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         return 1
 
     print("translate self-test ok")
+    return 0
+
+
+def cmd_production_self_test(_args: argparse.Namespace) -> int:
+    """Exercise the installed langdetect backend deterministically."""
+    text = (
+        "Independent researchers validate evidence, compare primary sources, "
+        "and document reproducible findings before publishing a report."
+    )
+    try:
+        first = detect_language(text, top_n=3, backend="langdetect")
+        second = detect_language(text, top_n=3, backend="langdetect")
+        automatic = detect_language(text, top_n=3, backend="auto")
+    except LanguageDetectionBackendUnavailable as exc:
+        print(f"translate production-self-test FAILED: {exc}", file=sys.stderr)
+        return 1
+
+    if (
+        first != second
+        or first != automatic
+        or not first
+        or first[0].get("lang") != "en"
+    ):
+        print(
+            "translate production-self-test FAILED: "
+            "expected deterministic English detection and auto selection, "
+            f"got {first}, {second}, and {automatic}",
+            file=sys.stderr,
+        )
+        return 1
+    if any(
+        not isinstance(item.get("confidence"), float)
+        or not math.isfinite(item["confidence"])
+        for item in first
+    ):
+        print(
+            "translate production-self-test FAILED: invalid confidence values",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("translate production-self-test ok")
     return 0
 
 
@@ -497,11 +639,21 @@ def main() -> int:
                         help="Explicitly allow sending text to remote translation services.")
     text_p.add_argument("--out", default=None, help="Output file.")
 
-    detect_p = sub.add_parser("detect", help="Detect language.")
+    detect_p = sub.add_parser("detect", help="Detect language locally.")
     detect_p.add_argument("--in", dest="input", default=None, help="Input text file (or stdin).")
+    detect_p.add_argument(
+        "--backend",
+        default="auto",
+        choices=LANGUAGE_DETECTION_BACKENDS,
+        help="Detection backend (default: auto; prefers langdetect, falls back to trigram).",
+    )
 
     sub.add_parser("instances", help="List LibreTranslate instances.")
     sub.add_parser("self-test", help="Run offline self-tests.")
+    sub.add_parser(
+        "production-self-test",
+        help="Exercise the installed langdetect backend without network access.",
+    )
 
     args = p.parse_args()
     if args.cmd == "text":
@@ -512,6 +664,8 @@ def main() -> int:
         return cmd_instances(args)
     if args.cmd == "self-test":
         return cmd_self_test(args)
+    if args.cmd == "production-self-test":
+        return cmd_production_self_test(args)
     p.print_help()
     return 1
 

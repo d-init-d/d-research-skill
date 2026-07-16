@@ -51,6 +51,16 @@ def _parse_rfc3339(value: object) -> datetime | None:
     return parsed if parsed.tzinfo is not None else None
 
 
+def _workflow_path_matches(actual: object, expected: str) -> bool:
+    """Accept one exact workflow path with an optional non-empty GitHub ref suffix."""
+
+    if actual == expected:
+        return True
+    if not isinstance(actual, str):
+        return False
+    return re.fullmatch(re.escape(expected) + r"@[^\x00-\x20\x7f]+", actual) is not None
+
+
 def validate_ci_response(
     payload: object,
     *,
@@ -80,7 +90,7 @@ def validate_ci_response(
         repository_data = run.get("head_repository") or run.get("repository") or {}
         if (
             run.get("head_sha") == expected_sha
-            and run.get("path") == workflow_path
+            and _workflow_path_matches(run.get("path"), workflow_path)
             and isinstance(repository_data, dict)
             and repository_data.get("full_name") == repository
         ):
@@ -239,6 +249,30 @@ def self_test() -> int:
         workflow_path=workflow,
     ):
         failures.append("valid exact-SHA CI response rejected")
+    for suffixed_path in (f"{workflow}@main", f"{workflow}@refs/tags/v3.2.1"):
+        suffixed_ci = json.loads(json.dumps(ci))
+        suffixed_ci["workflow_runs"][0]["path"] = suffixed_path
+        if validate_ci_response(
+            suffixed_ci,
+            expected_sha=commit,
+            repository=repository,
+            workflow_path=workflow,
+        ):
+            failures.append(f"valid workflow ref suffix rejected: {suffixed_path}")
+    for hostile_path in (
+        f"{workflow}@",
+        f"{workflow}.bak@main",
+        f"{workflow}@main\nforged",
+    ):
+        hostile_ci = json.loads(json.dumps(ci))
+        hostile_ci["workflow_runs"][0]["path"] = hostile_path
+        if not validate_ci_response(
+            hostile_ci,
+            expected_sha=commit,
+            repository=repository,
+            workflow_path=workflow,
+        ):
+            failures.append(f"invalid workflow path accepted: {hostile_path!r}")
     bad_ci = json.loads(json.dumps(ci))
     bad_ci["workflow_runs"][0]["head_sha"] = "3" * 40
     if not validate_ci_response(

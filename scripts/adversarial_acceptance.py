@@ -526,7 +526,12 @@ def case_22_tier_b_lookup_failure() -> None:
 def case_23_unsafe_runtime_config() -> None:
     r = run_py([str(SCRIPTS / "check_contract.py"), "self-test"])
     ok = r.returncode == 0
-    record("23_unsafe_runtime_config", ok)
+    detail = ""
+    if not ok:
+        detail = (r.stderr or r.stdout or f"rc={r.returncode}").strip()
+        if len(detail) > 4000:
+            detail = detail[:4000] + "... [truncated]"
+    record("23_unsafe_runtime_config", ok, detail)
 
 
 def case_24_malformed_date_no_high_freshness() -> None:
