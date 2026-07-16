@@ -522,6 +522,17 @@ def check_workflow_security(root: Path = ROOT) -> list[str]:
             errors.append(
                 "release attestation workflow must use workflow_run with empty default permissions"
             )
+        if attest_text.count('"$GITHUB_EVENT_PATH"') != 2:
+            errors.append(
+                "release attestation workflow must read the webhook from "
+                "GITHUB_EVENT_PATH in both validation stages"
+            )
+        if "github.event_path" in attest_text or re.search(
+            r"(?m)^\s+EVENT_PATH:\s*", attest_text
+        ):
+            errors.append(
+                "release attestation workflow must not derive an EVENT_PATH alias"
+            )
         verify_text, attest_separator, privileged_text = jobs_text.partition("\n  attest:\n")
         if not attest_separator:
             errors.append("release attestation workflow has no isolated attest job")
@@ -3167,6 +3178,16 @@ def self_test() -> int:
         release_security_path.write_text(original_release_security, encoding="utf-8")
         attest_security_path = workflow_dir / "release-attest.yml"
         original_attest_security = attest_security_path.read_text(encoding="utf-8")
+        attest_security_path.write_text(
+            original_attest_security.replace("$GITHUB_EVENT_PATH", "$EVENT_PATH"),
+            encoding="utf-8",
+        )
+        if not any(
+            "GITHUB_EVENT_PATH" in error
+            for error in check_workflow_security(workflow_root)
+        ):
+            failures.append("expected derived attestation event path to fail")
+        attest_security_path.write_text(original_attest_security, encoding="utf-8")
         attest_security_path.write_text(
             original_attest_security.replace(
                 "      # This privileged job intentionally has no checkout or run step.\n",

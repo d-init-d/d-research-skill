@@ -3,7 +3,7 @@
 ## v3.2.1 Release Notes
 
 D Research v3.2.1 promotes the production-capable optional semantic-retrieval,
-bibliographic-export, and language-detection upgrades frozen in v3.2.1-rc.1.
+bibliographic-export, and language-detection upgrades frozen in v3.2.1-rc.2.
 The executable candidate, dependency graph, workflow contract, and package
 path manifest must remain unchanged during stable promotion.
 
@@ -58,7 +58,7 @@ independent sign-off
 must bind the exact promotion-manifest SHA-256 while attesting review of live
 run origin, raw artifacts, and recomputation. These controls verify the
 evidence chain; they do not substitute for the required live runs or reviewer.
-Until those gates pass, v3.2.1-rc.1 remains the latest truthful release claim.
+Until those gates pass, v3.2.1-rc.2 remains the latest truthful release claim.
 
-See [`release-v3.2.1-rc.1.md`](release-v3.2.1-rc.1.md) for the complete frozen
+See [`release-v3.2.1-rc.2.md`](release-v3.2.1-rc.2.md) for the complete frozen
 candidate scope and promotion requirements.

@@ -306,7 +306,7 @@ manifest looks like this:
   },
   "candidate_binding": {
     "skill_commit": "0123456789abcdef0123456789abcdef01234567",
-    "version": "3.2.1-rc.1"
+    "version": "3.2.1-rc.2"
   },
   "started_at": "2026-07-10T01:00:00Z",
   "finished_at": "2026-07-10T01:03:00Z"
@@ -418,7 +418,7 @@ The score artifact schema is:
       },
       "candidate_binding": {
         "skill_commit": "0123456789abcdef0123456789abcdef01234567",
-        "version": "3.2.1-rc.1"
+        "version": "3.2.1-rc.2"
       }
     }
   ]
