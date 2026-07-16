@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification path and inspect the local skill plus `social_snapshot.py` for Tier A platforms.Found the Tier A set in code. Pulling the exact quote and a short cross-check for the ledger.Writing the evidence ledger from the code and docs, then validating it.**Answer:** `social_snapshot.py` treats these platforms as **Tier A** (direct public API fetch): **reddit**, **hn**, **mastodon**, **bluesky**, and **lemmy**.\n\nPrimary definition in code:\n\n```70:71:scripts/social_snapshot.py\nTIER_A_PLATFORMS = {\"reddit\", \"hn\", \"mastodon\", \"bluesky\", \"lemmy\"}\nTIER_B_PLATFORMS = {\"x\", \"facebook\", \"instagram\", \"tiktok\", \"youtube\", \"threads\", \"linkedin\"}\n```\n\nCross-check: `references/social-media-archival.md` lists the same five under Tier A with method “Direct public API fetch.”\n\nEvidence ledger: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b00-8f86-7850-8c02-700f8bc90aca",
+  "requestId": "ad79f18f-4861-448a-a02f-adb06ba3df04",
+  "thought": "The user wants me to solve an evaluation task about which platforms social_snapshot.py treats as Tier A (direct public API fetch). Let me follow the D Research skill instructions carefully.\nI found the answer clearly. TIER_A_PLATFORMS = {\"reddit\", \"hn\", \"mastodon\", \"bluesky\", \"lemmy\"}\nI have clear evidence. Let me also get the docstring/module description about Tier A for a good quote.I have everything I need. Now write evidence-ledger.csv with proper format.\nI need to validate the CSV. The quotes inside the quote_or_anchor field might be problematic - I used doubled quotes for CSV escaping. Let me validate.Validation passed. Now I should give a concise answer mentioning the ledger filename and stop. Do not create run-result.json per instructions.",
+  "usage": {
+    "input_tokens": 26587,
+    "cache_read_input_tokens": 115072,
+    "output_tokens": 2004,
+    "reasoning_tokens": 804,
+    "total_tokens": 143663
+  },
+  "num_turns": 6,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 26587,
+      "outputTokens": 2004,
+      "cacheReadInputTokens": 115072,
+      "modelCalls": 6
+    }
+  }
+}

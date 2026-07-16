@@ -1,0 +1,31 @@
+{
+  "schema_version": "2.1",
+  "task_id": "FB-008",
+  "status": "completed",
+  "ledger_path": "evidence-ledger.csv",
+  "ledger_sha256": "sha256:51f2d0824f258abfecdb256de5d957ff7f9cdccfad1d0b68e6f700e2bd43ed0d",
+  "raw_prompt_path": "raw-prompt.txt",
+  "raw_prompt_sha256": "sha256:f22473dfc398af97ba7414a477d3dda60ccbd66ffc55d238b1ad325016984279",
+  "raw_output_path": "raw-output.txt",
+  "raw_output_sha256": "sha256:058515b0bc57732fa56c00842135e8abcc8f82fb505894e26f9d3d0bf6424895",
+  "run_id": "candidate-tier2-FB-008-96c7a7e11cba4eb8963ebadfed293e28",
+  "session_id": "019f6afb-9bca-7a52-9dbc-45d8f3bcd15f",
+  "runtime": {
+    "agent": "grok-build",
+    "model": "grok-4.5",
+    "version": "grok 0.2.101 (5bc4b5dfad) [stable]",
+    "tool_config_hash": "sha256:45b1ed81cc973de656f5d1ce090fd157817111a86b6bcb6733a8ba00f779e300"
+  },
+  "skill_commit": "520915764a97d717aaf4682e02b8aae5dc511d2f",
+  "evaluator_binding": {
+    "bench_fingerprint": "sha256:73bb292b4232c21e21742483091463ba837b3316c7bc2e0506b555aee54b41ed",
+    "bench_version": "3.0",
+    "harness_commit": "520915764a97d717aaf4682e02b8aae5dc511d2f"
+  },
+  "candidate_binding": {
+    "skill_commit": "520915764a97d717aaf4682e02b8aae5dc511d2f",
+    "version": "3.2.1-rc.2"
+  },
+  "started_at": "2026-07-16T12:51:40.499434Z",
+  "finished_at": "2026-07-16T12:52:31.065400Z"
+}

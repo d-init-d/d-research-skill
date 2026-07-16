@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill for the long-horizon-plan branch and locate which gate verifies task outputs after collection.SKILL.md points to `synthesize_ready` after collection; I'll pull the exact gate definition from the long-horizon references.Evidence confirms `synthesize_ready` (includes `research_outputs_exist`). Writing and validating the ledger.**Answer: `synthesize_ready`**\n\nAfter long-horizon research collection finishes, the standard gate is **`synthesize_ready`**. It confirms research-phase tasks are terminal (`done` or `blocked` with justification), **research outputs exist**, the evidence ledger validates and HMAC-verifies, and the reproducibility checklist is complete—so the run is ready for synthesis. It is enforced via `scripts/research_plan.py gate --gate synthesize_ready` (assertions in `templates/route-manifest.json`, including `research_tasks_terminal` and `research_outputs_exist`).\n\nEvidence: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6afc-f363-7df1-b206-d5a05a71e516",
+  "requestId": "682c014b-e4f8-4dd1-bb0c-80bd826942f6",
+  "thought": "The user wants me to answer a research question about D Research skill: when a long-horizon research run finishes collection, which standard gate checks that task outputs exist and are ready for synth...I found clear evidence that `synthesize_ready` is the gate that checks research phase is terminal and ready for synthesis. Let me read the execution-gates.md and research-plan-protocol.md or route-man...I have clear evidence. The answer is `synthesize_ready`. It checks:Now validate the CSV with the script and Python csv reader.Ledger validated. Now I should give the concise answer and mention the ledger filename. Per instructions: \"As soon as evidence-ledger.csv validates, stop using tools, send the concise answer, mention ...",
+  "usage": {
+    "input_tokens": 29931,
+    "cache_read_input_tokens": 82304,
+    "output_tokens": 2047,
+    "reasoning_tokens": 598,
+    "total_tokens": 114282
+  },
+  "num_turns": 5,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 29931,
+      "outputTokens": 2047,
+      "cacheReadInputTokens": 82304,
+      "modelCalls": 5
+    }
+  }
+}

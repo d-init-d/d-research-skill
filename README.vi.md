@@ -53,15 +53,16 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
-v3.2.1-rc.2 nâng semantic retrieval, citation export giàu metadata và language
-detection thành các nhánh optional có backend production. Semantic retrieval ưu
+v3.2.1 là bản stable nâng ba nhánh optional lên backend production: semantic
+retrieval, citation export giàu metadata và language detection. Semantic
+retrieval ưu
 tiên sentence-transformers cục bộ và dùng fallback lexical deterministic tích
 hợp sẵn khi chưa cài backend model; citation export hỗ
 trợ metadata đã validate cho article, book và conference; language detection có
-thể dùng `langdetect` cục bộ với kết quả deterministic. Đây là release
-candidate, chỉ được promote sau live dogfood, verified tag, CI đúng SHA và
-independent review. Xem
-[`docs/release-v3.2.1-rc.2.md`](docs/release-v3.2.1-rc.2.md).
+thể dùng `langdetect` cục bộ với kết quả deterministic. Cây stable promote đúng
+candidate v3.2.1-rc.2 mà không thay đổi executable, dependency, workflow, route
+hay package path. Xem
+[`docs/release-v3.2.1.md`](docs/release-v3.2.1.md).
 
 v3.2.0 là bản production-ready của workflow schema 2.0. Bản này có fingerprint
 bất biến cho approval, khóa output portable, checklist có ID chuẩn, report

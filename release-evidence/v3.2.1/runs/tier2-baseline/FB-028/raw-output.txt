@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification route: read SKILL.md and the fact-verification reference, then inspect `social_snapshot.py` for the `content_hash` primitive.Reading the hash function and snap.json field for exact quotes.Writing the evidence ledger from the primary source, then validating it.**Answer: SHA-256** (`hashlib.sha256`)\n\n`scripts/social_snapshot.py` defines `compute_content_hash`, which returns `hashlib.sha256(canonical.encode(\"utf-8\")).hexdigest()`. Snapshots store that value under the field `content_hash_sha256` in `snap.json`.\n\nEvidence ledger: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b00-fe6f-7212-9e1a-69ba53ca0082",
+  "requestId": "39162614-4b20-400c-be4b-3a6a0ae81372",
+  "thought": "The user is asking me to evaluate a fact-verification task about what hash primitive `social_snapshot.py` uses for `content_hash` in `snap.json`. Let me follow the D Research skill instructions carefu...I found the answer. Looking at the grep results:\nI have clear evidence:\n1. `compute_content_hash` uses `hashlib.sha256`The ledger validated successfully. Now I should provide a concise answer and mention the ledger filename. I should ignore run-result.json per instructions.",
+  "usage": {
+    "input_tokens": 14050,
+    "cache_read_input_tokens": 75008,
+    "output_tokens": 1492,
+    "reasoning_tokens": 465,
+    "total_tokens": 90550
+  },
+  "num_turns": 4,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 14050,
+      "outputTokens": 1492,
+      "cacheReadInputTokens": 75008,
+      "modelCalls": 4
+    }
+  }
+}

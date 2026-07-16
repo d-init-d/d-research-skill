@@ -1,0 +1,23 @@
+{
+  "text": "Primary source confirms save uses `fetch_with_backoff` on HTTP 429. Writing the evidence ledger.**HTTP 429**\n\nIn `scripts/wayback.py`, `cmd_save` submits via `fetch_with_backoff(..., method=\"POST\")`. That helper documents and implements exponential backoff only on **HTTP 429** (rate limited): on `HTTPError` with `e.code == 429`, it sleeps (Retry-After or `2 ** (attempt + 1)`) and retries.\n\nEvidence: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b00-2dcd-78a1-9aba-f83573c0d77e",
+  "requestId": "7202b6da-943e-453c-af91-fa4e8f0a8e7d",
+  "thought": "The user wants me to answer a factual question about wayback.py save functionality - specifically which HTTP status code triggers exponential backoff retry. This is a fact-verification task following ...I found the answer clearly. Let me read the relevant section of wayback.py for exact quotes to put in the evidence ledger.I have clear evidence:\n1. `cmd_save` uses `fetch_with_backoff` with POSTNow validate with Python csv reader check and evidence_ledger.py validate.Validation passed. Now provide concise answer and mention the ledger filename. Don't create run-result.json. Don't ask questions.",
+  "usage": {
+    "input_tokens": 14016,
+    "cache_read_input_tokens": 98944,
+    "output_tokens": 1347,
+    "reasoning_tokens": 873,
+    "total_tokens": 114307
+  },
+  "num_turns": 5,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 14016,
+      "outputTokens": 1347,
+      "cacheReadInputTokens": 98944,
+      "modelCalls": 5
+    }
+  }
+}

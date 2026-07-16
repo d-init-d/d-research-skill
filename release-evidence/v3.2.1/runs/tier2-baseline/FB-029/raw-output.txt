@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification route and inspect `SKILL.md` plus `social_snapshot.py` for the Tier B verifiability label.Confirming the Tier B path in `social_snapshot.py` and capturing exact quotes for the ledger.Writing the evidence ledger from the in-repo primary source, then validating it.## Answer\n\n**`archive_snapshot`**\n\nFor Tier B platforms (`x`, `facebook`, `instagram`, `tiktok`, `youtube`, `threads`, `linkedin`), `scripts/social_snapshot.py` routes through `snapshot_tier_b()`, which always sets:\n\n```python\nverifiability=\"archive_snapshot\"\n```\n\nThat value is written on every Tier B path (lookup failure, optional Save Page Now failure, and success). The script’s self-test also requires `snap.get(\"verifiability\") == \"archive_snapshot\"` for each Tier B platform.\n\nEvidence ledger: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b01-119a-7f62-8a93-7449d753c5ac",
+  "requestId": "8be627f7-7fb4-40c6-8b01-412e1bfe4a87",
+  "thought": "The user wants me to solve an evaluation task about D Research skill - specifically which verifiability label `social_snapshot.py` sets in the snapshot for Tier B platforms (X, Facebook, Instagram, Ti...I found the answer clearly. For Tier B platforms, `social_snapshot.py` sets `verifiability=\"archive_snapshot\"`. Let me read the exact section of the code and fact-verification reference briefly for th...I have clear evidence:\nNow validate the CSV with the evidence_ledger.py script.Validation passed. I should provide a concise answer and mention the ledger filename. Do not create run-result.json per instructions.",
+  "usage": {
+    "input_tokens": 45425,
+    "cache_read_input_tokens": 83200,
+    "output_tokens": 1631,
+    "reasoning_tokens": 560,
+    "total_tokens": 130256
+  },
+  "num_turns": 5,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 45425,
+      "outputTokens": 1631,
+      "cacheReadInputTokens": 83200,
+      "modelCalls": 5
+    }
+  }
+}

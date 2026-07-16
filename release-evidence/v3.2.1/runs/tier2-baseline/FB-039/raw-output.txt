@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification path: read the skill and branch refs, then locate the default translation backend in `translate.py`.Reading `scripts/translate.py` for the default backend selection logic.Confirming the argparse default and checking the translation adapter for a secondary source.Writing the evidence ledger from the primary code source and adapter corroboration.**Answer:** The default translation backend in `scripts/translate.py` is **`libretranslate`**.\n\nWhen no `--engine` is passed (and no env var selects an engine—none does), argparse sets:\n\n```python\n--engine default=\"libretranslate\"\n```\n\nchoices: `libretranslate`, `deepl`, `google`, `argos`.\n\nEnv vars in this script control remote opt-in (`D_RESEARCH_ALLOW_REMOTE_TRANSLATION`) and provider keys (`DEEPL_API_KEY`, `GOOGLE_TRANSLATE_API_KEY`), not the default engine. `adapters/translation.md` also labels LibreTranslate as the default.\n\nEvidence filed in **`evidence-ledger.csv`** (validated).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b02-c515-7e71-ad7b-409ae6d78ef3",
+  "requestId": "7bac4336-d1fc-4a76-8279-d94a44e4cca3",
+  "thought": "The user wants me to answer a fact-verification question about the default translation backend in translate.py when no env var is set. This is a D Research dogfood task. Let me follow the instructions...I found translate.py. Let me read the relevant parts for the default backend when no env var is set.I have clear evidence. The default translation backend is `libretranslate` as set in:\nI have solid evidence:\nI need to validate the CSV. Also I may have quote escaping issues - I used doubled quotes for the quote field which is correct CSV. Let me validate.Validation passed. Now I should provide the concise answer, mention the ledger filename, and exit. No run-result.json per instructions.",
+  "usage": {
+    "input_tokens": 19130,
+    "cache_read_input_tokens": 137088,
+    "output_tokens": 2332,
+    "reasoning_tokens": 912,
+    "total_tokens": 158550
+  },
+  "num_turns": 6,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 19130,
+      "outputTokens": 2332,
+      "cacheReadInputTokens": 137088,
+      "modelCalls": 6
+    }
+  }
+}

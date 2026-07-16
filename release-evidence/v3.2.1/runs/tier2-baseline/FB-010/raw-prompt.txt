@@ -1,0 +1,14 @@
+# Eval task FB-010
+Class: api-drift-detection
+Difficulty: medium
+Expected branch: broad-research
+Tier: frontier
+
+## Question
+The toolbox historically showed one pagination flag spelling while the implementation's canonical flag is another. What is the canonical CLI flag name for pagination in scripts/api_fetch.mjs (the preferred flag, not the deprecated alias)?
+
+## Constraints for the agent
+- Follow SKILL.md decision tree; do NOT bypass any privacy or access-control boundary.
+- File each claim in an evidence ledger CSV with source URL and exact-quote evidence.
+- If this task cites in-repo paths, the agent must have read access to the repository files and should cite those paths in source_url.
+- When done, save the ledger plus a schema-2.1 `run-result.json` containing task/runtime/commit/timestamp metadata; pass both paths to `scripts/run_dogfood.py score`.

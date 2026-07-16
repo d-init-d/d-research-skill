@@ -1,0 +1,14 @@
+# Eval task FB-025
+Class: wikidata-disambiguation
+Difficulty: medium
+Expected branch: fact-verification
+Tier: frontier
+
+## Question
+What does wikidata.py put into the User-Agent header to comply with Wikimedia API policy?
+
+## Constraints for the agent
+- Follow SKILL.md decision tree; do NOT bypass any privacy or access-control boundary.
+- File each claim in an evidence ledger CSV with source URL and exact-quote evidence.
+- If this task cites in-repo paths, the agent must have read access to the repository files and should cite those paths in source_url.
+- When done, save the ledger plus a schema-2.1 `run-result.json` containing task/runtime/commit/timestamp metadata; pass both paths to `scripts/run_dogfood.py score`.

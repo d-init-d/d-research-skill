@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill path for this register/jargon question, starting with SKILL.md and the jargon-expansion reference.Reading the register-and-jargon-expansion companion for the harvested-vocabulary classification.Found the classification: harvested vocabulary is a **discovery layer only**. Writing and validating the evidence ledger.**Answer:** Harvested vocabulary is a **discovery layer only** (never evidence).\n\nIn `references/register-and-jargon-expansion.md` (Safety and scope):\n\n> Harvested vocabulary is a **discovery layer only — never evidence.** Every claim still anchors a real source and still passes `references/source-quality-rubric.md` plus the contradiction pass.\n\nCommunity jargon is a lead, not a fact; the same guardrail is restated in the failure-modes table (trap 3).\n\nEvidence is recorded in **evidence-ledger.csv**.",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b06-1783-7c90-b55d-e557f6ebf771",
+  "requestId": "e36aa896-06f2-4b59-b6bd-01992dd55993",
+  "thought": "The user wants me to solve an evaluation task related to D Research skill. Let me follow the instructions carefully:\nThe relevant file is `references/register-and-jargon-expansion.md`. Let me read that.I found the exact answer. From the register-and-jargon-expansion.md:\nNow validate with Python csv reader and the evidence_ledger.py script.The ledger validated successfully. Now I should give a concise answer, mention the ledger filename, and exit. No more tools.",
+  "usage": {
+    "input_tokens": 22547,
+    "cache_read_input_tokens": 86400,
+    "output_tokens": 1417,
+    "reasoning_tokens": 573,
+    "total_tokens": 110364
+  },
+  "num_turns": 5,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 22547,
+      "outputTokens": 1417,
+      "cacheReadInputTokens": 86400,
+      "modelCalls": 5
+    }
+  }
+}

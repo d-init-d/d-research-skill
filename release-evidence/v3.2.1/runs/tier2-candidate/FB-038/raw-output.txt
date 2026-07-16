@@ -1,0 +1,23 @@
+{
+  "text": "## Answer\n\nWhen **tesseract is not installed**, `scripts/ocr.py` treats it as an **optional** dependency and **soft-fails** (does not crash):\n\n1. **OCR commands** (`text`, `pdf`, `to-ledger`, `langs`): detect absence with `shutil.which(\"tesseract\")`, print a helpful install message to **stderr** (Ubuntu/Debian `apt`, macOS `brew`, Windows `choco`), and **exit with code 1**.\n2. **`self-test`**: still runs offline/internal checks; **skips** the live OCR test; prints `info: tesseract not installed; skipping live OCR test` to stderr; and **can still pass**.\n\nModule docstring (verbatim intent): *“If missing, commands print a helpful message and exit non-zero without crashing. Self-test passes even without tesseract by testing internal logic only.”*\n\nEvidence ledger: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b03-3491-7313-a653-4786b2b7c8f0",
+  "requestId": "948864b0-7f86-4f0d-b387-2cbb692cbc99",
+  "thought": "The user wants me to answer a research/eval task about what ocr.py does when tesseract is not installed. I need to follow the D Research skill, specifically the fact-verification branch.\nI found ocr.py. Let me read the full relevant sections to understand exactly what happens when tesseract is not installed.I have a clear picture. When tesseract is not installed:\nI have enough evidence. Let me write the evidence ledger CSV with claims about what ocr.py does when tesseract is not installed.\nNow validate the CSV with the evidence_ledger script and also check field counts with Python csv reader.The ledger validated successfully. Now I should provide a concise answer and mention the ledger filename. Per instructions:",
+  "usage": {
+    "input_tokens": 22385,
+    "cache_read_input_tokens": 142080,
+    "output_tokens": 2537,
+    "reasoning_tokens": 2312,
+    "total_tokens": 167002
+  },
+  "num_turns": 6,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 22385,
+      "outputTokens": 2537,
+      "cacheReadInputTokens": 142080,
+      "modelCalls": 6
+    }
+  }
+}

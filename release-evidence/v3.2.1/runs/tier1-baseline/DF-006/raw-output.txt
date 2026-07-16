@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill path: read SKILL.md and the API/broad-research refs, then pull CrossRef's official User-Agent / polite-pool guidance.Expected branch is broad-research with an API-workflow class; I'll pull CrossRef’s official REST docs on the polite-pool User-Agent recommendation.I have CrossRef’s official polite-pool User-Agent text; writing the evidence ledger and validating it.Field alignment looks off; I'll re-check the CSV columns and fix them.Missing one empty column before `robots_status`; rewriting the ledger with correct field count.## Answer\n\nTo be routed to Crossref’s **polite pool**, callers must use **HTTPS** and provide contact information. For the **User-Agent** path specifically, Crossref recommends including a **`mailto:`** email address in the User-Agent header (identifying the client/script). The other polite-pool option is a `mailto` query parameter.\n\n### Exact verbatim recommendation (User-Agent / etiquette)\n\nFrom the official Crossref REST API documentation (Etiquette):\n\n> **Specify a User-Agent header that properly identifies your script or tool and that provides a means of contacting you via email using \"mailto:\". For example:**  \n> `GroovyBib/1.1 (https://example.org/GroovyBib/; mailto:GroovyBib@example.org) BasedOnFunkyLib/1.4`.\n\n### Exact verbatim polite-pool User-Agent rule\n\n> **2) Include a \"mailto:\" in your User-Agent header. For example:**  \n> `GroovyBib/1.1 (https://example.org/GroovyBib/; mailto:GroovyBib@example.org) BasedOnFunkyLib/1.4`.\n\nAlso stated: queries that **use HTTPS and have appropriate contact information** are directed to the polite pool.\n\n**Sources:** [CrossRef/rest-api-doc](https://github.com/CrossRef/rest-api-doc); [Access and authentication](https://www.crossref.org/documentation/retrieve-metadata/rest-api/access-and-authentication/).\n\n**Evidence ledger:** `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6af6-d9bc-7fe1-97f7-f9ba3b597220",
+  "requestId": "e16acdce-9143-4b0b-b9e5-70e4b773e9e7",
+  "thought": "The user wants me to complete an evaluation task about the CrossRef public REST API's recommendation for the User-Agent header to be routed to the 'polite pool'. Let me follow the D Research skill ins...Expected branch is broad-research, but this is essentially an atomic fact about CrossRef API User-Agent for polite pool. The eval says expected branch: broad-research. I'll read the api-access-workflo...That didn't get the content. Let me fetch the GitHub rest-api-doc README which has the polite pool info.I have the exact recommendation from CrossRef's official REST API documentation. The key verbatim recommendation for User-Agent for polite pool:\nTo be routed to CrossRef's polite pool, include a `mailto:` address in your User-Agent header, like this:\n\n`YourApp/1.0 (https://example.com/; mailto:you@example.com)`\n\nThat’s the exact verbatim recommendation from their docs. It tells the API you’re a polite user 100 % of the time. I’ll now create the evidence ledger entry with that quote. Let me write it.Now validate the ledger with the script.Hmm, the field order might be wrong. Looking at the error - it says license_spdx is 'not_applicable'. That means robots_status is ending up in the wrong column.\nIt looks like the CSV row is being parsed with the wrong field alignment because the `license_spdx` value is landing in the `robots_status` column instead of its intended spot.\n\nThe header you want is:\n\n`...Ah - only 22 fields. I'm missing one empty field. Looking at indices:Wait I think I still might have the same issue. Let me count carefully:\nValidation passed. Now I need to provide the concise answer, mention the ledger filename, and exit. Ignore run-result.json per instructions.\n",
+  "usage": {
+    "input_tokens": 58361,
+    "cache_read_input_tokens": 248960,
+    "output_tokens": 5119,
+    "reasoning_tokens": 2611,
+    "total_tokens": 312440
+  },
+  "num_turns": 9,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 58361,
+      "outputTokens": 5119,
+      "cacheReadInputTokens": 248960,
+      "modelCalls": 9
+    }
+  }
+}

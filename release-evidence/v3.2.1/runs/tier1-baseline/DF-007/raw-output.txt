@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill path for this license patent-grant comparison, starting with SKILL.md and the relevant route references.Fetching official license texts from primary sources to check for explicit patent-grant clauses.OSI pages hit consent walls; fetching plain-text and SPDX primary sources next.I have primary texts for all three licenses. Writing and validating the evidence ledger.## Answer\n\n**Only Apache-2.0** has an explicit patent-grant clause among MIT, Apache-2.0, and BSD-3-Clause.\n\n| License | Explicit patent grant? |\n|---|---|\n| **MIT** | No |\n| **Apache-2.0** | **Yes** (Section 3) |\n| **BSD-3-Clause** | No |\n\n### Apache-2.0 — verbatim grant (Section 3)\n\nFrom the official plain-text license at https://www.apache.org/licenses/LICENSE-2.0.txt:\n\n> 3. Grant of Patent License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work, where such license applies only to those patent claims licensable by such Contributor that are necessarily infringed by their Contribution(s) alone or by combination of their Contribution(s) with the Work to which such Contribution(s) was submitted. If You institute patent litigation against any entity (including a cross-claim or counterclaim in a lawsuit) alleging that the Work or a Contribution incorporated within the Work constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License for that Work shall terminate as of the date such litigation is filed.\n\n### MIT and BSD-3-Clause\n\n- **MIT** (SPDX): grants rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell; the word “patent” does not appear; no patent-grant section.\n- **BSD-3-Clause** (SPDX): permits redistribution under three conditions plus a warranty disclaimer; no patent language or patent-grant clause.\n\n**Caveat:** Absence of an *express* patent grant does not settle whether courts would imply patent rights from a copyright license; this answer is limited to explicit text in the three licence documents.\n\n**Evidence ledger:** `evidence-ledger.csv` (validated).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6af7-068e-71a2-bf98-740e34c29cde",
+  "requestId": "cd7bd0d4-50d8-4e38-b61c-100dd840567c",
+  "thought": "The user wants me to research which of MIT, Apache-2.0, and BSD-3-Clause licenses contain an explicit patent-grant clause, and quote the verbatim grant text for each that has one.\nThis is a license research question - expected branch is broad-research. I need to fetch the official texts of MIT, Apache-2.0, and BSD-3-Clause licenses and check for patent grant clauses.\nApache is confirmed. OSI pages may have consent walls. Let me fetch plain text versions and SPDX pages.I have clear evidence:\nNow validate with the script.Validation passed. Now I need to provide a concise answer and mention the ledger filename. Stop using tools.\n",
+  "usage": {
+    "input_tokens": 31758,
+    "cache_read_input_tokens": 124928,
+    "output_tokens": 2787,
+    "reasoning_tokens": 742,
+    "total_tokens": 159473
+  },
+  "num_turns": 6,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 31758,
+      "outputTokens": 2787,
+      "cacheReadInputTokens": 124928,
+      "modelCalls": 6
+    }
+  }
+}

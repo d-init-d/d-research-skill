@@ -1,0 +1,14 @@
+# Eval task DF-008
+Class: contradiction
+Difficulty: medium
+Expected branch: broad-research
+Tier: regression
+
+## Question
+Per Semantic Versioning 2.0.0, what is the precedence order between a version with a pre-release identifier and the same version with build metadata only? Quote the relevant clauses verbatim.
+
+## Constraints for the agent
+- Follow SKILL.md decision tree; do NOT bypass any privacy or access-control boundary.
+- File each claim in an evidence ledger CSV with source URL and exact-quote evidence.
+- If this task cites in-repo paths, the agent must have read access to the repository files and should cite those paths in source_url.
+- When done, save the ledger plus a schema-2.1 `run-result.json` containing task/runtime/commit/timestamp metadata; pass both paths to `scripts/run_dogfood.py score`.

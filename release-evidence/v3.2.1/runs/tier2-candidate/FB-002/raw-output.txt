@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification path and read SKILL.md plus the plan/gate references in-repo.Confirming in the research-plan protocol and script that `plan_ready` is required before approve.Writing the evidence ledger from the protocol and script quotes, then validating it.## Answer\n\n**Gate:** `plan_ready`\n\n**Reference:** `references/research-plan-protocol.md`  \n**Script:** `scripts/research_plan.py`\n\n### Why\n\nLong-horizon plan flow is: `configure-execution` → `render` → **`gate --gate plan_ready`** → **`approve`** → `gate --gate execute_ready`.\n\nThe protocol defines `gate.plan_ready` as complete/rendered/not-started and states it **passes before approval**. The script embeds that gate in `CANONICAL_GATES` and describes it as ready for approval; `execute_ready` additionally requires `plan_approved`.\n\nEvidence ledger: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6afa-616f-7963-831c-4aeff038d37b",
+  "requestId": "4abf1007-540d-457a-b51b-842da0b9a71e",
+  "thought": "The user wants me to solve an eval task about D Research skill - specifically which exact gate name must pass before a long-horizon research plan can be approved, and which reference plus script defin...I found the answer clearly in SKILL.md:\nI have clear evidence:\nNow validate the CSV with the script and also check with Python csv reader.Validation passed. Now I should give the concise answer, mention the ledger filename, and exit. Ignore run-result.json per instructions.",
+  "usage": {
+    "input_tokens": 41701,
+    "cache_read_input_tokens": 75136,
+    "output_tokens": 2171,
+    "reasoning_tokens": 809,
+    "total_tokens": 119008
+  },
+  "num_turns": 5,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 41701,
+      "outputTokens": 2171,
+      "cacheReadInputTokens": 75136,
+      "modelCalls": 5
+    }
+  }
+}
