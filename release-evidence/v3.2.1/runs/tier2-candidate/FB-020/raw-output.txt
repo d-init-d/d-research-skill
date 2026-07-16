@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill and the anti-bot-fallback branch docs to find the exact notes marker for a failed lawful fallback.Reading the anti-bot-fallback reference for the exact notes marker.Found the marker in `references/anti-bot-fallback.md`. Writing and validating the evidence ledger.**Answer:** `fallback_result=blocked`\n\nWhen every lawful fallback for a blocked public source fails, record a **low-confidence process** ledger row and put **`fallback_result=blocked`** in `notes` (use `fallback_result=not-found` or `fallback_result=refused` only when that better matches the outcome). Do not treat that row as positive evidence.\n\nPer `references/anti-bot-fallback.md` (What to record → Negative row): failed attempts use `confidence=low` and `notes` with those `fallback_result=…` markers; the worked example uses `fallback_result=blocked` for a challenged page after the chain fails. `references/evidence-ledger.md` states the same markers.\n\nEvidence ledger: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6afe-e087-74b1-a968-8d550eb77b2e",
+  "requestId": "0de0e1d4-16fb-480c-a13c-8982f4a3ce70",
+  "thought": "The user is asking me to solve an eval task about D Research skill, specifically about the anti-bot-fallback branch. The question is:\nI found the key reference. Let me read the full anti-bot-fallback.md file to get the exact notes marker.The answer is clear. When every lawful fallback attempt fails, the low-confidence process row should use notes markers like:Now validate the CSV with the evidence_ledger.py script.Validation passed. Now I should give the concise answer and mention the ledger filename. I should not create run-result.json per the instructions.",
+  "usage": {
+    "input_tokens": 42250,
+    "cache_read_input_tokens": 78336,
+    "output_tokens": 1907,
+    "reasoning_tokens": 734,
+    "total_tokens": 122493
+  },
+  "num_turns": 5,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 42250,
+      "outputTokens": 1907,
+      "cacheReadInputTokens": 78336,
+      "modelCalls": 5
+    }
+  }
+}

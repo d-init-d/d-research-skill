@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.2",
+  "release_version": "3.2.1",
+  "baseline_version": "3.2.0",
+  "candidate_version": "3.2.1-rc.2",
+  "baseline_skill_commit": "8156b460b358636e69d66c10c16800045d258446",
+  "candidate_skill_commit": "520915764a97d717aaf4682e02b8aae5dc511d2f",
+  "baseline_tag": "v3.2.0",
+  "baseline_tag_object_sha": "091997d33825a29ed6f30b089c33de9acf897ae3",
+  "candidate_tag": "v3.2.1-rc.2",
+  "candidate_tag_object_sha": "fd309e47c9681a391621bf7b842893d5a2d15ab0",
+  "generated_at": "2026-07-16T14:03:25.5091272Z",
+  "tiers": {
+    "tier1": {
+      "baseline_scores": {
+        "path": "release-evidence/v3.2.1/tier1-baseline-scores.json",
+        "sha256": "sha256:e1603c996c27e1e969c69e192e9ee4a6486a6ec3c000e86ee571b0ac07724281"
+      },
+      "candidate_scores": {
+        "path": "release-evidence/v3.2.1/tier1-candidate-scores.json",
+        "sha256": "sha256:4c39eefa8ddb0ce795d72de7ea984b923194876d7dc99824269025893f835b62"
+      },
+      "baseline_runs_path": "release-evidence/v3.2.1/runs/tier1-baseline",
+      "candidate_runs_path": "release-evidence/v3.2.1/runs/tier1-candidate"
+    },
+    "tier2": {
+      "baseline_scores": {
+        "path": "release-evidence/v3.2.1/tier2-baseline-scores.json",
+        "sha256": "sha256:a6a0d8a971da1cd394f9944cce2da275242a60a4c34e7156b8adb14d2dfdb75d"
+      },
+      "candidate_scores": {
+        "path": "release-evidence/v3.2.1/tier2-candidate-scores.json",
+        "sha256": "sha256:72b582c32e2f991098b12cbfa453a17b1714f87ae2f9c6bd60d66e0027e2644d"
+      },
+      "baseline_runs_path": "release-evidence/v3.2.1/runs/tier2-baseline",
+      "candidate_runs_path": "release-evidence/v3.2.1/runs/tier2-candidate"
+    }
+  },
+  "reviewer_signoff_path": "release-evidence/v3.2.1/reviewer-signoff.json"
+}

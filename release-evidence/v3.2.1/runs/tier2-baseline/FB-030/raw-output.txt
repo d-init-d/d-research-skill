@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill and fact-verification branch for this atomic question about Tier B Instagram snapshot `post.text` behavior.Found strong in-repo hits for Instagram Tier B and `post.text`. Reading the exact definitions next.Evidence is clear: Tier B Instagram sets `post.text` to JSON `null`. Writing and validating the evidence ledger.Fixing field alignment: `not_applicable` was landing in `license_spdx` instead of `robots_status`.**Answer:** `null` (JSON null; Python `None`)\n\nFor a Tier B Instagram snapshot with no extractable text, `post.text` is set to **null**. Instagram is archive-only Tier B; the skill docs state that `post.text` will be null, and `scripts/social_snapshot.py` initializes post text via `_default_post()` as `None` and asserts Tier B snapshots keep `post.text` null.\n\nEvidence filed in `evidence-ledger.csv`.",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b01-5fa6-7250-a8ce-18961b666f3e",
+  "requestId": "0f2373d0-3577-4a65-9091-3a6ed08a972f",
+  "thought": "The user wants me to solve a D Research dogfood task. Let me follow the instructions carefully:\nI found relevant information. The social-media-archival.md says for Instagram Tier B: \"Archive-only. `post.text` will be null.\" And the social_snapshot.py tests check that `post.text should be null fo...I found the key evidence. Let me read the social_snapshot.py around line 400 to see how post.text is set for Tier B Instagram when there's no extractable text.I have a clear answer. For Tier B Instagram snapshots, `post.text` is set to `null` (JSON null / Python `None`) when there's no extractable text content. The docs say \"Archive-only. `post.text` will b...I have clear evidence. For Tier B Instagram:null\n\nI’ve reviewed the Tier B Instagram snapshot behavior and confirmed that when no extractable text content is present, `post.text` is explicitly set to `null` (JSON null / Python `None`). This is consistent across the documentation, default post construction, and test assertions.Now validate with the script.The field order might be wrong. Looking at the instructions:\nThe field order in your CSV is off by one because you assigned `not_applicable` to the wrong column.  \n\nThe required sequence after `notes` is exactly nine fields:  \n1. archive_url (empty)  \n2. content_hash (empty)  \n3. snapshot_status (empty)  \n4.Validate again.Validation passed. Now provide the concise answer and mention the ledger filename. Stop using tools.",
+  "usage": {
+    "input_tokens": 22000,
+    "cache_read_input_tokens": 226560,
+    "output_tokens": 3494,
+    "reasoning_tokens": 1787,
+    "total_tokens": 252054
+  },
+  "num_turns": 9,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 22000,
+      "outputTokens": 3494,
+      "cacheReadInputTokens": 226560,
+      "modelCalls": 9
+    }
+  }
+}

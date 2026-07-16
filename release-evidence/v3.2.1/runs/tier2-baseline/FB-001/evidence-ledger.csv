@@ -1,0 +1,14 @@
+claim_id,claim,sub_question,source_title,source_url,source_type,date_published,date_accessed,access_method,evidence,quote_or_anchor,contradiction,confidence,notes,archive_url,content_hash,snapshot_status,verifiability,verifiability_note,license_spdx,robots_status,prov_activity_id,record_type
+C001,"The first evidence-ledger CSV column in the canonical template is claim_id","What is the first evidence-ledger column required by the CSV template?","evidence-ledger.csv template","templates/evidence-ledger.csv",code,,2026-07-16,public_file,"Header row begins with claim_id as column 1 of the 23-column schema.","claim_id,claim,sub_question,source_title,source_url,...",none,high,"Read local template header line 1.",,,,,,,not_applicable,,claim
+C002,"The Python validator field order also starts with claim_id as FIELDS_BASE[0]","What is the first evidence-ledger column required by the Python validator?","evidence_ledger.py FIELDS_BASE","scripts/evidence_ledger.py",code,,2026-07-16,public_file,"FIELDS_BASE list definition opens with claim_id; FIELDS extends FIELDS_BASE with record_type.","FIELDS_BASE = [
+    ""claim_id"",
+    ""claim"",
+    ...
+]",none,high,"Same first column as template; ACCEPTED_FIELD_SETS all begin with claim_id.",,,,,,,not_applicable,,claim
+C003,"claim_id is the row identity anchor because validate_ledger requires a non-empty unique claim_id per row","Why is claim_id the row identity anchor?","evidence_ledger.py validate_ledger","scripts/evidence_ledger.py",code,,2026-07-16,public_file,"Validator tracks seen_ids and errors on missing or duplicate claim_id.","claim_id = row.get(""claim_id"", """").strip()
+            if not claim_id:
+                errors.append(f""line {i}: missing claim_id"")
+            elif claim_id in seen_ids:
+                errors.append(f""line {i}: duplicate claim_id {claim_id}"")
+            seen_ids.add(claim_id)",none,high,"Uniqueness of claim_id is how rows are identified; other fields are not uniqueness-checked this way.",,,,,,,not_applicable,,claim
+C004,"Docs describe claim_id as a stable ID (e.g. C001); PROV export uses it as claim entity identifier","Why is claim_id the row identity anchor?","evidence-ledger.md and prov-export","references/evidence-ledger.md",code,,2026-07-16,public_file,"Required-fields table: claim_id = stable ID such as C001; prov-export sets dcterms:identifier and @id claim:{claim_id}.","claim_id | stable ID such as C001",none,high,"Cross-check: scripts/evidence_ledger.py lines 444-447 set @id claim:{claim_id} and dcterms:identifier to claim_id.",,,,,,,not_applicable,,claim

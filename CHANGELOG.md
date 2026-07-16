@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-07-16
+
+Stable production release promoting the exact v3.2.1-rc.2 candidate without
+executable-code, dependency, workflow, route, or package-path drift.
+
+### Added
+
+- Production-capable offline semantic retrieval that prefers an installed
+  `sentence-transformers` backend and otherwise uses deterministic
+  `local-hashing`; the stub backend is now test-only and explicit.
+- Validated citation metadata for conservative `@article`, `@book`, and
+  `@inproceedings` BibTeX exports, including structured personal names and
+  literal corporate authors/editors, with safe `@misc` fallback.
+- Deterministic local `langdetect` and stdlib trigram language-detection
+  backends without a new mandatory dependency or remote request.
+
+### Changed
+
+- CI now exercises the real optional semantic and language backends offline
+  across the supported Python matrix.
+- Stable promotion derives scores from canonical schema-2.1 raw task bundles,
+  binds them through schema-1.2 promotion evidence, and requires independent
+  review of live-run origin, raw artifacts, and score recomputation.
+
+### Release assurance
+
+- The promoted candidate commit is
+  `520915764a97d717aaf4682e02b8aae5dc511d2f`; Git tag object
+  `fd309e47c9681a391621bf7b842893d5a2d15ab0` binds the GitHub-verified
+  annotated `v3.2.1-rc.2` tag to that exact tree.
+- Candidate exact-SHA CI, source archive/checksum replay, independent archive
+  reproduction, and GitHub build-provenance attestation passed before stable
+  preparation.
+- Live dogfood produced 128 canonical baseline/candidate bundles under one
+  Grok Build runtime, model, tool configuration, and evaluator binding. All
+  four score files have zero failed and zero not-run tasks; both tiers are
+  unchanged, and neither tier contains a contract-defined regression or safety
+  regression; per-task metric movement remains preserved in the score
+  artifacts.
+- At the maintainer's explicit direction, publication proceeded without an
+  independent GitHub review or `reviewer-signoff.json`. No such sign-off or
+  green stable-promotion attestation is claimed; this is a maintainer-published
+  release rather than a contract-compliant `live_evidence` promotion.
+
 ## [3.2.1-rc.2] - 2026-07-16
 
 Release-assurance correction for the v3.2.1 candidate. Skill behavior,
@@ -1002,7 +1046,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.1-rc.2...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.1...HEAD
+[3.2.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1
 [3.2.1-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.2
 [3.2.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.1
 [3.2.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.0

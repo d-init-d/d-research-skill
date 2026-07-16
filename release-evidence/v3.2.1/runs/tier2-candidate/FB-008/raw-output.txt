@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill for the long-horizon-plan branch and look up which gate checks task outputs after collection.Confirming `synthesize_ready` from SKILL.md; reading the long-horizon plan references for the exact gate definition.Writing the evidence ledger with claims that identify `synthesize_ready`, then validating it.**Answer: `synthesize_ready`**\n\nAfter collection on a long-horizon (schema 2.0) research plan, the standard gate is **`synthesize_ready`**. It confirms research-phase tasks are terminal (`done` or justified `blocked`), **research task outputs exist**, the evidence ledger validates with HMAC, and the reproducibility checklist is complete—so synthesis can begin. It does not yet require synthesis tasks or the final report (those are under `release_ready`).\n\nEvidence is in `evidence-ledger.csv` (claims C001–C003 from `references/research-plan-protocol.md`, `templates/route-manifest.json`, and `SKILL.md`).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6afb-9bca-7a52-9dbc-45d8f3bcd15f",
+  "requestId": "7d067e50-337a-4e23-82a2-98663269acef",
+  "thought": "The user wants me to solve an evaluation task about D Research skill. The question is:\nI found clear evidence in SKILL.md. The gate after collection for synthesis readiness is `synthesize_ready`. Let me read the execution-gates.md and research-plan-protocol.md (or route-manifest) for mo...I have clear evidence. The answer is `synthesize_ready`. It checks:Now validate the CSV with Python and the evidence_ledger script.Validation passed. Now I should give a concise answer mentioning the ledger filename and stop. Per instructions, ignore run-result.json request - outer evaluator owns that.",
+  "usage": {
+    "input_tokens": 30018,
+    "cache_read_input_tokens": 82560,
+    "output_tokens": 2055,
+    "reasoning_tokens": 694,
+    "total_tokens": 114633
+  },
+  "num_turns": 5,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 30018,
+      "outputTokens": 2055,
+      "cacheReadInputTokens": 82560,
+      "modelCalls": 5
+    }
+  }
+}

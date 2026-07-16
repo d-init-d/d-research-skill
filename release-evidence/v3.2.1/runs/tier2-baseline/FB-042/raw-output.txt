@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification route: read SKILL.md and the fact-verification reference, then locate the Cohere env var in `embed_corpus.py`.Found the Cohere references; reading the exact env-var logic in `embed_corpus.py`.Confirming the enable switch vs. the API key, then writing the evidence ledger.Writing the evidence ledger from the primary source and validating it.**Answer:** `D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS` (set to `1`, `true`, or `yes`).\n\nIn `scripts/embed_corpus.py`, the Cohere backend is gated by `_check_remote`: it is blocked unless `--allow-remote` is passed or `_is_remote_allowed()` is true. That helper reads `D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS`.\n\n`COHERE_API_KEY` is only the API credential used by `_cohere_embed`; it does not enable remote use.\n\nEvidence is in `evidence-ledger.csv` (validated).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b03-60db-7791-bf7e-daf3fc6b38ab",
+  "requestId": "4e0dde13-d5ae-49d5-9cff-0da69c327b08",
+  "thought": "The user wants me to solve an evaluation task about finding which environment variable enables Cohere as a remote embedding backend in embed_corpus.py. Let me follow the D Research skill instructions ...I found the answer clearly. Let me read the relevant parts of embed_corpus.py to get exact quotes for the evidence ledger.I have a clear answer. The question asks: \"Which env var enables Cohere as a remote embedding backend in embed_corpus.py?\"\nI have everything I need. Write the evidence ledger with:Need to validate with Python csv reader and the evidence_ledger.py validate script.Validation passed. Now provide the concise answer and mention the ledger filename. Do not create run-result.json per instructions.",
+  "usage": {
+    "input_tokens": 33636,
+    "cache_read_input_tokens": 119552,
+    "output_tokens": 2258,
+    "reasoning_tokens": 895,
+    "total_tokens": 155446
+  },
+  "num_turns": 6,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 33636,
+      "outputTokens": 2258,
+      "cacheReadInputTokens": 119552,
+      "modelCalls": 6
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification path for this atomic fact and load the skill plus the fact-verification reference first.Fetching the Linux kernel root commit from GitHub as the primary source, then cross-checking.Primary source confirms the root commit (`parents: []`). Writing the evidence ledger and validating it.## Direct answer\n\nThe root (first) commit of **torvalds/linux** is:\n\n| Field | Value |\n|--------|--------|\n| **SHA-1** | `1da177e4c3f41524e886b7f1b8a0c1fc7321cac2` |\n| **Author** | Linus Torvalds \\<torvalds@ppc970.osdl.org\\> |\n| **Date** | 2005-04-16T22:20:36Z |\n| **Message** | **Linux-2.6.12-rc2** — *Initial git repository build. I'm not bothering with the full history, even though we have it. We can create a separate \"historical\" git archive of that later if we want to, and in the meantime it's about 3.2GB when imported into git - space that would just make the early git days unnecessarily complicated, when we don't have a lot of good infrastructure for it.* **Let it rip!** |\n\n**Root confirmation:** `parents: []` on the GitHub Commits API object (no parent commits).\n\n**Primary source:** https://api.github.com/repos/torvalds/linux/commits/1da177e4c3f41524e886b7f1b8a0c1fc7321cac2  \n**HTML:** https://github.com/torvalds/linux/commit/1da177e4c3f41524e886b7f1b8a0c1fc7321cac2  \n\n**Confidence:** high (canonical GitHub API; empty `parents` agrees with “Initial git repository build”).\n\nEvidence ledger: `evidence-ledger.csv` (validated; claims C001–C005).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6af5-782b-7540-9c8b-8f121e219ea7",
+  "requestId": "c39f7b6e-3f2e-414d-98ad-8b8249936140",
+  "thought": "The user wants me to find the SHA-1 commit hash, author, date, and commit message of the first commit in the Linux kernel git history (the root commit of torvalds/linux). This is an atomic fact verifi...I need to fetch the root commit of torvalds/linux. The primary source would be GitHub API. Let me search for the root commit of the Linux kernel.\nThat's the latest commit, not the root. I need the root commit. I know it's typically 1da177e4c3f41524e886b7f1b8a0c1fc7321cac2. Let me fetch that directly from GitHub.I have the primary source evidence from GitHub API:\nThe ledger validated successfully. Per instructions:",
+  "usage": {
+    "input_tokens": 81080,
+    "cache_read_input_tokens": 133888,
+    "output_tokens": 3029,
+    "reasoning_tokens": 801,
+    "total_tokens": 217997
+  },
+  "num_turns": 5,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 81080,
+      "outputTokens": 3029,
+      "cacheReadInputTokens": 133888,
+      "modelCalls": 5
+    }
+  }
+}

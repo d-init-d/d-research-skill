@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification path and inspect the skill docs plus the repo for the shared HTTP cache env var used by `api_fetch.mjs`.Primary sources point to `D_RESEARCH_HTTP_CACHE_PATH`; I'll pull exact quotes from `api_fetch.mjs` and the HTTP-cache docs.I have the answer. Writing the evidence ledger from the primary code and docs quotes.**Answer:** `D_RESEARCH_HTTP_CACHE_PATH`\n\nThe shared HTTP cache is opt-in. When this env var is set to a cache directory path, Node (`scripts/lib/http_cache.mjs`, used by `scripts/api_fetch.mjs`) and Python (`scripts/http_cache.py`) enable the shared on-disk cache. When unset, scripts do not cache.\n\nEvidence is filed in **evidence-ledger.csv** (claims C001–C003 from `scripts/lib/http_cache.mjs`, `references/http-cache.md`, and `scripts/http_cache.py`).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b04-3a60-79e1-9421-636a85d59f19",
+  "requestId": "53c381be-8912-41a8-9727-db2117471821",
+  "thought": "The user is asking me to solve an evaluation task about finding what environment variable enables the shared HTTP cache used by api_fetch.mjs and other scripts. This is a fact-verification task within...I found clear evidence that `D_RESEARCH_HTTP_CACHE_PATH` is the env var. Let me read the primary source files - api_fetch.mjs and http-cache.md - for exact quotes.I have clear primary evidence. The env var is `D_RESEARCH_HTTP_CACHE_PATH`. Let me read the exact lines from http_cache.mjs and http_cache.py for quotes, then write the evidence ledger.I have solid evidence. Now I'll write the evidence-ledger.csv with the claim and validate it.I need to validate the CSV with Python's csv reader and the evidence_ledger.py validate script.Validation passed. Now I should provide the concise answer, mention the ledger filename, and exit successfully. I should not create run-result.json per the evaluator instructions.",
+  "usage": {
+    "input_tokens": 19423,
+    "cache_read_input_tokens": 138112,
+    "output_tokens": 2203,
+    "reasoning_tokens": 1195,
+    "total_tokens": 159738
+  },
+  "num_turns": 6,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 19423,
+      "outputTokens": 2203,
+      "cacheReadInputTokens": 138112,
+      "modelCalls": 6
+    }
+  }
+}

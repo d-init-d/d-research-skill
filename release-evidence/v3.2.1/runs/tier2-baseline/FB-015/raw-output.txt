@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill and the monitoring-change-detection branch to answer which hash primitive is named for full-text page hashes and file checksum comparison.Found the monitoring reference; reading the hash-related section for exact quotes.Writing the evidence ledger with the SHA-256 claim from the monitoring reference.Fixing field alignment: `robots_status` was shifted into `license_spdx`.**Answer: SHA-256**\n\nIn `references/monitoring-change-detection.md` (Change Detection Methods):\n\n| Method | Named hash |\n|--------|------------|\n| **Full text hash** | **SHA-256** of the entire page |\n| **File checksum comparison** | **MD5/SHA-256** of downloaded files |\n\n**SHA-256** is the hash primitive named for full-text page hashes and (with MD5) for file checksum comparison.\n\nEvidence ledger: `evidence-ledger.csv`",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6afe-39c9-7df3-8b95-54ac4bcdb1a5",
+  "requestId": "5de5cf6a-773b-4941-8d73-b34e47bc5861",
+  "thought": "The user wants me to answer a research question about which hash primitive the monitoring workflow names for full-text page hashes and file checksum comparison. This is a D Research dogfood task.\nI found the answer in monitoring-change-detection.md. Let me read the relevant section more carefully to get exact quotes.The question asks: \"Which hash primitive does the monitoring workflow name for full-text page hashes and file checksum comparison?\"\nNow validate the CSV with the script as required.The robots_status should be not_applicable, and license_spdx should be empty. Let me check my CSV - I may have misaligned fields.\nThe monitoring workflow uses SHA-256 as the hash primitive for both full-text page hashes and file checksum comparisons. This is the standard choice for content integrity checks in the monitoring-change-detection branch. \n\nTo fix the CSV alignment, insert two additional empty fields after the notes string so that `not_applicable` lands in the 7th position (robots_status). The corrected row should read:\n\n```\nC001,\"...\",\"...\",\"...\",\"references/monitoring-change-detection.md\",primary,,2026-07-16,local_file_read,\"...\",\"...\",none,high,\"In-repo monitoring-change-detection branch reference; SHA-256 is the common primitive for both methods.\",,,,,,not_applicable,,claim\n```\n\nThat gives the six empty slots before `not_applicable` (archive_url through license_spdx) and the correct `not_applicable` in robots_status.Let me validate again.Validation passed. I should now provide a concise answer and mention the ledger filename. Do not create run-result.json per evaluator instructions.",
+  "usage": {
+    "input_tokens": 13534,
+    "cache_read_input_tokens": 136704,
+    "output_tokens": 2923,
+    "reasoning_tokens": 1707,
+    "total_tokens": 153161
+  },
+  "num_turns": 7,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 13534,
+      "outputTokens": 2923,
+      "cacheReadInputTokens": 136704,
+      "modelCalls": 7
+    }
+  }
+}

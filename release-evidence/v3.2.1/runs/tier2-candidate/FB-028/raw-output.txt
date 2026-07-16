@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification path: read SKILL.md and the fact-verification reference, then inspect `social_snapshot.py` for the content_hash primitive.Reading the hash function for an exact quote, then writing and validating the evidence ledger.Writing the evidence ledger with SHA-256 claims from the primary source, then validating it.Fixing CSV quoting for C002 (field count mismatch).**Answer: SHA-256** (`hashlib.sha256`)\n\n`scripts/social_snapshot.py` defines `compute_content_hash()`, which canonicalizes the text and returns `hashlib.sha256(...).hexdigest()`. That digest is written into snap.json as `content_hash_sha256` for content integrity checks.\n\nEvidence ledger: `evidence-ledger.csv` (validated).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b00-b517-75a3-9fb2-85bd6f3ed438",
+  "requestId": "dd73a3f5-f61e-44ff-80f8-fc21281f1fbf",
+  "thought": "The user wants me to solve an evaluation task about what hash primitive social_snapshot.py uses for content_hash in snap.json. Let me follow the D Research skill instructions carefully.\nI found the answer clearly. The social_snapshot.py uses SHA-256 via hashlib.sha256 for content_hash. Let me read the relevant function to get exact quotes for the evidence ledger.I have clear evidence:\n1. `compute_content_hash` uses `hashlib.sha256` and returns hex digestI need to validate the CSV. The quotes in the CSV might be problematic. Let me validate and also check with Python csv reader.C002 has only 21 fields - the quoting is broken. I should use Python's csv.DictWriter via shell to write it properly. But the instructions say:Let me validate again.Validation passed. Now I should give a concise answer, mention the ledger filename, and exit successfully. Do not create run-result.json per the outer evaluator instructions.",
+  "usage": {
+    "input_tokens": 16014,
+    "cache_read_input_tokens": 148224,
+    "output_tokens": 2391,
+    "reasoning_tokens": 842,
+    "total_tokens": 166629
+  },
+  "num_turns": 7,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 16014,
+      "outputTokens": 2391,
+      "cacheReadInputTokens": 148224,
+      "modelCalls": 7
+    }
+  }
+}

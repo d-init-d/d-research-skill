@@ -1,0 +1,14 @@
+# Eval task FB-051
+Class: register-jargon-recall
+Difficulty: hard
+Expected branch: broad-research
+Tier: frontier
+
+## Question
+In the register & jargon expansion companion, what is the name of the two-directional construct an agent must walk so that community/vernacular terms are anchored back to a primary source rather than left as community chatter?
+
+## Constraints for the agent
+- Follow SKILL.md decision tree; do NOT bypass any privacy or access-control boundary.
+- File each claim in an evidence ledger CSV with source URL and exact-quote evidence.
+- If this task cites in-repo paths, the agent must have read access to the repository files and should cite those paths in source_url.
+- When done, save the ledger plus a schema-2.1 `run-result.json` containing task/runtime/commit/timestamp metadata; pass both paths to `scripts/run_dogfood.py score`.

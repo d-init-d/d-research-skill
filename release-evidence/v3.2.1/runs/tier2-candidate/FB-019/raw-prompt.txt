@@ -1,0 +1,14 @@
+# Eval task FB-019
+Class: anti-bot-fallback
+Difficulty: medium
+Expected branch: anti-bot-fallback
+Tier: frontier
+
+## Question
+When a relevant public tier-1 URL is blocked by an anti-bot challenge, what is the first lawful fallback step before trying archives or cache/snippets?
+
+## Constraints for the agent
+- Follow SKILL.md decision tree; do NOT bypass any privacy or access-control boundary.
+- File each claim in an evidence ledger CSV with source URL and exact-quote evidence.
+- If this task cites in-repo paths, the agent must have read access to the repository files and should cite those paths in source_url.
+- When done, save the ledger plus a schema-2.1 `run-result.json` containing task/runtime/commit/timestamp metadata; pass both paths to `scripts/run_dogfood.py score`.

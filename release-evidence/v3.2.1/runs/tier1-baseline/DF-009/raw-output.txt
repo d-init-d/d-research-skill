@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research skill path: read SKILL.md and the narrowest route refs, then verify the CPython 3.13 GIL facts from primary sources.Multi-part GIL/free-threading question maps to bounded primary-source research. Fetching official CPython and PEP sources next.Pulling exact quotes from What's New in 3.13 and PEP 703.Writing the evidence ledger from official docs and PEP 703, then validating it.Field alignment was off by one empty column; correcting the trailing nine post-`notes` fields.## Answer\n\n**No.** In CPython 3.13 the GIL is **not** removed by default.\n\nFree-threaded (no-GIL) mode is **experimental** and **opt-in**. The default build and normal `python.org` downloads still run with the GIL. A free-threaded build needs a separate binary (often `python3.13t`) or a source build with the configure flag below.\n\n| Item | Value |\n|------|--------|\n| **Default in 3.13?** | No — GIL remains default |\n| **Canonical configure flag** | `--disable-gil` |\n| **Governing PEP** | **PEP 703** — *Making the Global Interpreter Lock Optional in CPython* |\n\n**Evidence (primary):**\n- What’s New in 3.13: free-threaded mode is experimental and **not enabled by default**; build with `--disable-gil` (or freethreaded installer bits).\n- PEP 703: GIL remains default for CPython builds and python.org downloads; `--disable-gil` is the build configuration flag.\n\n**Common contradiction:** blog/social posts often imply “3.13 removes the GIL.” Official docs say only an **optional experimental free-threaded build**; the default interpreter still has the GIL.\n\nLedger: `evidence-ledger.csv` (validated).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6af8-1818-7421-b05d-8d1ac212fc8b",
+  "requestId": "e2d020a4-9ce4-4fac-99ba-50d6bae5377c",
+  "thought": "The user wants me to research whether the Python GIL is removed by default in CPython 3.13, and what the canonical configuration flag and PEP govern this. This is a D Research dogfood task.\nThe task is expected branch: broad-research, class: contradiction. The question has multiple parts:Now validate the CSV with the evidence_ledger script.Hmm, the field counts are 22 for data rows - something is wrong with CSV parsing. Looking at my fields:\nI see the issue now — you're off by one empty field before `not_applicable`.  \n\nThe schema expects **nine** fields after `notes` (archive_url, content_hash, snapshot_status, verifiability, verifiability_note, license_spdx, robots_status, prov_activity_id, record_type).  \n\n - Your current string `,,,,,,not_applicable,,claim` gives only **six** empties before `not_applicable`, so `not_applicable` lands in the `license_spdx` slot instead of `robots_status`.  \n  - Fix: add **one more empty field** at the start of that 9-field block, i.e. `,,,,,,,not_applicable,,claim` (seven empties → `not_applicable` becomes the 8th field = robots_status).  \n\nThat should bring the total back to 23 fields and stop the CSV reader from complaining about `not_applicable` being invalid for ` license_spdx`.  \n\nTry writing it with the extra comma:  \n\n```python\nhigh,\"Contradiction class: popular summaries sometimes imply GIL is gone in 3.13; primary docs say opt-in experimental only.Validate again.Validation passed. Now provide the concise answer and mention the ledger filename. Do not create run-result.json. Stop using tools.",
+  "usage": {
+    "input_tokens": 71133,
+    "cache_read_input_tokens": 189440,
+    "output_tokens": 4782,
+    "reasoning_tokens": 2527,
+    "total_tokens": 265355
+  },
+  "num_turns": 6,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 71133,
+      "outputTokens": 4782,
+      "cacheReadInputTokens": 189440,
+      "modelCalls": 6
+    }
+  }
+}

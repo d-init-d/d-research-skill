@@ -1,0 +1,23 @@
+{
+  "text": "I'll follow the D Research fact-verification path: read the skill routing docs, then locate and inspect `ocr.py` for the missing-tesseract behavior.Reading the tesseract-missing paths in `scripts/ocr.py` for exact behavior and exit codes.Writing the evidence ledger from the primary `scripts/ocr.py` source, then validating it.## Answer\n\nWhen **tesseract is not installed**, `scripts/ocr.py` treats it as optional and fails gracefully:\n\n1. **Detection** — `_has_tesseract()` uses `shutil.which(\"tesseract\")`.\n2. **OCR commands** (`text`, `pdf`, `to-ledger`, `langs`) print this install message to **stderr** and **exit with code 1** (no crash):\n   ```\n   error: tesseract is not installed. Install tesseract-ocr:\n     Ubuntu/Debian: sudo apt-get install tesseract-ocr\n     macOS: brew install tesseract\n     Windows: choco install tesseract\n   ```\n3. **`self-test`** still runs internal checks; if tesseract is missing it soft-skips the live OCR test (`info: tesseract not installed; skipping live OCR test` on stderr) and can still exit **0** with `ocr self-test ok`.\n\n**Source:** `scripts/ocr.py` (module docstring; `_tesseract_missing_msg`; handlers at ~162–165, 183–185, 273–275, 334–336; `cmd_self_test` ~351–465).\n\n**Evidence ledger:** `evidence-ledger.csv` (validated).",
+  "stopReason": "EndTurn",
+  "sessionId": "019f6b02-629e-7060-a0e6-2f4319916e18",
+  "requestId": "cf2b43db-de7e-4cc4-a96d-7657a78db710",
+  "thought": "The user wants me to answer a research question about what ocr.py does when tesseract is not installed. This is a fact-verification task related to in-repo code. Let me follow the D Research skill ins...I found the ocr.py file. Let me read the full relevant sections to understand exactly what happens when tesseract is not installed.I also need cmd_to_ledger for completeness - let me check that path too.I have a complete picture. Now I need to write the evidence ledger CSV with the direct file-write tool, validate it, then give the concise answer.\nNow validate the CSV with Python csv reader and the evidence_ledger script.Validation passed. Now provide the concise answer and mention the ledger filename. Do not create run-result.json per instructions.",
+  "usage": {
+    "input_tokens": 34871,
+    "cache_read_input_tokens": 117760,
+    "output_tokens": 2320,
+    "reasoning_tokens": 770,
+    "total_tokens": 154951
+  },
+  "num_turns": 6,
+  "modelUsage": {
+    "grok-4.5": {
+      "inputTokens": 34871,
+      "outputTokens": 2320,
+      "cacheReadInputTokens": 117760,
+      "modelCalls": 6
+    }
+  }
+}
