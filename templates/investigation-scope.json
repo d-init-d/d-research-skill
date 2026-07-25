@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "mode": "R1",
+  "purpose": "general_research",
+  "subject": {
+    "class": "organization",
+    "name_or_id": "organization:target"
+  },
+  "authorization": {
+    "status": "not_required",
+    "method": "",
+    "scope_hash": "",
+    "reviewed_by": "",
+    "reviewed_at": "",
+    "expires_at": ""
+  },
+  "scope": {
+    "allowed_entities": [],
+    "allowed_domains": [],
+    "source_access_classes": [
+      "standard_public",
+      "public_reporting"
+    ],
+    "data_classes": [
+      "public",
+      "professional"
+    ],
+    "max_sources": 500,
+    "max_depth": 3,
+    "stop_after_no_new_claims": 3
+  },
+  "access": {
+    "read_only": true,
+    "allow_login_with_user_permission": false,
+    "allow_paywalled_sources": false,
+    "allow_captcha_solving": false,
+    "allow_stealth_evasion": false,
+    "respect_robots": true
+  },
+  "output": {
+    "sections": [
+      "main_findings",
+      "non_official_unverified_leads",
+      "blocked_prohibited_sources",
+      "contradictions_unknowns"
+    ],
+    "redaction_classes": [
+      "personal_contact",
+      "residential",
+      "government_id",
+      "financial",
+      "medical",
+      "family_minor",
+      "whereabouts",
+      "secret",
+      "other_pii"
+    ],
+    "retention_days": 90,
+    "audience": "named_recipient"
+  }
+}

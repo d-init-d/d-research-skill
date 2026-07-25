@@ -3,6 +3,7 @@
 ## Contents
 
 - [Compact answer format](#compact-answer-format)
+- [Investigative report format](#investigative-report-format)
 - [Dataset delivery format](#dataset-delivery-format)
 - [Report with data visualization](#report-with-data-visualization)
 - [LaTeX academic report template](#latex-academic-report-template)
@@ -85,6 +86,40 @@ Use for small tasks:
 ## Caveats
 
 ## Confidence
+```
+
+## Investigative report format
+
+Use for `R1`-`R4`, scoped person OSINT, cross-platform social research, and
+self-exposure audits. The four core sections are mandatory even when one is
+empty; `report_render.py lint --strict` enforces row disposition.
+
+```markdown
+# Investigative report: [topic]
+
+## Main findings
+
+[Only admissible `record_type=claim` rows with
+`reporting_disposition=main_findings`; cite each as `[ref:CLAIM_ID]`.]
+
+## Non-official / unverified leads
+
+[Only `record_type=lead` or rows with
+`reporting_disposition=non_official_unverified_leads`. State missing evidence
+and promotion condition.]
+
+## Blocked / prohibited sources
+
+[Record access blockers and redacted policy metadata. Never include a raw dump
+URL, secret, minor data, or prohibited evidence.]
+
+## Contradictions and unknowns
+
+[Place every direct or unresolved contradiction here with its claim reference.]
+
+## Confidence and stopping criteria
+
+## Next verification steps
 ```
 
 ## Dataset delivery format

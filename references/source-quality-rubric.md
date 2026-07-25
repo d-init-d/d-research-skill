@@ -7,7 +7,7 @@
 - [Conflict resolution](#conflict-resolution)
 - [Freshness rules](#freshness-rules)
 - [Red flags](#red-flags)
-- [Social Sources (v2.1)](#social-sources-v21)
+- [Social Sources (v3.3)](#social-sources-v33)
 
 Use this file to rank sources and resolve conflicts.
 
@@ -118,16 +118,26 @@ Downgrade sources that:
 - contain obvious generated text or scraped summaries
 - contradict primary sources without explanation
 
-## Social Sources (v2.1)
+## Social Sources (v3.3)
 
-When an evidence-ledger row contains the `verifiability` column (added in v2.1 for social-media archival), the following scoring modifiers are applied additively on top of the standard five-dimension score:
+Transport, speaker authority, relationship to the claim, origin, and reporting
+disposition are separate. A platform or author handle alone never establishes
+authority or truth. These deterministic provenance modifiers are additive on
+top of the standard five-dimension score:
 
 | Condition | Score Modifier | Rationale |
 |---|---|---|
-| `verifiability` is `archive_snapshot` | **+2** | The content has been preserved in the Wayback Machine, providing an independent third-party copy that can be re-checked. This significantly increases confidence that the evidence existed at the claimed time. |
-| Row has a verified author handle (non-empty `author_handle` in source metadata or `author_handle=` present in `notes`) | **+1** | A verified author attribution strengthens provenance — the claim can be traced to a specific public account. |
-| `verifiability` is `unverified` | **-1** | No independent verification path exists for this social evidence. The content may have been fabricated, edited, or taken out of context. Reduces confidence accordingly. |
+| `verifiability=archive_snapshot` | **+1** | Preserved content improves traceability but does not verify the underlying claim. |
+| `verifiability=direct_api` | **+1** | Direct capture improves integrity and reproducibility. |
+| `verifiability=unverified` | **-2** | No independent integrity path exists. |
+| official/verified speaker + subject/authorized/firsthand relationship + original/firsthand content | **+1** | Item-level authority is established for a statement or act within the speaker's competence. |
+| anonymous/unknown speaker | **-1** | Identity is unresolved. |
+| quote/repost/screenshot origin | **-1** | Derivative content is not an independent lineage. |
+| `reporting_disposition=non_official_unverified_leads` | **-1** | The item remains a discovery lead rather than admitted evidence. |
 
-These modifiers stack with each other and with the base score. For example, an `archive_snapshot` row with a verified author handle receives +3 total social bonus. An `unverified` row with no author handle receives -1.
+These modifiers stack, but never override policy admissibility. A high automated
+score cannot promote a `lead`, raw-leak claim, anonymous high-impact allegation,
+or prohibited item into main findings. Reposts sharing a `lineage_id` count as
+one origin.
 
 The social bonus is reported as a separate `social_bonus` column in `score_source.py score` output, and is included in the `total` used for band classification (high/medium/low).

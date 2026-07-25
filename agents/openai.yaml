@@ -1,4 +1,4 @@
 interface:
   display_name: "D Research"
-  short_description: "Deep research with auditable evidence"
-  default_prompt: "Use $d-research to choose the narrowest lawful research route and return evidence appropriate to this request."
+  short_description: "Deep investigative research with auditable evidence"
+  default_prompt: "Use $d-research to choose the narrowest lawful research route, bind an R1-R4 scope when needed, separate verified findings from non-official leads, and return auditable evidence appropriate to this request."

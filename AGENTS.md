@@ -15,9 +15,10 @@ Use `references/workflow-routes.md` as the narrative decision tree. Do not dispa
 1. Classify with `references/research-intake.md` before opening sources. Resolve
    hard-stop safety, privacy, legality, and access issues first. Ask only when an
    ambiguity changes safety, scope, or deliverable.
-2. Select the narrowest matching route. Atomic fact, social-post, public-role
-   person, and single-URL branches override the broad workflow when their entry
-   conditions hold; follow their branch-specific output contracts.
+2. Select the narrowest matching route. Atomic fact, single-social-post,
+   cross-platform social, scoped-person, self-exposure, and single-URL branches
+   override the broad workflow when their entry conditions hold; follow their
+   branch-specific output contracts.
 3. For broad work, restate the goal; decompose questions/entities/aliases;
    create the source map; fan out official, primary, dataset, recent, and
    contradiction queries; probe browser-first; extract least-invasively; expand
@@ -30,8 +31,13 @@ Use `references/workflow-routes.md` as the narrative decision tree. Do not dispa
    HMAC via `D_RESEARCH_LEDGER_KEY`; `release_ready` additionally requires
    terminal synthesis tasks/outputs, exact report and citations, 100% authored
    claim coverage, and satisfied stopping criteria. Report the workspace path.
-5. Before non-trivial synthesis, apply `references/execution-gates.md`. Do not claim completeness unless the relevant execution gates passed.
-6. Finish with `references/reproducibility-checklist.md`; render/lint planned
+5. For investigative tiers `R1`-`R4`, create and validate
+   `investigation-scope.json`, then bind it with `research_plan.py bind-policy`.
+   Do not dispatch if `investigation_scope_valid` fails. Keep main findings,
+   non-official/unverified leads, blocked/prohibited sources, and
+   contradictions/unknowns separate.
+6. Before non-trivial synthesis, apply `references/execution-gates.md`. Do not claim completeness unless the relevant execution gates passed.
+7. Finish with `references/reproducibility-checklist.md`; render/lint planned
    reports with `scripts/report_render.py` and score important sources with
    `scripts/score_source.py`.
 
@@ -39,7 +45,11 @@ Use `references/workflow-routes.md` as the narrative decision tree. Do not dispa
 
 - Atomic fact: `references/fact-verification.md`
 - Public social post: `references/social-media-archival.md`
-- Named public-role person: `references/person-aggregation.md`
+- Cross-platform social research: `references/social-source-research.md`
+- Scoped person OSINT: `references/person-aggregation.md`
+- Investigative OSINT and authorized security: `references/investigative-research.md`
+- Verified self-exposure audit: `references/self-exposure-audit.md`
+- Leak-derived reporting and authorized corpora: `references/leaked-data-handling.md`
 - Semantic corpus: `references/semantic-retrieval.md`
 - Broad, due-diligence, policy, and cultural routing: `references/workflow-routes.md`, `references/research-intake.md`
 - Technical/market: `references/source-discovery.md`, `references/source-quality-rubric.md`
@@ -54,15 +64,19 @@ Use `references/workflow-routes.md` as the narrative decision tree. Do not dispa
 - Visualization/rendered report: `references/data-visualization.md`, `references/report-generation.md`
 - Multilingual/Vietnamese: `references/multilingual-research.md`, `references/vietnamese-source-discovery.md`
 - Thin recall/jargon: `references/register-and-jargon-expansion.md`
-- Broad-work evidence gaps only: `references/frontier-search.md`
+- Broad or scoped public-professional evidence gaps: `references/frontier-search.md`
 
 ## Safety invariants
 
 - Read only by default; use only lawfully provided credentials.
 - Never bypass login, paywalls, captchas, rate limits, robots restrictions, or
   access controls; captcha solving and stealth/anti-detection plugins are never allowed.
-- Refuse private-person profiling, minors, harassment, stalking, doxxing,
-  pseudonym re-identification, and collection of sensitive personal details.
+- Apply `R2` scope, purpose, authorization, minimization, and reporting gates to
+  person research. Hard-stop minors, stalking, harassment, doxxing, real-time
+  whereabouts, unauthorized pseudonym re-identification, and weaponized dossiers.
+- Never acquire raw leak dumps or retain/test stolen credentials, tokens,
+  sessions, cookies, MFA material, or private keys. Public raw-leak claims may
+  create redacted metadata leads only; verified self-exposure uses `R3`.
 - Stop after the bounded fallback chain fails on repeated 403/429/captcha/login
   walls. Record blocked attempts and resource-limit truncation explicitly.
 - Never turn a configured crawl or resource limit into a claim of completeness.

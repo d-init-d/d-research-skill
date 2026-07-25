@@ -9,12 +9,14 @@ from __future__ import annotations
 import contextlib
 import csv
 import http.server
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -652,6 +654,235 @@ def case_27_chromium_smoke() -> None:
     record("27_real_chromium_smoke", ok, detail)
 
 
+def case_28_investigation_scope_hard_floor() -> None:
+    """R0/R1 person-sensitive, minors, captcha, and stealth fail closed."""
+    sys.path.insert(0, str(SCRIPTS))
+    import investigation_policy as policy
+
+    base = policy.scope_for_mode("R1")
+    captcha = json.loads(json.dumps(base))
+    captcha["access"]["allow_captcha_solving"] = True
+    private = json.loads(json.dumps(base))
+    private["subject"]["class"] = "private_person"
+    private["scope"]["data_classes"] = ["public", "sensitive"]
+    minor = json.loads(json.dumps(base))
+    minor["subject"]["class"] = "minor"
+    ok = bool(policy.validate_scope(captcha)) and bool(
+        policy.validate_scope(private)
+    ) and bool(policy.validate_scope(minor))
+    record("28_investigation_scope_hard_floor", ok)
+
+
+def case_29_authorization_hash_binds_scope() -> None:
+    """A valid R3 attestation passes, then any scope mutation invalidates it."""
+    sys.path.insert(0, str(SCRIPTS))
+    import investigation_policy as policy
+
+    scope = policy.scope_for_mode("R3")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    target = "self:sha256:" + "b" * 32
+    scope["subject"]["name_or_id"] = target
+    scope["scope"]["allowed_entities"] = [target]
+    scope["authorization"].update(
+        {
+            "status": "self_verified",
+            "method": "provider_native_verification",
+            "reviewed_by": "acceptance-reviewer",
+            "reviewed_at": (now - timedelta(minutes=1)).isoformat().replace(
+                "+00:00", "Z"
+            ),
+            "expires_at": (now + timedelta(days=7)).isoformat().replace(
+                "+00:00", "Z"
+            ),
+            "scope_hash": "",
+        }
+    )
+    scope["authorization"]["scope_hash"] = policy.authorization_scope_digest(scope)
+    before = policy.validate_scope(scope)
+    scope["scope"]["max_sources"] += 1
+    after = policy.validate_scope(scope)
+    ok = not before and any("does not bind" in error for error in after)
+    record("29_authorization_hash_binds_scope", ok, f"before={len(before)} after={len(after)}")
+
+
+def case_30_source_promotion_and_leak_rules() -> None:
+    """Raw leak stays a lead; secret is prohibited; self-declared support cannot promote."""
+    sys.path.insert(0, str(SCRIPTS))
+    import investigation_policy as policy
+
+    parser = policy.build_parser()
+
+    def assess(extra: list[str]):
+        return policy.assess_source(parser.parse_args(["assess-source", *extra]))
+
+    raw = assess(
+        [
+            "--source-access-class", "raw_leak_lead_only",
+            "--speaker-identity", "anonymous",
+            "--speaker-relationship", "unknown",
+            "--origin", "unknown",
+            "--integrity", "unverified",
+            "--data-sensitivity", "personal",
+            "--claim-impact", "high",
+            "--claim-kind", "underlying_fact",
+        ]
+    )
+    secret = assess(
+        [
+            "--source-access-class", "prohibited_secret",
+            "--speaker-identity", "unknown",
+            "--speaker-relationship", "unknown",
+            "--origin", "unknown",
+            "--integrity", "unknown",
+            "--data-sensitivity", "secret",
+            "--claim-impact", "high",
+            "--claim-kind", "underlying_fact",
+        ]
+    )
+    unsupported = assess(
+        [
+            "--source-access-class", "standard_public",
+            "--speaker-identity", "claimed_identity",
+            "--speaker-relationship", "secondhand",
+            "--origin", "original",
+            "--integrity", "live_intact",
+            "--data-sensitivity", "public",
+            "--claim-impact", "high",
+            "--claim-kind", "underlying_fact",
+            "--primary-corroborated",
+            "--corroboration-id", "lineage:one",
+        ]
+    )
+    ok = (
+        raw["discovery_disposition"] == "lead_only"
+        and raw["reporting_disposition"] == "non_official_unverified_leads"
+        and secret["reporting_disposition"] == "prohibited"
+        and unsupported["reporting_disposition"] != "main_findings"
+    )
+    record("30_source_promotion_and_leak_rules", ok)
+
+
+def case_31_plan_policy_tamper_blocks_dispatch() -> None:
+    """Binding succeeds once; changing one policy byte invalidates the plan gate."""
+    sys.path.insert(0, str(SCRIPTS))
+    import investigation_policy as policy
+    import research_plan as plan_tool
+
+    with tempfile.TemporaryDirectory() as td:
+        workspace = Path(td)
+        plan_path = workspace / "research-plan.json"
+        scope_path = workspace / "investigation-scope.json"
+        plan_tool.save(plan_tool._make_minimal_plan(), plan_path)
+        scope_path.write_text(
+            json.dumps(policy.scope_for_mode("R1"), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = plan_tool.cmd_bind_policy(
+                type(
+                    "Args",
+                    (),
+                    {
+                        "file": str(plan_path),
+                        "route": "investigative_osint",
+                        "scope": "investigation-scope.json",
+                    },
+                )()
+            )
+        bound = plan_tool.load(plan_path)
+        before = plan_tool._assert_investigation_scope_valid(bound, plan_path)[0]
+        scope_path.write_text(
+            scope_path.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+        )
+        after = plan_tool._assert_investigation_scope_valid(bound, plan_path)[0]
+    record("31_plan_policy_tamper_blocks_dispatch", rc == 0 and before and not after)
+
+
+def case_32_social_defaults_to_partitioned_lead() -> None:
+    """A transport tier never auto-promotes a social item to main findings."""
+    sys.path.insert(0, str(SCRIPTS))
+    import social_snapshot as social
+
+    with tempfile.TemporaryDirectory() as td:
+        source = Path(td) / "snapshot.json"
+        ledger = Path(td) / "social.csv"
+        source.write_text(
+            json.dumps(
+                {
+                    "schema_version": social.SCHEMA_VERSION,
+                    "platform": "reddit",
+                    "tier": "A",
+                    "url_original": "https://www.reddit.com/r/test/comments/abc/post/",
+                    "url_canonical": "https://www.reddit.com/r/test/comments/abc/post/",
+                    "url_archive": None,
+                    "captured_at": "2026-07-25T00:00:00Z",
+                    "content_hash_sha256": "a" * 64,
+                    "verifiability": "direct_api",
+                    "verifiability_note": "direct public API",
+                    "verification": {"status": "intact"},
+                    "post": {
+                        "id": "abc",
+                        "text": "community claim",
+                        "author_handle": "example",
+                        "posted_at": "2026-07-24",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = social.to_ledger_row(source, ledger)
+        with ledger.open(newline="", encoding="utf-8") as handle:
+            row = next(csv.DictReader(handle))
+        invalid_main = social.to_ledger_row(
+            source,
+            Path(td) / "invalid-main.csv",
+            reporting_disposition="main_findings",
+            record_type="claim",
+            speaker_identity="unknown",
+            speaker_relationship="unknown",
+            claim_kind="underlying_fact",
+        )
+        ok = (
+            rc == 0
+            and len(row) == 37
+            and row["record_type"] == "lead"
+            and row["reporting_disposition"] == "non_official_unverified_leads"
+            and invalid_main != 0
+        )
+    record("32_social_defaults_to_partitioned_lead", ok)
+
+
+def case_33_new_hard_false_config_keys() -> None:
+    """Config cannot enable raw-dump fetching or secret validation."""
+    sys.path.insert(0, str(SCRIPTS))
+    import research_plan as plan_tool
+
+    errors = plan_tool.validate_access_config(
+        {
+            "access": {
+                "allowRawLeakDumpFetch": True,
+                "allowSecretValidation": True,
+            }
+        }
+    )
+    ok = any("allowRawLeakDumpFetch" in error for error in errors) and any(
+        "allowSecretValidation" in error for error in errors
+    )
+    record("33_new_hard_false_config_keys", ok)
+
+
+def case_34_report_partition_enforced() -> None:
+    """The production report linter's investigative partition regression passes."""
+    result = run_py([str(SCRIPTS / "report_render.py"), "self-test"])
+    output = result.stdout + result.stderr
+    record(
+        "34_report_partition_enforced",
+        result.returncode == 0 and "report_render self-test ok" in output,
+        f"rc={result.returncode}",
+    )
+
+
 def main() -> int:
     print("Adversarial acceptance matrix")
     print("=" * 40)
@@ -683,6 +914,13 @@ def main() -> int:
         case_25_crossref_datacite_fallback,
         case_26_resource_caps,
         case_27_chromium_smoke,
+        case_28_investigation_scope_hard_floor,
+        case_29_authorization_hash_binds_scope,
+        case_30_source_promotion_and_leak_rules,
+        case_31_plan_policy_tamper_blocks_dispatch,
+        case_32_social_defaults_to_partitioned_lead,
+        case_33_new_hard_false_config_keys,
+        case_34_report_partition_enforced,
     ]
     for fn in cases:
         try:

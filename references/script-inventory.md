@@ -9,7 +9,8 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/playwright_probe.mjs`: classify a page, detect blockers, list links/files/tables, optionally screenshot, and fail closed on response, aggregate-network, request-count, or rendered-output limits
 - `scripts/playwright_extract.mjs`: extract visible text, tables, links, metadata, and files into bounded JSON or Markdown under the shared browser limits
 - `scripts/playwright_crawl.mjs`: bounded same-domain crawl with RFC 9309 percent-octet-aware robots matching, page manifests, and truthful structured incomplete output for page/domain/depth/network/output ceilings
-- `scripts/evidence_ledger.py`: initialize, validate, and **HMAC-sign / verify** CSV evidence ledgers
+- `scripts/evidence_ledger.py`: initialize and validate canonical 37-column investigative ledgers, preserve exact 14/19/22/23-column compatibility, and **HMAC-sign / verify** every active field
+- `scripts/investigation_policy.py`: initialize/check tiered `R0`-`R4` scopes, bind time-bounded authorization attestations to canonical scope hashes, and classify social/non-official source disposition
 - `scripts/api_fetch.mjs`: paginated API fetch with rate limiting, retry, and multiple output formats
 - `scripts/data_clean.py`: data cleaning, deduplication, validation, statistics, and merging
 - `scripts/citation_export.py`: backward-compatible BibTeX/RIS citation export, optional JSON-sidecar `@article`/`@book`/`@inproceedings` metadata overlay, and DOI enrichment via Crossref with DataCite fallback
@@ -24,17 +25,17 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/lib/credentials.mjs`: credential classification and redaction for Node HTTP clients
 - `scripts/lib/browser_limits.mjs`: shared Playwright response/output caps, structured exit-3 blockers, and limit parsing used by probe/extract/crawl
 - `scripts/browser_smoke.mjs`: real Chromium launch + local fixture smoke (probe/extract/crawl/robots/TLS/local-only/browser SSRF adversarial/service-worker blocking)
-- `scripts/adversarial_acceptance.py`: mandatory 27-case adversarial acceptance matrix; CI sets `D_RESEARCH_SKIP_BROWSER_SMOKE=1` and runs one explicit browser smoke per OS
+- `scripts/adversarial_acceptance.py`: mandatory adversarial acceptance matrix; CI sets `D_RESEARCH_SKIP_BROWSER_SMOKE=1` and runs one explicit browser smoke per OS
 - `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + path-contained official CSL slug caching
 - `scripts/extract_tables.py`: extract HTML `<table>` elements into CSV (handles `colspan`/`rowspan`, stdlib only)
 - `scripts/score_source.py`: apply the `references/source-quality-rubric.md` rubric to an evidence ledger and emit per-row scores + bands
-- `scripts/research_plan.py`: init / configure-execution / set-execution / render / approve / revoke / check / status / parallelizable / mark / block / add-task / gate — drives the long-horizon context-safe protocol in `references/research-plan-protocol.md`
+- `scripts/research_plan.py`: init / configure-execution / set-execution / bind-policy / render / approve / revoke / check / status / parallelizable / mark / block / add-task / gate — drives the long-horizon context-safe protocol and blocks investigative dispatch on policy drift
 - `scripts/wikidata.py`: search / entity / disambiguate / sparql / self-test — Wikidata entity lookup, disambiguation, and SPARQL queries (see `adapters/wikidata.md`)
-- `scripts/social_snapshot.py`: snapshot / verify / to-ledger / self-test — public social-media post capture with two-tier architecture, content hashing, and evidence-ledger integration (see `references/social-media-archival.md`)
+- `scripts/social_snapshot.py`: snapshot / verify / to-ledger / self-test — public social capture with transport-tier integrity, platform-neutral speaker/relationship/origin classification, lineage, and safe lead-by-default 37-column ledger output
 - `scripts/pdf_extract.py`: text / meta / tables / to-ledger / self-test — PDF text, metadata, and table extraction via pdftotext / pdfinfo / pdfplumber with soft-fail when binaries are missing (see `references/pdf-extraction.md`)
 - `scripts/wayback.py`: lookup / nearest / save / diff [--summarize --top-n N] / self-test — Wayback Machine snapshot lookup, archival, and diff summarization (see `references/wayback-archive.md` and `references/monitoring-change-detection.md`)
 - `scripts/citation_resolver.py`: doi / pmid / arxiv / isbn / oa / to-ledger / to-bibtex / batch / self-test — academic identifier resolution via free public APIs (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall); see `adapters/citation-resolver.md`
-- `scripts/report_render.py`: init / render / to-pdf / to-docx / to-html / list-styles / lint / self-test — final report generator with workspace containment, inert generated ledger metadata, and HTTP(S)-only source rendering; see `references/report-generation.md`
+- `scripts/report_render.py`: init / render / to-pdf / to-docx / to-html / list-styles / lint / self-test — final report generator with workspace containment, inert metadata, HTTP(S)-only source rendering, and investigative main/lead/blocked/contradiction partition enforcement
 - `scripts/ocr.py`: text / pdf / to-ledger / langs / self-test — OCR via tesseract (optional system binary, soft-fail if missing); see `references/ocr.md`
 - `scripts/translate.py`: text / detect / instances / self-test / production-self-test — translation adapter with optional deterministic langdetect, stdlib trigram fallback, and LibreTranslate/DeepL/Google/Argos backends; the production self-test exercises the real optional package offline; see `adapters/translation.md`
 - `scripts/embed_corpus.py`: index / query / query-ledger / dedupe / self-test / production-self-test — retrieval over text corpora using cosine similarity; auto prefers the optional local sentence-transformers backend and otherwise uses built-in deterministic local hashing, while stub/remote/CLI backends require explicit selection; the production self-test uses a generated local model without downloads; see `references/semantic-retrieval.md`

@@ -139,7 +139,7 @@ Without extra metadata, `scripts/citation_export.py` deliberately keeps the
 legacy behavior and emits `@misc`: the evidence ledger classifies evidence, but
 does not contain enough bibliographic fields to distinguish a journal article,
 book, and conference paper safely. Do not add ad-hoc columns to the canonical
-23-column ledger.
+37-column v3.3 ledger; exact 14/19/22/23-column legacy ledgers remain accepted.
 
 For rich BibTeX, pass one or more repeatable JSON sidecars with `--metadata`:
 

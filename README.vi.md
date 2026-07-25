@@ -28,9 +28,13 @@ Dùng D Research khi bạn muốn agent:
 - thu thập dữ liệu công khai hợp pháp nhưng vẫn giữ audit trail;
 - xử lý PDF, bảng HTML, JSON-LD, API, archive, Wikidata, DOI/PMID/arXiv/ISBN;
 - làm systematic review, fact verification, research kỹ thuật, market/public-data scan hoặc task dài nhiều bước;
+- làm investigative OSINT có scope, research social đa nền tảng, threat intelligence được ủy quyền hoặc tự audit dữ liệu bị lộ;
 - kiểm tra sau mỗi lần upgrade rằng skill không yếu đi.
 
-Không dùng skill này để bypass access control, thu thập dữ liệu riêng tư, deanonymize người dùng, né restriction của nền tảng, hoặc biến nó thành live monitoring service nếu chưa có một hệ thống vận hành riêng.
+Không dùng skill này để bypass access control, nhắm vào trẻ vị thành niên,
+stalking/doxxing/quấy rối, giữ hoặc thử secret bị đánh cắp, deanonymize người
+khác khi không có thẩm quyền, hay biến nó thành live monitoring service nếu
+chưa có hệ thống vận hành riêng.
 
 ## Phạm vi sản phẩm
 
@@ -53,7 +57,15 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
-v3.2.1 là bản stable nâng ba nhánh optional lên backend production: semantic
+v3.3.0-rc.1 là release candidate hiện tại. Bản này thêm policy điều tra thực thi
+được theo tier `R0`-`R4`, khóa scope vào plan bằng hash, ledger 37 cột, person
+OSINT không còn cap cứng 25 dòng, phân loại social theo người đăng/quan hệ/nội
+dung thay vì theo platform, tách nguồn phi chính thống thành phần riêng, và
+self-exposure audit có xác minh. RC này không tuyên bố trước rằng stable
+promotion, live dogfood, review, CI, archive hay provenance đã pass. Xem
+[`docs/release-v3.3.0-rc.1.md`](docs/release-v3.3.0-rc.1.md).
+
+v3.2.1 là bản stable gần nhất, nâng ba nhánh optional lên backend production: semantic
 retrieval, citation export giàu metadata và language detection. Semantic
 retrieval ưu
 tiên sentence-transformers cục bộ và dùng fallback lexical deterministic tích
@@ -115,7 +127,9 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 - Research intake Step 0: phân loại dạng nghiên cứu, research depth (fast / standard / completeness-first), safety posture, authority/source basin, output artifact, freshness/language scope và route trước khi mở nguồn. Bao gồm due diligence / investigation, policy / standards analysis và creative / cultural research. Xem `references/research-intake.md`.
 - Execution gates portable: trước khi trả lời các task không tầm thường, agent kiểm source map, coverage/recall, no-single-basin, identity/date/inference, evidence verification và synthesis readiness. Xem `references/execution-gates.md`.
 - Research đa kênh: web search, browser automation, fetch-only, public API, Wayback/archive, Wikidata, GraphQL và database read-only khi user cấp quyền.
-- Evidence ledger dạng CSV, có thể ký/verify bằng HMAC-SHA256.
+- Evidence ledger v3.3 có 37 cột cho claim/lead, tier, subject/purpose, source
+  access, social lineage, sensitivity, reporting/redaction/retention và scope
+  authorization; ledger 14/19/22/23 cột cũ vẫn đọc, ký và verify được.
 - Source scoring v2 tách năm trục tự động (type, authority, freshness, traceability, independence) khỏi ba gate review bắt buộc do người đánh giá quyết định (relevance, method transparency, access quality); xem `scripts/score_source.py` và `references/source-quality-rubric.md`.
 - Citation export/render: BibTeX `@article`/`@book`/`@inproceedings` qua metadata sidecar tùy chọn, RIS, APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA.
 - Citation resolver cho academic identifiers: DOI, PMID, arXiv ID, ISBN. `scripts/citation_resolver.py` resolve qua các API công khai miễn phí (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall), emit BibTeX hoặc evidence-ledger row. Là Step 0 fast path khi user paste sẵn DOI/PMID/arXiv ID/ISBN — bỏ qua workflow research đầy đủ vì đã có canonical metadata trong 1 request. Xem `adapters/citation-resolver.md`.
@@ -126,7 +140,26 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 - Long-horizon research protocol: tạo workspace riêng, `research-plan.json`, `PLAN.md`, approval gate, notes, sections, report, checklist.
 - Frontier search cho follow-up theo evidence gap: khi pass đầu để lại sub-question chưa đủ chứng cứ hoặc thông tin obscure/long-tail, agent dựng một priority queue nhỏ trên các node ứng viên (query, URL, file, API, citation, repo, alias, archive), chấm điểm theo gap còn lại, đào nhánh ưu tiên cao trước, và dừng khi evidence saturation. Không phải pathfinding theo nghĩa CS (không A*/Dijkstra); chỉ là best-first search có ràng buộc. Có `frontier-ledger.csv` và `coverage-map.json` đi kèm `evidence-ledger.csv`. Vẫn không bypass access control. Xem `references/frontier-search.md`.
 - Fact-verification fast path cho câu hỏi atomic (1 entity, 1 attribute, có primary source xác định, đáp án 1 câu/1 quote): SHA commit, version package, giới hạn pagination của API, 1 điều khoản license. Bỏ qua decompose/source map/query fanout/crawl; gọi primary source 1 lần, quote nguyên văn, ghi 1 dòng ledger với 1 lần re-check độc lập, rồi report. Nếu primary source trả non-2xx, hai mirror mâu thuẫn, hoặc user hỏi tiếp "tại sao/như thế nào" thì bail về workflow broad. Không nhảy sang `references/frontier-search.md` từ branch này. Xem `references/fact-verification.md`.
-- Person aggregation cho yêu cầu tìm thông tin public-role về 1 người cụ thể (maintainer, tác giả, speaker, nhà báo, public figure): anchor vào 1 nguồn canonical (GitHub profile, ORCID, package author, faculty page, byline đã xác minh), cross-aggregate các claim public-role có ít nhất 1 nguồn, disambiguate homonym bằng tín hiệu positive. **Privacy boundary là hard stop, không phải hướng dẫn trừu tượng**: địa chỉ nhà, người thân/gia đình, tài khoản social riêng tư, số điện thoại / email cá nhân, ảnh cá nhân, thông tin y tế / tài chính / pháp lý / xu hướng / hành trình, re-identify pseudonym sang real name, và mọi item người đó đã đánh dấu private đều OUT-OF-SCOPE bất kể có tìm được trên web hay không. Refuse với minors, private individuals, và mọi framing harassment / stalking / doxxing. Saturate ở 25 dòng ledger hoặc khi 3 nguồn liên tiếp không add claim mới đã verified. Xem `references/person-aggregation.md`.
+- Scoped person OSINT (`R2`) cho entity/alias resolution, timeline nghề nghiệp,
+  quan hệ công khai, contradiction và frontier public-professional. Không còn
+  cap cứng 25 dòng; dừng theo saturation, scope, risk và resource budget.
+  Private-person cần authorization hoặc public-interest review; minors,
+  stalking/doxxing/quấy rối, real-time whereabouts, secret và sensitive
+  retention vẫn hard-stop. Xem `references/person-aggregation.md`.
+- Social đa nền tảng: capture tier chỉ nói cách lấy và kiểm tra integrity; mỗi
+  item được phân loại riêng theo speaker identity, quan hệ với claim, content
+  origin, lineage và reporting disposition. `to-ledger` mặc định tạo lead; phần
+  `Non-official / unverified leads` luôn tách khỏi `Main findings`. Xem
+  `references/social-source-research.md`.
+- Investigation policy: `investigation_policy.py` kiểm `R0` public research,
+  `R1` deep investigation, `R2` person OSINT, `R3` self-exposure và `R4`
+  authorized security dưới một sàn `RX` không thể nới. `research_plan.py
+  bind-policy` khóa đúng bytes của scope vào mọi task.
+- Leak handling: public reporting được dùng như nguồn bình thường; provider có
+  quyền và dữ liệu user cung cấp bị giới hạn theo scope; raw leak chỉ tạo lead
+  metadata đã redact; password/token/session/key không được lấy, giữ, thử hoặc
+  xuất. Xem `references/leaked-data-handling.md` và
+  `references/self-exposure-audit.md`.
 - Eval harness offline hai tầng để bắt regression và đo upgrade: `examples/evals/dogfood-bench.json` là Tier 1 regression guard (12 task), `examples/evals/frontier-bench.json` là Tier 2 frontier probe bench 3.0 (52 task, 26 class), harness stdlib-only là `scripts/run_dogfood.py` với `self-test`, `validate`, `list`, `render`, `score`, `score-all`, `compare`, `baseline`. CI chỉ chạy schema/self-test offline. Mỗi task canonical có `run-result.json` schema 2.1 và ledger; để score một task dùng `npm run eval:score -- DF-001 path/to/ledger.csv --run-result path/to/run-result.json`. Để so sánh bản cũ/mới dùng `score-all --runs-dir` rồi `compare`. Đây không phải leaderboard và không ship điểm số per-agent. Xem `docs/eval.md`.
 - Anti-bot fallback chain cho nguồn public quan trọng bị Cloudflare, JS challenge, captcha, 403, 429 hoặc lỗi browser/fetch lặp lại: thử đúng một chuỗi hợp pháp API/static form -> public archive -> cache/snippet nếu có -> fetch-only/no-JS -> blocker report. Không dùng để bypass access control; attempt fail được ghi như process row confidence thấp. Xem `references/anti-bot-fallback.md`.
 - Vietnamese source discovery companion: hướng dẫn opt-in cho research nguồn Việt Nam, gồm alias có dấu/không dấu, ma trận báo chí/official/archive/public-community, và kỷ luật ngày-tháng/danh tính. Xem `references/vietnamese-source-discovery.md`.

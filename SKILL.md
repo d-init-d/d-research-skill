@@ -5,8 +5,9 @@ description: >-
   Use for web research, source discovery, public-data scraping, literature or
   market/technical research, due diligence, policy/standards analysis, cultural
   research, atomic fact verification, single-URL inspection, public social-post
-  archival, public-role person lookup, semantic corpus retrieval, evidence
-  ledgers, execution gates, and blocker reports. Read-only; never bypasses
+  archival, cross-platform social research, scoped person OSINT, self-exposure
+  audits, investigative OSINT, semantic corpus retrieval, evidence ledgers,
+  execution gates, and blocker reports. Read-only; never bypasses
   logins, paywalls, captchas, robots restrictions, or rate limits.
 ---
 
@@ -22,6 +23,11 @@ and literature review, market/technical research, due diligence, policy and
 standards analysis, creative/cultural research, dynamic-page evidence, and
 blocker reports.
 
+Investigative capability uses tiers `R0` through `R4`: public research, deep
+investigation, scoped person OSINT, verified self-exposure audit, and authorized
+security research. Higher tiers add scope and evidence tools; none weakens the
+`RX` prohibited floor in `references/investigative-research.md`.
+
 Never use this skill to bypass access controls, login walls, paywalls, captchas,
 rate limits, robots restrictions, or explicit access restrictions.
 
@@ -34,7 +40,10 @@ rate limits, robots restrictions, or explicit access restrictions.
   `false`; `true` fails validation. Stealth evasion is never allowed.
 - Evade rate limits or anti-bot systems.
 - Stolen cookies, leaked tokens, or credentials not provided by the user.
-- Private/personal/sensitive data without authorization.
+- Secret validation or raw breach-dump acquisition, retention, or redistribution.
+- Minors targeting, stalking, doxxing, harassment, real-time whereabouts,
+  unauthorized pseudonym re-identification, malware, exploitation, or exfiltration.
+- Private/personal/sensitive data without a validated scope and authorization.
 - Ignore robots when acting as a crawler (`--no-respect-robots` hard-fails).
 - External mutation without explicit opt-in (Wayback Save Page Now requires
   `--submit-archive`).
@@ -64,6 +73,8 @@ Adapter policy: `references/tool-adapter-policy.md`.
 4. Wikidata — `adapters/wikidata.md`
 5. Read-only databases when user provides access — `adapters/database-readonly.md`
 6. Specialized domains — `references/specialized-domains.md`
+7. Authorized breach-intelligence or user-supplied incident data — only through
+   `references/self-exposure-audit.md` and `references/leaked-data-handling.md`
 
 ## Intake and routing
 
@@ -90,6 +101,16 @@ multi-context runtime, or audit-grade output, use research plan schema 2.0
 7. `gate --gate release_ready` (synthesis complete; exact report path; 100 percent
    claim coverage; stopping criteria)
 
+For `R1`-`R4` routes, create and validate `investigation-scope.json`. When the
+scope claims `reviewed_public_interest`, `self_verified`, or `authorized`, use
+`investigation_policy.py bind-authorization` so reviewer, method, expiry, and
+the exact scope hash are recorded; a user-declared purpose is not proof. Then
+run `research_plan.py bind-policy --route <route> --scope
+investigation-scope.json`. The plan gate checks the exact scope bytes and
+requires every research and synthesis task to carry that policy input. Any scope change
+invalidates the authorization hash and requires authorization binding, plan
+binding, rendering, and approval again.
+
 Migrate v1 plans: `scripts/research_plan.py migrate`. Always report workspace path.
 
 **Before final synthesis:** Apply `references/execution-gates.md` unless a
@@ -101,7 +122,11 @@ fast-path branch says otherwise. Do not claim completeness unless gates pass.
 |---|---|
 | Atomic fact | `references/fact-verification.md` |
 | Social post archive | `references/social-media-archival.md` |
-| Named public-role person | `references/person-aggregation.md` |
+| Cross-platform social research | `references/social-source-research.md` |
+| Scoped person OSINT | `references/person-aggregation.md` |
+| Investigative OSINT / threat intelligence | `references/investigative-research.md` |
+| Verified self-exposure audit | `references/self-exposure-audit.md` |
+| Leak reporting / authorized corpus | `references/leaked-data-handling.md` |
 | Semantic corpus query | `references/semantic-retrieval.md` |
 | Broad multi-source research | `references/workflow-routes.md` |
 | Due diligence / red flags | intake `due_diligence_or_investigation` |
@@ -138,7 +163,9 @@ Machine-readable routes: `templates/route-manifest.json`.
 5. Probe with browser-first access; classify access state; never force blocked pages.
 6. Extract least-invasively: public files → public APIs → static markup → rendered text.
 7. Expand via links/sitemaps/APIs within crawl limits; respect robots.
-8. Maintain evidence ledger (`references/evidence-ledger.md`); sign with
+8. Maintain the 37-column evidence ledger (`references/evidence-ledger.md`);
+   classify social and non-official items by speaker, relationship, origin,
+   lineage, discovery disposition, and reporting disposition; sign with
    `scripts/evidence_ledger.py sign` for long-horizon plans and audit-grade work.
 9. Contradiction pass; score sources (`references/source-quality-rubric.md`).
 10. Blocker reports (`references/blocker-report.md`) for unreachable tier-1 sources.
@@ -191,9 +218,16 @@ Every important claim needs source, type, dates, access method, evidence,
 contradiction status, and confidence. Separate facts, inferences, speculation,
 and unknowns.
 
-Ledger rows may set `record_type`: `claim` (default), `process`, or `blocker`.
+Ledger rows may set `record_type`: `claim` (default), `lead`, `process`, or
+`blocker`. Leads never count as authored claims and never enter main findings.
 Release requires full narrative coverage of `claim` rows via `[ref:claim_id]` in
 authored text only (not generated Evidence Summary or References blocks).
+
+For investigative outputs, keep `Main findings`, `Non-official / unverified
+leads`, `Blocked / prohibited sources`, and `Contradictions / unknowns`
+separate. A platform is never inherently official: classify each social item by
+who spoke, their relationship to the claim, content origin, integrity, and
+independent lineage.
 
 For broad and non-trivial routes, the final answer includes: direct answer, key
 findings, evidence summary, data collected, sources reached/blocked,
@@ -207,24 +241,32 @@ Render/lint: `scripts/report_render.py`. Claim coverage:
 
 ## High-stakes and privacy boundaries
 
-Hard-stop before broad research when intake indicates refusal, access-control
-bypass, private-person profiling, minors, harassment/stalking/doxxing framings,
-or high-stakes advice that must be reframed as evidence synthesis.
+Hard-stop before broad research when intake indicates `RX`, access-control
+bypass, minors, stalking/doxxing/harassment, stolen secrets, or unauthorized
+intrusion. Do not infer permission from a user's job title.
 
-Person aggregation (`references/person-aggregation.md`) saturates at 25 ledger
-rows or three sources adding no new verified claims. Never re-identify
-pseudonyms; never aggregate home address, family, personal contact, photos,
-medical/financial/orientation/whereabouts.
+Scoped person OSINT (`references/person-aggregation.md`) may expand aliases,
+relationships, timelines, contradictions, and public-professional frontier
+nodes without a fixed row cap. Stop on saturation, scope/risk budgets, or an
+`RX` boundary. Discovery does not imply retention or reporting: personal
+contact, residence, government IDs, finances, medical data, family/minors, and
+precise whereabouts are discarded or redacted.
 
-Social archival (`references/social-media-archival.md`) refuses the same privacy
-boundary before any HTTP call. Tier A uses direct public APIs; Tier B is
-archive lookup-only unless `--submit-archive`.
+Social transport tiers in `references/social-media-archival.md` describe capture
+and verifiability only. Evidentiary authority is item-level and platform-neutral
+under `references/social-source-research.md`.
+
+Self-exposure work is `R3`, requires verified ownership/authorization and a
+named-recipient output, and reports exposure metadata plus remediationâ€”never
+secrets or unrelated victims. Raw-leak references are metadata-only `lead`
+rows with no dump URL, excerpt, hash, or main-finding disposition.
 
 ## Signing and reproducibility
 
 For every long-horizon plan workspace, and for audit-grade work on any route:
 
-1. Maintain `evidence-ledger.csv` (23-column canonical; legacy 14/19/22 OK).
+1. Maintain `evidence-ledger.csv` (37-column canonical; exact legacy
+   14/19/22/23 headers remain readable, signable, and verifiable).
 2. Sign with `scripts/evidence_ledger.py sign --file evidence-ledger.csv --key-env D_RESEARCH_LEDGER_KEY`.
 3. Complete `reproducibility-checklist.md` (no unchecked boxes; N/A as checked with reason).
 4. Render: `scripts/report_render.py render --workspace <dir>`.
@@ -239,6 +281,7 @@ Scripts under `scripts/` are optional. Key entry points:
 
 - Browser: `playwright_probe.mjs`, `playwright_extract.mjs`, `playwright_crawl.mjs`
 - Plan/report: `research_plan.py`, `report_render.py`, `evidence_ledger.py`
+- Investigation policy: `investigation_policy.py`
 - Network: `api_fetch.mjs`, `web_search.mjs`, `http_cache.py`
 - Academic: `citation_export.py`, `citation_render.py`, `citation_resolver.py`
 - Social/archive: `social_snapshot.py`, `wayback.py`
@@ -255,7 +298,8 @@ Field reference: `references/config-reference.md`.
 ## Compatibility notes
 
 - Research plan v1 loads with a one-shot deprecation warning until v4; run migrate.
-- Ledgers with 14, 19, or 22 columns remain valid; missing `record_type` is `claim`.
+- Ledgers with 14, 19, 22, or 23 columns remain valid; missing `record_type` is
+  `claim`. New ledgers use 37 columns.
 - CLI alias `--paginate` remains with one deprecation warning; prefer `--pagination`.
 - Root `report.md` is deprecated; prefer declared outputs under `research-output/`.
 

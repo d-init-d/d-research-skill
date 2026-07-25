@@ -1,1 +1,6 @@
 *.pdf binary
+
+# Preserve exact bytes for the v3.3.0 release-evidence bundle. Promotion
+# manifests bind these files by SHA-256, so checkout-time EOL conversion would
+# invalidate otherwise authentic evidence on Windows.
+release-evidence/v3.3.0/** -text

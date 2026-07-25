@@ -20,6 +20,15 @@ user before proceeding; otherwise state the assumption and continue.
 
 **Before picking a branch:** if the task is long-horizon (more than 5 sub-questions, more than 50 sources, multi-context-window runtime, or audit-grade output), apply the **research plan protocol** from `references/research-plan-protocol.md` as an outer loop *around* whichever branch fits the topic. The agent creates one workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writes `research-plan.json` (from `templates/research-plan.json`), renders `PLAN.md`, passes `plan_ready`, records approval, and passes `execute_ready`/`dispatch_ready` before dispatching any task. After research tasks finish, it passes `synthesize_ready`; after synthesis tasks, exact report/citations, claim coverage, and stopping criteria finish, it passes `release_ready`. See `examples/long-horizon-research-plan.md`. The branches below describe the *content* of the work; the protocol describes the *flow control* that keeps the work surviving across context resets.
 
+**Investigative wrapper:** routes labeled `investigative_osint`,
+`person_osint_scoped`, `social_cross_platform`, or `self_exposure_audit` use
+`references/investigative-research.md`. Create `investigation-scope.json`, run
+`investigation_policy.py check`, and for planned work run `research_plan.py
+bind-policy`. The bound file hash and per-task policy input must pass
+`investigation_scope_valid` before dispatch. Keep verified findings,
+non-official/unverified leads, blocked/prohibited sources, and
+contradictions/unknowns separate.
+
 **Before final synthesis:** for any non-trivial branch, apply
 `references/execution-gates.md` unless a narrower fast path explicitly says to
 skip it. If subagents exist, use the gate roles as independent reviewers; if
@@ -33,11 +42,41 @@ Use `references/fact-verification.md`. Applies when the question targets one nam
 
 ### If the user asks to capture or analyze a public social-media post
 
-Use `references/social-media-archival.md`. Capture public posts from 12 supported platforms (Reddit, Hacker News, Mastodon, Bluesky, Lemmy, X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) plus a generic fallback. The script `scripts/social_snapshot.py` handles snapshot capture, hash-based verification, and evidence-ledger row generation. **Read the privacy boundary section first** — it refuses minors, private individuals, harassment/stalking/doxxing framings, and login-bypass attempts before making any HTTP call. Tier A platforms (Reddit, HN, Mastodon, Bluesky, Lemmy) use direct public API fetch with high verifiability; Tier B platforms (X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) use archive-only via `scripts/wayback.py` with low verifiability.
+Use `references/social-media-archival.md` for one specific public post. Capture
+and verification tiers describe transport/integrity only; they do not decide
+whether a speaker or claim is authoritative. The script
+`scripts/social_snapshot.py` handles snapshot capture, hash verification, and
+ledger generation. Do not claim it can infer user intent from a URL alone;
+apply intake/privacy policy before invoking it.
 
-### If the user asks for public-role information about a specific named person
+### If the user asks for research across social/community platforms
 
-Use `references/person-aggregation.md`. Applies when the user wants scattered public-role information about one named person (maintainer, author, speaker, journalist, public figure) and there is a canonical anchor (GitHub profile, ORCID, package author field, faculty page, verified byline). The value is in cross-source aggregation and homonym disambiguation, not in any one source. **Apply the privacy boundary in that file before doing anything else** — it is a hard stop, not abstract guidance; home address, family, private accounts, personal contact, photos, medical/financial/legal/orientation/whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuse on minors, private individuals, and harassment/stalking/doxxing framings. Saturate at 25 ledger rows or three sources adding no new verified claims, and never escalate to `references/frontier-search.md` to chase one more piece of personal info.
+Use `references/social-source-research.md` with label
+`social_cross_platform`. Search relevant public Reddit, X, Facebook,
+Instagram, Hacker News, Mastodon, Bluesky, Lemmy, YouTube, TikTok, LinkedIn,
+GitHub, and forums. Classify each item by speaker identity, relationship to the
+claim, content origin, integrity, lineage, sensitivity, and reporting
+disposition. An official account verifies that its statement was made, not
+automatically every underlying fact. Reposts sharing a lineage count once.
+Anonymous, screenshot-only, and unresolved items remain leads.
+
+### If the user asks where their own identifiers or domain were exposed
+
+Use `references/self-exposure-audit.md` with verified `R3` ownership or
+authorization. Query public incident reporting first, then an authorized
+provider using minimum disclosure. Never acquire raw dumps, test secrets, or
+expand from an owned scope to unrelated victims.
+
+### If the user asks for information about a specific named person
+
+Use `references/person-aggregation.md` and an `R2` scope. Resolve identity with
+positive anchors, then research scoped public/professional roles, work,
+statements, relationships, timelines, contradictions, and public-interest
+events. There is no fixed 25-row cap: use source/risk budgets and evidence
+saturation. Public-professional gaps may use bounded frontier search. Refuse
+minors, stalking/doxxing/harassment, real-time whereabouts, weaponized dossiers,
+and unauthorized re-identification; discard/redact contact, residential,
+government-ID, financial, medical, family/minor, and precise-location data.
 
 ### If the user has a large corpus or many ledger rows and asks a semantic question
 
@@ -49,13 +88,16 @@ Use the full deep research workflow. Produce a source-backed synthesis with evid
 
 ### If the user asks for due diligence, public investigation, risk review, or red flags
 
-Use `references/research-intake.md` with `due_diligence_or_investigation`.
+Use `references/research-intake.md` with `due_diligence_or_investigation` and,
+when entity/alias/relationship/hypothesis expansion is material,
+`investigative_osint` plus `references/investigative-research.md`.
 Default to completeness-first unless the user explicitly asks for a quick scan.
 Build a source map, keep a search log, maintain an evidence ledger for verified
 claims and red flags, run a contradiction pass, and apply execution gates before
-synthesis. Separate verified facts, red flags, unresolved risks, benign
-unknowns, confidence, and recommended manual checks. Do not gather private
-personal data or phrase allegations beyond what the evidence supports.
+synthesis. Separate verified facts, red flags, non-official/unverified leads,
+unresolved risks, benign unknowns, confidence, and recommended manual checks.
+Route any person target through `R2`; do not phrase allegations beyond what the
+evidence supports.
 
 ### If the user asks for policy, standards, RFC, governance, or compliance analysis
 

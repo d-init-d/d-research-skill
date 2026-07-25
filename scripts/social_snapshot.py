@@ -37,7 +37,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-USER_AGENT = "d-research-skill/3.2.0 (https://github.com/d-init-d/d-research-skill)"
+USER_AGENT = "d-research-skill/3.3.0-rc.1 (https://github.com/d-init-d/d-research-skill)"
 SCHEMA_VERSION = "1.1"
 
 VALID_VERIFICATION_STATUS = {
@@ -82,6 +82,9 @@ from resource_limits import (  # type: ignore
     load_limits,
     read_bounded,
 )
+import evidence_ledger as ledger_schema  # type: ignore
+
+LEDGER_FIELDS = ledger_schema.FIELDS
 
 
 # ---------------------------------------------------------------------------
@@ -1148,32 +1151,6 @@ def verify_snapshot(file: Path) -> int:
 # To-Ledger Row Generator
 # ---------------------------------------------------------------------------
 
-LEDGER_FIELDS = [
-    "claim_id",
-    "claim",
-    "sub_question",
-    "source_title",
-    "source_url",
-    "source_type",
-    "date_published",
-    "date_accessed",
-    "access_method",
-    "evidence",
-    "quote_or_anchor",
-    "contradiction",
-    "confidence",
-    "notes",
-    "archive_url",
-    "content_hash",
-    "snapshot_status",
-    "verifiability",
-    "verifiability_note",
-    "license_spdx",
-    "robots_status",
-    "prov_activity_id",
-]
-
-
 def _prov_activity_id(prefix: str, *parts: str) -> str:
     """Compute a deterministic prov:Activity identifier."""
     seed = "|".join(p for p in parts if p)
@@ -1181,7 +1158,21 @@ def _prov_activity_id(prefix: str, *parts: str) -> str:
     return f"prov:{prefix}:{digest}"
 
 
-def to_ledger_row(file: Path, out_row: Path) -> int:
+def to_ledger_row(
+    file: Path,
+    out_row: Path,
+    *,
+    speaker_identity: str = "unknown",
+    speaker_relationship: str = "unknown",
+    content_origin: str = "original",
+    reporting_disposition: str = "non_official_unverified_leads",
+    record_type: str = "lead",
+    policy_tier: str = "R0",
+    subject_class: str = "unknown",
+    purpose_category: str = "general_research",
+    data_sensitivity: str = "public",
+    claim_kind: str = "underlying_fact",
+) -> int:
     """Convert Snapshot JSON to evidence-ledger CSV row."""
     try:
         snap = _read_snapshot_json(file)
@@ -1203,6 +1194,47 @@ def to_ledger_row(file: Path, out_row: Path) -> int:
         notes.append(f"author_handle={author_handle}")
     if snap.get("url_archive"):
         notes.append("archive_url_present=true")
+    notes.append(f"claim_kind={claim_kind}")
+    hash_matches_text = bool(
+        text and content_hash and content_hash == compute_content_hash(text)
+    )
+    direct_verified = bool(
+        snap.get("verifiability") == "direct_api"
+        and verification.get("status") == "intact"
+        and hash_matches_text
+    )
+    archive_verified = bool(
+        snap.get("verifiability") == "archive_snapshot"
+        and snap.get("url_archive")
+        and hash_matches_text
+    )
+    if reporting_disposition == "main_findings":
+        promotion_ok = (
+            record_type == "claim"
+            and claim_kind == "statement_made"
+            and speaker_identity in {"official", "verified_public_role"}
+            and speaker_relationship in {"subject", "authorized_representative"}
+            and content_origin == "original"
+            and (direct_verified or archive_verified)
+        )
+        if not promotion_ok:
+            print(
+                "error: social main_findings requires record_type=claim, "
+                "claim_kind=statement_made, an official/verified subject or "
+                "authorized representative, original content, and an intact "
+                "hash-matched direct/API or archive snapshot",
+                file=sys.stderr,
+            )
+            return 1
+    confidence = "high" if direct_verified else "medium" if archive_verified else "low"
+    lineage_seed = source_url or content_hash or str(post.get("id") or "")
+    lineage_id = "lineage:" + hashlib.sha256(lineage_seed.encode("utf-8")).hexdigest()[:16]
+    source_type = (
+        "official"
+        if speaker_identity in {"official", "verified_public_role"}
+        and speaker_relationship in {"subject", "authorized_representative"}
+        else "community"
+    )
 
     row = {
         "claim_id": f"SOCIAL_{claim_hash}",
@@ -1210,14 +1242,14 @@ def to_ledger_row(file: Path, out_row: Path) -> int:
         "sub_question": "",
         "source_title": f"{platform} post by {post.get('author_handle', 'unknown')}",
         "source_url": source_url,
-        "source_type": "community",
+        "source_type": source_type,
         "date_published": post.get("posted_at") or "",
         "date_accessed": snap.get("captured_at", ""),
         "access_method": "social_snapshot",
         "evidence": text[:500] if text else "",
         "quote_or_anchor": "",
         "contradiction": "none",
-        "confidence": "high" if snap.get("tier") == "A" else "medium",
+        "confidence": confidence,
         "notes": "; ".join(notes),
         "archive_url": snap.get("url_archive") or "",
         "content_hash": content_hash,
@@ -1233,6 +1265,21 @@ def to_ledger_row(file: Path, out_row: Path) -> int:
             source_url,
             content_hash,
         ),
+        "record_type": record_type,
+        "source_access_class": "standard_public",
+        "subject_class": subject_class,
+        "purpose_category": purpose_category,
+        "policy_tier": policy_tier,
+        "speaker_identity": speaker_identity,
+        "speaker_relationship": speaker_relationship,
+        "content_origin": content_origin,
+        "lineage_id": lineage_id,
+        "data_sensitivity": data_sensitivity,
+        "discovery_disposition": "permitted",
+        "reporting_disposition": reporting_disposition,
+        "redaction_class": "none",
+        "retention_until": "",
+        "authorization_scope_hash": "",
     }
 
     buf = io.StringIO()
@@ -1240,7 +1287,7 @@ def to_ledger_row(file: Path, out_row: Path) -> int:
     writer.writeheader()
     writer.writerow(row)
     out_row.write_text(buf.getvalue(), encoding="utf-8")
-    return 0
+    return ledger_schema.validate_ledger(out_row)
 
 
 # ---------------------------------------------------------------------------
@@ -1585,6 +1632,41 @@ def self_test() -> int:
             except ImportError as exc:
                 errors.append(f"to-ledger: could not import evidence_ledger validator: {exc}")
 
+            # Promotion requires a hash-matched intact capture, not caller flags alone.
+            promotable_file = tmp / "promotable.json"
+            promotable = json.loads(
+                (tmp / "reddit_snap.json").read_text(encoding="utf-8")
+            )
+            promotable["content_hash_sha256"] = compute_content_hash(
+                promotable["post"]["text"]
+            )
+            promotable["verification"]["status"] = "intact"
+            promotable_file.write_text(json.dumps(promotable), encoding="utf-8")
+            promotion_args = {
+                "speaker_identity": "official",
+                "speaker_relationship": "subject",
+                "content_origin": "original",
+                "reporting_disposition": "main_findings",
+                "record_type": "claim",
+                "subject_class": "organization",
+                "claim_kind": "statement_made",
+            }
+            if to_ledger_row(
+                promotable_file, tmp / "promoted.csv", **promotion_args
+            ) != 0:
+                errors.append("to-ledger: intact official statement did not promote")
+            promotable["verification"]["status"] = "edited"
+            edited_file = tmp / "edited-promotion.json"
+            edited_file.write_text(json.dumps(promotable), encoding="utf-8")
+            if to_ledger_row(
+                edited_file, tmp / "edited.csv", **promotion_args
+            ) == 0:
+                errors.append("to-ledger: edited snapshot promoted to main findings")
+            if to_ledger_row(
+                tier_b_file, tmp / "archive-empty.csv", **promotion_args
+            ) == 0:
+                errors.append("to-ledger: content-free archive promoted to main findings")
+
             # --- Test 6a: SSRF guard blocks private targets before fetch ---
             for bad in (
                 "http://127.0.0.1/x",
@@ -1737,6 +1819,52 @@ def main() -> int:
     )
     ledger_parser.add_argument("--file", required=True, help="Snapshot JSON file")
     ledger_parser.add_argument("--out-row", required=True, help="Output CSV row file")
+    ledger_parser.add_argument(
+        "--speaker-identity",
+        choices=sorted(ledger_schema.VALID_SPEAKER_IDENTITIES - {""}),
+        default="unknown",
+    )
+    ledger_parser.add_argument(
+        "--speaker-relationship",
+        choices=sorted(ledger_schema.VALID_SPEAKER_RELATIONSHIPS - {""}),
+        default="unknown",
+    )
+    ledger_parser.add_argument(
+        "--content-origin",
+        choices=sorted(ledger_schema.VALID_CONTENT_ORIGINS - {""}),
+        default="original",
+    )
+    ledger_parser.add_argument(
+        "--reporting-disposition",
+        choices=["main_findings", "non_official_unverified_leads", "context_only"],
+        default="non_official_unverified_leads",
+    )
+    ledger_parser.add_argument(
+        "--record-type", choices=["claim", "lead"], default="lead"
+    )
+    ledger_parser.add_argument(
+        "--policy-tier", choices=["R0", "R1", "R2"], default="R0"
+    )
+    ledger_parser.add_argument(
+        "--subject-class",
+        choices=sorted(ledger_schema.VALID_SUBJECT_CLASSES - {""}),
+        default="unknown",
+    )
+    ledger_parser.add_argument(
+        "--purpose-category",
+        choices=sorted(ledger_schema.VALID_PURPOSE_CATEGORIES - {""}),
+        default="general_research",
+    )
+    ledger_parser.add_argument(
+        "--data-sensitivity",
+        choices=["public", "professional"],
+        default="public",
+    )
+    ledger_parser.add_argument(
+        "--claim-kind",
+        choices=["statement_made", "underlying_fact", "opinion", "reception"],
+        default="underlying_fact",
+    )
     for command_parser in (snap_parser, verify_parser, ledger_parser):
         add_resource_limit_arguments(
             command_parser,
@@ -1774,7 +1902,20 @@ def main() -> int:
             return verify_snapshot(Path(args.file))
 
         if args.command == "to-ledger":
-            return to_ledger_row(Path(args.file), Path(args.out_row))
+            return to_ledger_row(
+                Path(args.file),
+                Path(args.out_row),
+                speaker_identity=args.speaker_identity,
+                speaker_relationship=args.speaker_relationship,
+                content_origin=args.content_origin,
+                reporting_disposition=args.reporting_disposition,
+                record_type=args.record_type,
+                policy_tier=args.policy_tier,
+                subject_class=args.subject_class,
+                purpose_category=args.purpose_category,
+                data_sensitivity=args.data_sensitivity,
+                claim_kind=args.claim_kind,
+            )
 
         if args.command == "self-test":
             return self_test()

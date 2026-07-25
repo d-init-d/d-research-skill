@@ -44,6 +44,7 @@ Design notes
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import os
@@ -61,6 +62,18 @@ VALID_STATUS = {"todo", "running", "done", "blocked"}
 TERMINAL_STATUS = {"done", "blocked"}
 VALID_OWNER_PREFIX = ("main", "sub-")
 VALID_PHASE = {"research", "synthesis"}
+INVESTIGATIVE_ROUTES = {
+    "investigative_osint",
+    "person_osint_scoped",
+    "self_exposure_audit",
+    "social_cross_platform",
+    "leaked_data_handling",
+}
+INVESTIGATIVE_SOURCE_CLASSES = {
+    "authorized_provider",
+    "user_provided_private",
+    "raw_leak_lead_only",
+}
 PLAN_SCHEMA_VERSION = "2.0"
 SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1", "2.0", ""}  # empty/missing treated as v1
 
@@ -130,13 +143,26 @@ STANDARD_WORKSPACE_DIRS = [
     "research-output/sections",
 ]
 
-EVIDENCE_LEDGER_HEADER = (
-    "claim_id,claim,sub_question,source_title,source_url,source_type,"
-    "date_published,date_accessed,access_method,evidence,quote_or_anchor,"
-    "contradiction,confidence,notes,archive_url,content_hash,snapshot_status,"
-    "verifiability,verifiability_note,license_spdx,robots_status,"
-    "prov_activity_id,record_type\n"
-)
+try:
+    from evidence_ledger import FIELDS as EVIDENCE_LEDGER_FIELDS
+except ImportError:  # pragma: no cover - defensive fallback for unusual loaders
+    EVIDENCE_LEDGER_FIELDS = [
+        "claim_id",
+        "claim",
+        "sub_question",
+        "source_title",
+        "source_url",
+        "source_type",
+        "date_published",
+        "date_accessed",
+        "access_method",
+        "evidence",
+        "quote_or_anchor",
+        "contradiction",
+        "confidence",
+        "notes",
+    ]
+EVIDENCE_LEDGER_HEADER = ",".join(EVIDENCE_LEDGER_FIELDS) + "\n"
 
 CHECKLIST_CONTRACT_VERSION = "v1"
 CHECKLIST_TEMPLATE_PATH = (
@@ -161,6 +187,7 @@ CANONICAL_GATES: dict[str, list[str]] = {
         "workspace_layout",
         "execution_configured",
         "plan_rendered",
+        "investigation_scope_valid",
         "no_dependency_cycles",
         "no_orphan_dependencies",
         "no_task_is_done",
@@ -172,6 +199,7 @@ CANONICAL_GATES: dict[str, list[str]] = {
         "workspace_layout",
         "execution_configured",
         "plan_rendered",
+        "investigation_scope_valid",
         "no_dependency_cycles",
         "no_orphan_dependencies",
         "no_task_is_done",
@@ -184,6 +212,7 @@ CANONICAL_GATES: dict[str, list[str]] = {
         "workspace_layout",
         "execution_configured",
         "plan_rendered",
+        "investigation_scope_valid",
         "no_dependency_cycles",
         "no_orphan_dependencies",
         "no_task_is_done",
@@ -194,6 +223,7 @@ CANONICAL_GATES: dict[str, list[str]] = {
         "schema_valid",
         "workspace_layout",
         "execution_configured",
+        "investigation_scope_valid",
         "research_tasks_terminal",
         "research_outputs_exist",
         "blocked_research_justified",
@@ -231,6 +261,25 @@ def _load_canonical_gates() -> dict[str, list[str]]:
         return out or dict(CANONICAL_GATES)
     except (OSError, json.JSONDecodeError, TypeError):
         return dict(CANONICAL_GATES)
+
+
+def _load_canonical_route_ids() -> set[str]:
+    manifest = (
+        Path(__file__).resolve().parent.parent / "templates" / "route-manifest.json"
+    )
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        route_ids = {
+            str(route.get("id"))
+            for route in (data.get("routes") or [])
+            if isinstance(route, dict) and isinstance(route.get("id"), str)
+        }
+    except (OSError, json.JSONDecodeError, TypeError):
+        route_ids = set()
+    return route_ids
+
+
+CANONICAL_RESEARCH_ROUTES = _load_canonical_route_ids()
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "researchPlan": {
@@ -507,6 +556,14 @@ def validate_access_config(config: dict[str, Any]) -> list[str]:
     if access.get("allowStealthEvasion") is True:
         errors.append(
             "access.allowStealthEvasion=true is never allowed (stealth evasion forbidden)"
+        )
+    if access.get("allowRawLeakDumpFetch") is True:
+        errors.append(
+            "access.allowRawLeakDumpFetch=true is never allowed (raw leak dumps forbidden)"
+        )
+    if access.get("allowSecretValidation") is True:
+        errors.append(
+            "access.allowSecretValidation=true is never allowed (secret validation forbidden)"
         )
     if crawl.get("respectRobots") is False:
         errors.append(
@@ -939,6 +996,38 @@ def validate_schema(plan: dict[str, Any]) -> list[str]:
         for index, source_class in enumerate(source_classes):
             if not isinstance(source_class, str) or not source_class:
                 errors.append(f"source_classes[{index}] must be a non-empty string")
+
+    research_route = plan.get("research_route", "")
+    if not isinstance(research_route, str):
+        errors.append("`research_route` must be a string when present")
+    elif research_route and (
+        not CANONICAL_RESEARCH_ROUTES
+        or research_route not in CANONICAL_RESEARCH_ROUTES
+    ):
+        errors.append(
+            "`research_route` must be a canonical route id from "
+            "templates/route-manifest.json"
+        )
+    investigation_scope_path = plan.get("investigation_scope_path", "")
+    if not isinstance(investigation_scope_path, str):
+        errors.append("`investigation_scope_path` must be a string when present")
+    elif investigation_scope_path and not _is_safe_relative_path(investigation_scope_path):
+        errors.append(
+            "`investigation_scope_path` must be a portable relative path inside the workspace"
+        )
+    investigation_scope_sha256 = plan.get("investigation_scope_sha256", "")
+    if not isinstance(investigation_scope_sha256, str):
+        errors.append("`investigation_scope_sha256` must be a string when present")
+    elif investigation_scope_sha256 and not _SHA256_VALUE_RE.fullmatch(
+        investigation_scope_sha256
+    ):
+        errors.append(
+            "`investigation_scope_sha256` must be sha256:<64 lowercase hex> when present"
+        )
+    if bool(investigation_scope_path) != bool(investigation_scope_sha256):
+        errors.append(
+            "investigation_scope_path and investigation_scope_sha256 must be set together"
+        )
 
     workspace_dir = plan.get("workspace_dir")
     if not isinstance(workspace_dir, str) or not workspace_dir:
@@ -1589,7 +1678,24 @@ def _all_outputs_exist(
     return (not missing), missing
 
 
-def _ledger_exists_and_validates(plan_path: Path) -> tuple[bool, str]:
+def _plan_requires_policy_ledger(plan: dict[str, Any]) -> bool:
+    route = str(plan.get("research_route") or "").strip()
+    source_classes = {
+        str(value).strip()
+        for value in (plan.get("source_classes") or [])
+        if str(value).strip()
+    }
+    return bool(
+        route in INVESTIGATIVE_ROUTES
+        or str(plan.get("investigation_scope_path") or "").strip()
+        or str(plan.get("investigation_scope_sha256") or "").strip()
+        or source_classes & INVESTIGATIVE_SOURCE_CLASSES
+    )
+
+
+def _ledger_exists_and_validates(
+    plan: dict[str, Any], plan_path: Path
+) -> tuple[bool, str]:
     """Call scripts/evidence_ledger.py validate; fail if ledger missing/invalid."""
     base = _plan_dir(plan_path)
     ledger = base / "evidence-ledger.csv"
@@ -1608,6 +1714,62 @@ def _ledger_exists_and_validates(plan_path: Path) -> tuple[bool, str]:
     )
     if res.returncode != 0:
         return False, res.stderr.strip() or res.stdout.strip() or "ledger validate failed"
+    if _plan_requires_policy_ledger(plan):
+        try:
+            with ledger.open(newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                header = list(reader.fieldnames or [])
+                rows = list(reader)
+        except (OSError, UnicodeError, csv.Error) as exc:
+            return False, f"cannot inspect investigative ledger header: {exc}"
+        if len(EVIDENCE_LEDGER_FIELDS) != 37 or header != EVIDENCE_LEDGER_FIELDS:
+            return (
+                False,
+                "investigative plans require the exact 37-column policy ledger; "
+                "legacy ledgers are read-compatible only",
+            )
+        relative = plan.get("investigation_scope_path")
+        if not isinstance(relative, str) or not relative:
+            return False, "investigative ledger binding is missing the scope path"
+        scope_path, detail = _resolve_workspace_path(_plan_dir(plan_path), relative)
+        if scope_path is None or not scope_path.is_file():
+            return False, f"investigation scope unavailable for ledger binding: {detail}"
+        try:
+            from investigation_policy import load_json as load_investigation_scope
+
+            scope_data = load_investigation_scope(scope_path)
+        except (ImportError, OSError, TypeError, ValueError) as exc:
+            return False, f"could not load scope for ledger binding: {exc}"
+        scope_mode = str(scope_data.get("mode") or "").upper()
+        authorization = scope_data.get("authorization")
+        expected_scope_hash = (
+            str(authorization.get("scope_hash") or "")
+            if isinstance(authorization, dict)
+            else ""
+        )
+        for line, row in enumerate(rows, start=2):
+            row_tier = str(row.get("policy_tier") or "").strip().upper()
+            row_scope_hash = str(
+                row.get("authorization_scope_hash") or ""
+            ).strip()
+            if row_tier in {"R3", "R4"} and row_tier != scope_mode:
+                return (
+                    False,
+                    f"ledger line {line} policy tier {row_tier} does not match "
+                    f"bound scope mode {scope_mode}",
+                )
+            if row_scope_hash and row_scope_hash != expected_scope_hash:
+                return (
+                    False,
+                    f"ledger line {line} authorization_scope_hash is not bound "
+                    "to the plan scope",
+                )
+            if row_tier in {"R3", "R4"} and row_scope_hash != expected_scope_hash:
+                return (
+                    False,
+                    f"ledger line {line} {row_tier} row lacks the bound "
+                    "authorization_scope_hash",
+                )
     return True, "validator OK"
 
 
@@ -2150,7 +2312,7 @@ def _assert_synthesis_outputs_exist(plan, plan_path):
 
 
 def _assert_ledger_validates(plan, plan_path):
-    return _ledger_exists_and_validates(plan_path)
+    return _ledger_exists_and_validates(plan, plan_path)
 
 
 def _assert_ledger_signed(plan, plan_path):
@@ -2219,6 +2381,87 @@ def _assert_standard_gates_intact(plan, plan_path):
     return (not errs), "; ".join(errs) if errs else "OK"
 
 
+def _assert_investigation_scope_valid(plan, plan_path):
+    """Require a validated, byte-bound scope for investigative routes.
+
+    Ordinary research plans remain backward compatible. The assertion becomes
+    mandatory when the plan declares an investigative route or a source class
+    that requires authorization-aware handling.
+    """
+    route = str(plan.get("research_route") or "")
+    source_classes = {
+        str(value)
+        for value in (plan.get("source_classes") or [])
+        if isinstance(value, str)
+    }
+    required = route in INVESTIGATIVE_ROUTES or bool(
+        source_classes & INVESTIGATIVE_SOURCE_CLASSES
+    )
+    if not required:
+        return True, "not an investigation-policy route"
+
+    relative = plan.get("investigation_scope_path")
+    expected_digest = plan.get("investigation_scope_sha256")
+    if not isinstance(relative, str) or not relative:
+        return False, "investigative plan is missing investigation_scope_path"
+    if not isinstance(expected_digest, str) or not _SHA256_VALUE_RE.fullmatch(
+        expected_digest
+    ):
+        return False, "investigative plan is missing a valid investigation_scope_sha256"
+    scope_path, detail = _resolve_workspace_path(_plan_dir(plan_path), relative)
+    if scope_path is None:
+        return False, f"unsafe investigation scope path: {detail}"
+    if not scope_path.is_file():
+        return False, f"investigation scope not found: {relative}"
+    actual_digest = "sha256:" + hashlib.sha256(scope_path.read_bytes()).hexdigest()
+    if actual_digest != expected_digest:
+        return (
+            False,
+            "investigation scope bytes changed; bind the policy again, render, and re-approve",
+        )
+
+    try:
+        from investigation_policy import load_json as load_investigation_scope
+        from investigation_policy import validate_scope as validate_investigation_scope
+
+        scope_data = load_investigation_scope(scope_path)
+        policy_errors = validate_investigation_scope(scope_data)
+    except (ImportError, OSError, TypeError, ValueError) as exc:
+        return False, f"could not validate investigation scope: {exc}"
+    if policy_errors:
+        return False, "investigation scope invalid: " + "; ".join(policy_errors)
+
+    mode = scope_data.get("mode")
+    allowed_modes = {
+        "investigative_osint": {"R1", "R2", "R4"},
+        "person_osint_scoped": {"R2"},
+        "self_exposure_audit": {"R3"},
+        "social_cross_platform": {"R1", "R2"},
+        "leaked_data_handling": {"R1", "R4"},
+    }
+    if route in allowed_modes and mode not in allowed_modes[route]:
+        return False, f"route {route} is incompatible with policy mode {mode}"
+
+    scope_key = _portable_path_key(relative)
+    missing_inputs: list[str] = []
+    for task in plan.get("tasks", []):
+        if not isinstance(task, dict):
+            continue
+        input_keys = {
+            key
+            for value in (task.get("inputs") or [])
+            if (key := _portable_path_key(value)) is not None
+        }
+        if scope_key not in input_keys:
+            missing_inputs.append(str(task.get("id") or "<unknown>"))
+    if missing_inputs:
+        return (
+            False,
+            "tasks missing the bound policy input: " + ", ".join(missing_inputs),
+        )
+    return True, f"{route or 'authorization-aware'} / {mode}; {actual_digest}"
+
+
 def _assert_blocked_research_justified(plan, plan_path):
     """Blocked research tasks need reason + task-bound evidence.
 
@@ -2271,6 +2514,7 @@ ASSERTIONS = {
     "schema_valid": _assert_schema_valid,
     "plan_complete": _assert_plan_complete,
     "standard_gates_intact": _assert_standard_gates_intact,
+    "investigation_scope_valid": _assert_investigation_scope_valid,
     "blocked_research_justified": _assert_blocked_research_justified,
     "workspace_layout": _assert_workspace_layout,
     "plan_rendered": _assert_plan_rendered,
@@ -2405,6 +2649,9 @@ def _generic_draft_plan(slug: str, title: str | None) -> dict[str, Any]:
             },
             "sub_questions": [],
             "source_classes": [],
+            "research_route": "broad_research",
+            "investigation_scope_path": "",
+            "investigation_scope_sha256": "",
             "approval": {
                 "approved_by": "",
                 "approved_at": "",
@@ -2781,6 +3028,12 @@ def render_plan_markdown(plan: dict[str, Any], plan_path: Path) -> str:
     lines.append(f"- Workspace: `{_plan_dir(plan_path)}`")
     lines.append(f"- Approval contract: `{_plan_approval_sha256(plan)}`")
     lines.append("- Approval: recorded in `research-plan.json` after review")
+    lines.append(f"- Research route: `{plan.get('research_route', 'broad_research')}`")
+    if plan.get("investigation_scope_path"):
+        lines.append(
+            f"- Investigation policy: `{plan.get('investigation_scope_path', '')}` "
+            f"(`{plan.get('investigation_scope_sha256', '')}`)"
+        )
     profile = plan.get("execution_profile", {})
     if isinstance(profile, dict):
         slots = _configured_slots(profile)
@@ -3056,6 +3309,68 @@ def cmd_set_execution(args: argparse.Namespace) -> int:
         f"task {args.id} execution -> {execution['agent']}"
         + (f":{execution['subagent_slot']}" if execution.get("subagent_slot") else "")
     )
+    return 0
+
+
+def cmd_bind_policy(args: argparse.Namespace) -> int:
+    """Bind an investigative route to a validated scope file and all tasks."""
+    plan_path = Path(args.file).resolve()
+    plan = load(plan_path)
+    workspace = _plan_dir(plan_path)
+    raw_scope = Path(args.scope)
+    scope_path = raw_scope.resolve() if raw_scope.is_absolute() else (workspace / raw_scope).resolve()
+    try:
+        relative = scope_path.relative_to(workspace.resolve()).as_posix()
+    except ValueError:
+        print("FAIL: investigation scope must be inside the plan workspace", file=sys.stderr)
+        return 1
+    if not scope_path.is_file():
+        print(f"FAIL: investigation scope not found: {scope_path}", file=sys.stderr)
+        return 1
+    try:
+        from investigation_policy import load_json as load_investigation_scope
+        from investigation_policy import validate_scope as validate_investigation_scope
+
+        policy_data = load_investigation_scope(scope_path)
+        policy_errors = validate_investigation_scope(policy_data)
+    except (ImportError, OSError, TypeError, ValueError) as exc:
+        print(f"FAIL: could not validate investigation scope: {exc}", file=sys.stderr)
+        return 1
+    if policy_errors:
+        for error in policy_errors:
+            print(f"  {error}", file=sys.stderr)
+        print("FAIL: investigation scope is invalid", file=sys.stderr)
+        return 1
+
+    plan["research_route"] = args.route
+    plan["investigation_scope_path"] = relative
+    plan["investigation_scope_sha256"] = (
+        "sha256:" + hashlib.sha256(scope_path.read_bytes()).hexdigest()
+    )
+    for task in plan.get("tasks", []):
+        if not isinstance(task, dict):
+            continue
+        inputs = task.setdefault("inputs", [])
+        if relative not in inputs:
+            inputs.append(relative)
+    errors = validate_schema(plan)
+    if errors:
+        for error in errors:
+            print(f"  {error}", file=sys.stderr)
+        print("FAIL: policy binding breaks the plan schema", file=sys.stderr)
+        return 1
+    policy_ok, policy_detail = _assert_investigation_scope_valid(plan, plan_path)
+    if not policy_ok:
+        print(f"FAIL: policy binding rejected: {policy_detail}", file=sys.stderr)
+        return 1
+    if _approval_is_set(plan):
+        _clear_approval(plan, "revoked after investigation-policy binding")
+    _remove_rendered_plan(plan, plan_path)
+    save(plan, plan_path)
+    print(
+        f"bound {args.route} to {relative}: {plan['investigation_scope_sha256']}"
+    )
+    print("render and approve the changed plan before execute_ready")
     return 0
 
 
@@ -4422,11 +4737,95 @@ def _self_test() -> int:
             "parallel dispatch must reserve selected output trees against later tasks"
         )
 
+    # Sub-test 55: investigative policy binding is validated and tamper-evident.
+    with tempfile.TemporaryDirectory() as td:
+        from investigation_policy import scope_for_mode
+
+        workspace = Path(td)
+        plan_path = workspace / "research-plan.json"
+        scope_path = workspace / "investigation-scope.json"
+        plan = _make_minimal_plan()
+        save(plan, plan_path)
+        scope_path.write_text(
+            json.dumps(scope_for_mode("R1"), indent=2) + "\n", encoding="utf-8"
+        )
+        bind_rc = call_silent(
+            cmd_bind_policy,
+            argparse.Namespace(
+                file=str(plan_path),
+                route="investigative_osint",
+                scope="investigation-scope.json",
+            ),
+        )
+        bound = load(plan_path)
+        policy_ok, _policy_detail = _assert_investigation_scope_valid(
+            bound, plan_path
+        )
+        if bind_rc != 0 or not policy_ok:
+            failures.append("valid R1 policy must bind to every research task")
+        invalid_route = _make_minimal_plan()
+        invalid_route["research_route"] = "person_public_role"
+        if not any("canonical route id" in error for error in validate_schema(invalid_route)):
+            failures.append("non-canonical intake label bypassed research_route validation")
+        leak_route = _make_minimal_plan()
+        leak_route["research_route"] = "leaked_data_handling"
+        if _assert_investigation_scope_valid(leak_route, plan_path)[0]:
+            failures.append("leaked_data_handling route bypassed investigation scope")
+        ledger_path = workspace / "evidence-ledger.csv"
+        ledger_path.write_text(
+            ",".join(EVIDENCE_LEDGER_FIELDS[:14]) + "\n", encoding="utf-8"
+        )
+        if _assert_ledger_validates(bound, plan_path)[0]:
+            failures.append("investigative plan accepted a legacy policy-free ledger")
+        ledger_path.write_text(EVIDENCE_LEDGER_HEADER, encoding="utf-8")
+        if not _assert_ledger_validates(bound, plan_path)[0]:
+            failures.append("investigative plan rejected the canonical 37-column ledger")
+        policy_row = {field: "" for field in EVIDENCE_LEDGER_FIELDS}
+        policy_row.update(
+            {
+                "claim_id": "R4-FOREIGN",
+                "claim": "authorized row with foreign scope",
+                "source_title": "Authorized source",
+                "source_url": "https://example.test/source",
+                "source_type": "primary",
+                "date_accessed": "2026-07-25",
+                "access_method": "fetch",
+                "evidence": "scoped evidence",
+                "contradiction": "none",
+                "confidence": "high",
+                "snapshot_status": "intact",
+                "verifiability": "direct_api",
+                "license_spdx": "NOASSERTION",
+                "robots_status": "not_checked",
+                "prov_activity_id": "prov:scope:test",
+                "record_type": "claim",
+                "source_access_class": "authorized_provider",
+                "subject_class": "organization",
+                "purpose_category": "authorized_pentest",
+                "policy_tier": "R4",
+                "data_sensitivity": "professional",
+                "discovery_disposition": "evidence",
+                "reporting_disposition": "main_findings",
+                "redaction_class": "none",
+                "retention_until": "2026-07-26T00:00:00Z",
+                "authorization_scope_hash": "sha256:" + "f" * 64,
+            }
+        )
+        with ledger_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=EVIDENCE_LEDGER_FIELDS)
+            writer.writeheader()
+            writer.writerow(policy_row)
+        if _assert_ledger_validates(bound, plan_path)[0]:
+            failures.append("ledger accepted a foreign R4 authorization scope")
+        scope_path.write_text(scope_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        if _assert_investigation_scope_valid(bound, plan_path)[0]:
+            failures.append("policy byte mutation must invalidate dispatch readiness")
+
     if failures:
         for f in failures:
             print(f"FAIL: {f}", file=sys.stderr)
         return 1
-    print("OK: research_plan self-test passed (54 sub-tests).")
+    print("OK: research_plan self-test passed (55 sub-tests).")
     return 0
 
 
@@ -4568,6 +4967,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--context-length", type=int, default=None)
     sp.add_argument("--context-budget", type=int, default=None)
     sp.set_defaults(func=cmd_set_execution)
+
+    sp = sub.add_parser(
+        "bind-policy",
+        help="bind an investigative route to a validated scope file and research tasks",
+    )
+    sp.add_argument("--file", default="research-plan.json")
+    sp.add_argument("--route", choices=sorted(INVESTIGATIVE_ROUTES), required=True)
+    sp.add_argument("--scope", default="investigation-scope.json")
+    sp.set_defaults(func=cmd_bind_policy)
 
     sp = sub.add_parser("gate", help="run a named gate's assertions")
     sp.add_argument("--file", default="research-plan.json")

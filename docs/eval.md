@@ -290,8 +290,8 @@ manifest looks like this:
   "raw_prompt_sha256": "sha256:1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "raw_output_path": "raw-output.txt",
   "raw_output_sha256": "sha256:2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "run_id": "run-DF-001-baseline-0001",
-  "session_id": "session-DF-001-baseline-0001",
+  "run_id": "run-DF-001-candidate-0001",
+  "session_id": "session-DF-001-candidate-0001",
   "runtime": {
     "agent": "codex-cli",
     "model": "model-id-used-for-both-runs",
@@ -306,7 +306,7 @@ manifest looks like this:
   },
   "candidate_binding": {
     "skill_commit": "0123456789abcdef0123456789abcdef01234567",
-    "version": "3.2.1-rc.2"
+    "version": "3.3.0-rc.1"
   },
   "started_at": "2026-07-10T01:00:00Z",
   "finished_at": "2026-07-10T01:03:00Z"
@@ -406,8 +406,8 @@ The score artifact schema is:
       "skill_commit": "0123456789abcdef0123456789abcdef01234567",
       "started_at": "2026-07-10T01:00:00Z",
       "finished_at": "2026-07-10T01:03:00Z",
-      "run_id": "run-DF-001-baseline-0001",
-      "session_id": "session-DF-001-baseline-0001",
+      "run_id": "run-DF-001-candidate-0001",
+      "session_id": "session-DF-001-candidate-0001",
       "raw_prompt_sha256": "sha256:1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "raw_output_sha256": "sha256:2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "ledger_sha256": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -418,7 +418,7 @@ The score artifact schema is:
       },
       "candidate_binding": {
         "skill_commit": "0123456789abcdef0123456789abcdef01234567",
-        "version": "3.2.1-rc.2"
+        "version": "3.3.0-rc.1"
       }
     }
   ]
@@ -464,7 +464,7 @@ different bench definitions or non-equivalent execution environments.
 
 Use one pinned evaluator checkout (bench files plus `run_dogfood.py`) to render
 and score both sides. Point the external agent at the baseline version frozen
-in `templates/route-manifest.json` (v3.2.0 for the v3.2.1 line) and the candidate
+in `templates/route-manifest.json` (v3.2.1 for the v3.3.0 line) and the candidate
 skill checkout for the candidate; do not switch the evaluator/bench between
 runs. The manifest `skill_commit` records which skill implementation answered
 each task, while `bench_fingerprint` proves both score artifacts used identical

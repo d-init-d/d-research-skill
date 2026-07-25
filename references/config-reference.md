@@ -1,5 +1,11 @@
 # Configuration reference
 
+## Contents
+
+- [research.config.json fields](#researchconfigjson-fields)
+- [Investigation policy precedence](#investigation-policy-precedence)
+- [Resource-limit overrides](#resource-limit-overrides)
+
 ## research.config.json fields
 
 If a project has `research.config.json`, obey it. Otherwise use `research.config.example.json` defaults.
@@ -19,6 +25,20 @@ Important config fields:
 - research.intake.defaultToConservativeBranch
 - research.requireEvidenceLedger
 - research.requireContradictionPass
+- research.investigation.enabled
+- research.investigation.defaultTier
+- research.investigation.requireScopeManifest
+- research.investigation.requirePlanBinding
+- research.investigation.maxSources
+- research.investigation.maxDepth
+- research.investigation.stopAfterNoNewClaims
+- research.investigation.allowRawLeakMetadataLeads
+- research.investigation.requireDistinctSocialLineage
+- research.selfExposureAudit.requireOwnershipVerification
+- research.selfExposureAudit.requireAuthorizationScopeHash
+- research.selfExposureAudit.defaultRetentionDays
+- research.selfExposureAudit.maxRetentionDays
+- research.selfExposureAudit.minimumDisclosure
 - research.executionGates.enabled
 - research.executionGates.lowRecallGuard
 - research.executionGates.noSingleBasinStop
@@ -40,6 +60,11 @@ Important config fields:
 - access.allowPaywalledSources
 - access.allowCaptchaSolving
 - access.allowStealthEvasion
+- access.allowRawLeakDumpFetch
+- access.allowSecretValidation
+- output.separateNonOfficialLeads
+- output.separateContradictionsAndUnknowns
+- output.redactSensitivePersonalData
 - api.defaultDelayMs
 - api.maxRetries
 - api.respectRateLimitHeaders
@@ -57,9 +82,28 @@ Important config fields:
 
 Default access policy is conservative and read-only.
 
-`access.allowCaptchaSolving` and `access.allowStealthEvasion` are compatibility
-keys that accept only `false`. A value of `true` is a hard validation failure;
-captcha solving and stealth/evasion are never allowed.
+`access.allowCaptchaSolving`, `access.allowStealthEvasion`,
+`access.allowRawLeakDumpFetch`, and `access.allowSecretValidation` are
+hard-false compatibility keys. A value of `true` is a validation failure; config
+cannot weaken the `RX` floor.
+
+## Investigation policy precedence
+
+The JSON config supplies defaults only. For `R1`-`R4`, the validated
+`investigation-scope.json` is authoritative for the current run. The narrowest
+value wins when config, scope, provider terms, Rules of Engagement, or a
+resource limit differ. A larger `maxSources` or `maxDepth` is a technical
+ceiling, never evidence of completeness.
+
+`investigation_policy.py bind-authorization` records a time-bounded review and
+computes a scope digest. `research_plan.py bind-policy` then binds the exact file
+bytes to every research and synthesis task. Changing purpose, target, sources,
+data classes, access, audience, redaction, or retention invalidates dispatch
+until the plan is rendered and approved again.
+
+The default self-exposure retention is three days and the validator caps `R3`
+at 30 days. Use tokenized identifiers in the workspace and supply raw values
+only to an authorized minimum-disclosure provider query.
 
 ## Resource-limit overrides
 

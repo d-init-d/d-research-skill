@@ -56,6 +56,10 @@ classification card:
 - Primary object: fact / URL / person / organization / product / dataset /
   paper set / policy / market / event / other
 - Shape labels:
+- Capability tier: R0 / R1 / R2 / R3 / R4 / RX
+- Subject class:
+- Source-access and data classes:
+- Authorization status / review / expiry:
 - Research depth: fast / standard / completeness-first
 - Safety posture:
 - Freshness requirement:
@@ -84,8 +88,9 @@ Run this layer before any source access:
 2. **Person/privacy boundary.** If the request targets a private individual,
    minor, home address, personal contact, family details, private accounts,
    private photos, whereabouts, sensitive status, harassment, stalking,
-   doxxing, or pseudonym re-identification, apply
-   `references/person-aggregation.md` and refuse if out of scope.
+   doxxing, or pseudonym re-identification, classify it as `R2` or `RX` before
+   searching. Refuse `RX`; otherwise validate the scope under
+   `references/person-aggregation.md` and `references/investigative-research.md`.
 3. **Sensitive/high-stakes boundary.** For legal, medical, financial, safety,
    or other high-stakes topics, prioritize primary official sources and present
    evidence synthesis only; do not provide professional advice beyond the
@@ -93,6 +98,14 @@ Run this layer before any source access:
 4. **Credential boundary.** If credentials, API keys, database access, or logged
    in browsing are needed, use only user-provided lawful access and keep the
    operation read-only unless explicitly authorized.
+5. **Leak/secret boundary.** Never acquire a raw dump or retain, validate, or
+   report passwords, tokens, cookies, sessions, MFA material, or private keys.
+   A publicly visible raw-leak claim may be a metadata-only lead under
+   `references/leaked-data-handling.md`; it is not evidence by itself.
+6. **Self-exposure boundary.** Queries about an identifier's breach exposure
+   require verified ownership or organizational authorization, a bounded `R3`
+   scope, minimum disclosure, and a named recipient. Otherwise use only public
+   incident reporting that does not confirm a private identifier.
 
 If a hard stop applies, do not continue into broad source discovery just because
 public snippets exist.
@@ -106,7 +119,11 @@ Assign one or more labels. Prefer the most specific labels first.
 | `atomic_fact` | One entity + one attribute + deterministic primary source. | `references/fact-verification.md` |
 | `public_url_analysis` | User gives a URL to inspect, summarize, extract, or verify. | Probe URL first, then route by content. |
 | `public_social_post` | User asks to capture/archive/analyze one public social post. | `references/social-media-archival.md` |
-| `person_public_role` | Named person with public-role purpose and canonical anchor. | `references/person-aggregation.md` |
+| `social_cross_platform` | Claims, reception, statements, or discourse across multiple public platforms. | `references/social-source-research.md`; platform-neutral item classification. |
+| `person_osint_scoped` | Named-person OSINT with a public/professional or reviewed public-interest purpose. | `references/person-aggregation.md` + `R2` scope; stop on risk/saturation, not a fixed row cap. |
+| `person_public_role` | Compatibility label for a narrow public-role lookup; route through `person_osint_scoped`. | `references/person-aggregation.md` |
+| `investigative_osint` | Deep OSINT, entity/alias expansion, evidence graphs, timelines, hypotheses, threat intelligence, or authorized security research. | `references/investigative-research.md`; select `R1`, `R2`, or `R4` and validate scope. |
+| `self_exposure_audit` | User-owned identifiers/domains or an authorized organization's exposure metadata. | `references/self-exposure-audit.md`; verified `R3` scope. |
 | `broad_research` | Multi-source synthesis, explainer, comparison, or open-ended question. | Full deep research workflow. |
 | `due_diligence_or_investigation` | Check a company, project, vendor, package, team, claim, risk, provenance, credibility, or red flags. | Full workflow + source-quality scoring + contradiction/red-flag pass + execution gates. |
 | `policy_or_standards_analysis` | Standards, RFCs, policies, governance docs, compliance rules, implementation guidance, or versioned norms. | Canonical text/version history + clause evidence + `references/specialized-domains.md` when legal/government applies. |
@@ -137,27 +154,30 @@ When labels conflict, route in this order:
 
 1. Hard-stop safety/privacy/access checks.
 2. `atomic_fact` fast path, unless the user asks for why/context/comparison.
-3. `public_social_post` capture branch.
-4. `person_public_role` branch with privacy boundary.
-5. `public_url_analysis` probe-first branch.
-6. `policy_or_standards_analysis` when canonical clauses, version status,
+3. `self_exposure_audit` only after ownership/authorization checks.
+4. `public_social_post` capture branch for one post.
+5. `social_cross_platform` for multi-platform claims/reception.
+6. `person_osint_scoped` with `R2` subject/privacy/output gates.
+7. `investigative_osint` with a validated `R1`-`R4` scope.
+8. `public_url_analysis` probe-first branch.
+9. `policy_or_standards_analysis` when canonical clauses, version status,
    standards language, or implementation guidance are the authority layer.
-7. `systematic_review` if the user requests PRISMA/screening/review protocol.
-8. `academic_review` for literature/paper/citation work.
-9. `dataset_collection`, `structured_extraction`, `api_or_database` when the
+10. `systematic_review` if the user requests PRISMA/screening/review protocol.
+11. `academic_review` for literature/paper/citation work.
+12. `dataset_collection`, `structured_extraction`, `api_or_database` when the
    deliverable is data rather than prose.
-10. `due_diligence_or_investigation` when the task is about verifying claims,
+13. `due_diligence_or_investigation` when the task is about verifying claims,
     trustworthiness, risk, provenance, or red flags rather than describing a
     market landscape.
-11. `creative_or_cultural_research` when authority comes from primary works,
+14. `creative_or_cultural_research` when authority comes from primary works,
     archives, criticism, reception, or cultural records rather than scientific
     or technical consensus.
-12. `long_horizon` protocol around whichever content branch applies.
-13. `multilingual_local` / `vietnamese_local` / `register_jargon_recall` as recall
+15. `long_horizon` protocol around whichever content branch applies.
+16. `multilingual_local` / `vietnamese_local` / `register_jargon_recall` as recall
     companions, not global defaults. Activate `register_jargon_recall` only when
     the evidence basin demonstrably uses vernacular, subculture, or domain
     jargon — never on ordinary technical or global tasks.
-14. `execution-gates` before synthesis for non-trivial work.
+17. `execution-gates` before synthesis for non-trivial work.
 
 Use multiple routes when needed. Example: a PRISMA review that extracts study
 tables is `systematic_review + structured_extraction + dataset_collection`.
@@ -197,6 +217,13 @@ claim, product, package, vendor, investment, partnership, or public-facing team
 is trustworthy. Do not treat it as generic market research: the center of
 gravity is verification, provenance, contradictions, and red flags.
 
+Use `investigative_osint`/`R1` when entity and alias expansion, timelines,
+relationship graphs, hypotheses, or contradiction-driven frontier search are
+material. Use `R2` for a named person and `R4` only for a verified authorized
+security scope. Validate `investigation-scope.json` before source access; for a
+planned run, bind its exact bytes with `research_plan.py bind-policy` before
+approval and dispatch.
+
 Minimum source basins:
 
 - official site, documentation, whitepaper, product pages, and archived changes;
@@ -226,7 +253,10 @@ Red-flag classes:
 Output should separate verified facts, red flags, unresolved risks, benign
 unknowns, source coverage, confidence, and recommended manual checks. Phrase
 findings as evidence-backed risk signals, not accusations beyond the evidence.
+Put community, anonymous, reposted, raw-leak, or otherwise unverified material
+in `Non-official / unverified leads`, with its missing promotion evidence.
 Do not collect private personal data, doxx people, or bypass access controls.
+Stop on scoped saturation and resource/risk budgets, not a fixed ledger-row cap.
 
 ### `policy_or_standards_analysis`
 
@@ -303,6 +333,12 @@ Choose the artifact early so the workflow does not drift:
 - Evidence ledger: important factual claims, audit-grade work, contested topics.
 - Due-diligence brief: verified facts, red flags, unresolved risks, manual
   checks, and confidence.
+- Investigative brief: main findings, non-official/unverified leads, blocked or
+  prohibited sources, contradictions/unknowns, confidence/stopping criteria,
+  and next verification steps.
+- Self-exposure report: redacted owned identifier/domain, incident metadata,
+  exposed data classes, verification state, remediation, and short retention;
+  never secrets, raw rows, or unrelated victims.
 - Policy/standards brief: clause map, version/status, obligations, exceptions,
   implementation implications, and caveats.
 - Cultural research brief: primary evidence, reception, cultural context, trend
@@ -322,7 +358,13 @@ state a conservative assumption.
 Use one of these values in the intake card:
 
 - `normal_public`: public non-sensitive sources, standard workflow.
-- `person_public_role`: public-role person aggregation with privacy boundary.
+- `investigative_scoped`: validated `R1` investigation with risk/saturation gates.
+- `person_osint_scoped`: `R2` person research limited to public/professional
+  data and a named-recipient/reporting boundary.
+- `self_exposure_verified`: `R3` owned-identifier or authorized-organization
+  audit with bound authorization and minimum disclosure.
+- `authorized_security`: `R4` defensive scope with explicit targets, review,
+  expiry, and an authorization hash.
 - `person_refusal_risk`: likely private-person/minor/doxxing/stalking/sensitive
   request; inspect/refuse before source access.
 - `access_restricted`: useful sources may require login, paywall, captcha,
@@ -365,7 +407,15 @@ Proceed without asking when:
   `broad_research + technical_research`; source map, contradiction pass,
   execution gates.
 - "Find public information about this maintainer" ->
-  `person_public_role`; privacy boundary first; public-role-only output.
+  `person_osint_scoped`; `R2` privacy boundary first; public/professional output
+  and saturation/risk stopping.
+- "Compare claims about this event across Reddit, X, YouTube, and HN" ->
+  `social_cross_platform`; classify each item and deduplicate repost lineages.
+- "Check whether my owned email appears in breach intelligence" ->
+  `self_exposure_audit`; verify ownership, bind `R3`, minimize and redact.
+- "Investigate this vendor's ownership and contradictory public claims" ->
+  `investigative_osint + due_diligence_or_investigation`; validate `R1`, build
+  evidence graph/timeline, search contradictions, separate leads.
 - "Collect all rows from this public dashboard" ->
   `public_url_analysis + structured_extraction + dataset_collection`;
   probe URL, discover endpoints/files, data dictionary.
@@ -397,6 +447,14 @@ Watch for these mistakes:
 - Treating a broad research task as an atomic fact and stopping after one
   source.
 - Treating snippets, mirrors, or social posts as verified primary evidence.
+- Treating a platform as uniformly official/unofficial instead of classifying
+  the item, speaker relationship, origin, integrity, and lineage.
+- Mixing non-official/unverified leads into main findings or counting `lead`
+  rows toward authored claim coverage.
+- Treating a raw leak claim as evidence, retaining its URL/content, or using a
+  label as proof of lawful authorization.
+- Running `R3` without verified ownership, or failing to re-bind policy and
+  re-approve after scope bytes change.
 - Treating due diligence as a generic market overview and missing provenance,
   ownership, risk, contradiction, or red-flag checks.
 - Treating policy/standards analysis as a blog-summary task and failing to
@@ -420,3 +478,7 @@ change, and continue from the correct branch.
 - `references/workflow-routes.md`
 - `references/execution-gates.md`
 - `references/safety-and-access-policy.md`
+- `references/investigative-research.md`
+- `references/social-source-research.md`
+- `references/self-exposure-audit.md`
+- `references/leaked-data-handling.md`
