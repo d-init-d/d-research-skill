@@ -90,17 +90,19 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.3.0 is the current stable release. It adds executable `R0`-`R4`
-investigation scopes, scope-bound plan dispatch, a 37-column policy-aware
-ledger, scoped person OSINT without a fixed 25-row cap, platform-neutral social
-classification, separate non-official lead output, leak-aware reporting, and
-verified self-exposure handling. See
-[`docs/release-v3.3.0.md`](docs/release-v3.3.0.md).
+v3.4.0 is the current stable release. It is a monotonic capability expansion:
+existing commands, routes, ledger widths, and no-config defaults remain valid,
+while API collection gains opt-in pagination config and explicit mutation
+methods, archival and metadata handling gain truthful interfaces and stronger
+redaction, downstream consumers gain a machine-readable interop contract, and
+installers gain deterministic `full` and clean `runtime` artifacts. See
+[`docs/release-v3.4.0.md`](docs/release-v3.4.0.md).
 
-The current in-development candidate is `v3.4.0-rc.1`, a monotonic
-capability-expansion release: it only adds capability, widens compatibility, and
-fixes defects, keeping every v3.3.0 command, route, and default intact. See
-[`docs/release-v3.4.0-rc.1.md`](docs/release-v3.4.0-rc.1.md).
+v3.3.0 is the previous stable investigation-policy release. It added executable
+`R0`-`R4` scopes, scope-bound plan dispatch, the 37-column policy-aware ledger,
+platform-neutral social classification, separate non-official lead output,
+leak-aware reporting, and verified self-exposure handling. See
+[`docs/release-v3.3.0.md`](docs/release-v3.3.0.md).
 
 v3.2.1 is the previous stable release of three production-capable optional upgrades:
 semantic retrieval, rich citation export, and language detection. Semantic
@@ -388,7 +390,9 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── release-v3.2.1-rc.2.md            # attestation-hardened release candidate
 │   ├── release-v3.2.1.md                 # stable promotion note (candidate-frozen path)
 │   ├── release-v3.3.0-rc.1.md            # frozen investigation-policy candidate
-│   └── release-v3.3.0.md                 # stable investigation-policy release
+│   ├── release-v3.3.0.md                 # stable investigation-policy release
+│   ├── release-v3.4.0-rc.1.md            # frozen monotonic-capability candidate
+│   └── release-v3.4.0.md                 # stable monotonic-capability release
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates

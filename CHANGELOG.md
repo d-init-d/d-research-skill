@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-07-26
+
+Stable production promotion of the signed `v3.4.0-rc.1` monotonic-capability
+candidate. The executable implementation is unchanged from the candidate;
+stable-only changes are lifecycle metadata, documentation, the generated
+interop package version, and version-scoped release evidence. See
+[`docs/release-v3.4.0.md`](docs/release-v3.4.0.md).
+
+### Added
+
+- Published capability-complete `full` and clean `runtime` installation
+  profiles with deterministic-for-identical-input archives, embedded and
+  sidecar manifests, per-file/tree hashes, archive checksums, extracted-profile
+  self-tests, and trusted-contract verification.
+- Published a machine-readable downstream interop contract for ledger widths
+  `14/19/22/23/37`, record types, routes, entry points, and artifact profiles.
+- Added opt-in API pagination config and explicit POST/PUT/PATCH/DELETE request
+  construction without changing established GET behavior or defaults.
+- Added explicit Wayback save/dry-run/JSON interfaces and broad metadata secret
+  redaction.
+
+### Changed
+
+- Promoted package metadata from `3.4.0-rc.1` Beta to `3.4.0`
+  Production/Stable and regenerated only the interop `package_version` field.
+- Made all 52 references directly discoverable from `SKILL.md`, completed the
+  55-file script inventory, and replaced end-user clone instructions with the
+  checksummed runtime artifact path.
+
+### Fixed
+
+- Prevented implicit retries from duplicating mutation requests and corrected
+  redirect, credential forwarding, 204/205, empty-response, JSON-object, and
+  GraphQL response handling.
+- Closed CLI-option, bodyless content-type, stale User-Agent, mojibake, and
+  camelCase/URL/quoted-secret redaction defects.
+
+### Verification
+
+- Exact candidate CI passed Python 3.10-3.12, Node.js 18/20/22, Windows and
+  Ubuntu integration, real Chromium, optional backends, package checks, strict
+  benches, and capability/artifact gates.
+- The signed candidate tag, source archive replay, checksum, independent
+  reproduction, provenance attestation, and all 24 local promotion checks
+  passed before stable promotion.
+- No v3.3.0 command, option, route, reference, script, template, ledger schema,
+  record type, or no-config default was removed.
+
 ## [3.4.0-rc.1] - 2026-07-26
 
 Release candidate for the v3.4.0 monotonic-capability upgrade. Every change is
@@ -1215,7 +1263,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.0-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.0...HEAD
+[3.4.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.0
 [3.4.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.0-rc.1
 [3.3.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.3.0
 [3.3.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.3.0-rc.1

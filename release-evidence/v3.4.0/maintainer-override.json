@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.1",
+  "authorization_timing": "post_candidate_owner_direction",
+  "policy_deviation_paths": [],
+  "policy_deviation_sha256": {},
+  "release_version": "3.4.0",
+  "release_tag": "v3.4.0",
+  "candidate_version": "3.4.0-rc.1",
+  "candidate_skill_commit": "d1da48dd4b0053e829255fe1d2dfe26f8c58f408",
+  "candidate_tag": "v3.4.0-rc.1",
+  "candidate_tag_object_sha": "6ca963e04fb116d2aa6f3d69231537b23f10a953",
+  "repository": "d-init-d/d-research-skill",
+  "decision": "approved_with_waivers",
+  "maintainer": {
+    "login": "d-init-d",
+    "role": "repository_owner"
+  },
+  "authorized_at": "2026-07-26T14:12:03Z",
+  "waivers": [
+    "independent_reviewer",
+    "live_dogfood"
+  ],
+  "reason": "At the repository owner's explicit direction after the frozen v3.4.0-rc.1 candidate passed its complete exact-SHA CI, signed-tag, archive-replay, provenance, and local verification gates, promote the candidate to stable v3.4.0 without changing executable code or the frozen capability contract.",
+  "risk_acceptance": {
+    "independent_reviewer": "The repository owner accepts that no independent GitHub pull-request reviewer is claimed for this promotion; automated review, local verification, and exact-SHA CI do not substitute for that assurance.",
+    "live_dogfood": "The repository owner accepts that no uncontaminated live Tier-1 or Tier-2 baseline-versus-candidate dogfood comparison is claimed; synthetic, historical, and CI evidence is not represented as live dogfood."
+  },
+  "local_verification": {
+    "path": "release-evidence/v3.4.0/local-verification.json",
+    "sha256": "sha256:d999d5a94907c31e74d71c3fe287df65c914d09a1a1c69b0691b546077b073a5"
+  }
+}
