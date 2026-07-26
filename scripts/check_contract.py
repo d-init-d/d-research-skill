@@ -79,11 +79,45 @@ _PACKAGE_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-rc\.\d+)?")
 _FULL_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}")
 
-_MAINTAINER_OVERRIDE_WAIVERS = (
+_RELEASE_WAIVER_CHOICES = (
     "github_verified_candidate_tag",
     "github_verified_release_tag",
     "independent_reviewer",
     "live_dogfood",
+)
+_MAINTAINER_OVERRIDE_WAIVERS = (
+    "independent_reviewer",
+    "live_dogfood",
+)
+_DIRECT_STABLE_OVERRIDE_CANDIDATE = "3.3.0-rc.1"
+_DIRECT_STABLE_OVERRIDE_VERSION = "3.3.0"
+_DIRECT_STABLE_POLICY_DEVIATION_PATHS = (
+    "scripts/check_contract.py",
+    "templates/route-manifest.json",
+)
+_DIRECT_STABLE_REQUIRED_CHECKS = (
+    "npm_ci",
+    "node_self_test",
+    "python_self_test",
+    "acceptance",
+    "browser_smoke",
+    "package_check_after_bytecode",
+    "npm_pack_dry_run",
+    "ruff",
+    "compileall",
+    "node_syntax",
+    "internal_refs",
+    "decision_tree",
+    "contract",
+    "contract_self_test",
+    "bench_strict",
+    "quality_triple",
+    "promotion_anti_spoof",
+    "actionlint",
+    "git_diff_check",
+    "archive_replay",
+    "npm_audit",
+    "quick_validate",
 )
 
 _WINDOWS_DEVICE_NAMES = {
@@ -145,6 +179,11 @@ def is_allowed_post_rc_change(path: str, release_version: str) -> bool:
     if norm is None:
         return False
     if norm in _STABLE_PROMOTION_EXACT_FILES:
+        return True
+    if (
+        release_version == _DIRECT_STABLE_OVERRIDE_VERSION
+        and norm in _DIRECT_STABLE_POLICY_DEVIATION_PATHS
+    ):
         return True
     if norm == f"docs/release-v{release_version}.md":
         return True
@@ -860,6 +899,13 @@ def _sha256_path(path: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def _sha256_normalized_text_path(path: Path) -> str:
+    """Hash text-policy bytes with Git's platform-independent LF convention."""
+
+    raw = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
 def _load_eval_harness(root: Path) -> ModuleType:
     harness_path = root / "scripts" / "run_dogfood.py"
     spec = importlib.util.spec_from_file_location("d_research_release_eval", harness_path)
@@ -1154,7 +1200,7 @@ def check_release_waiver(
     release_tag: str,
     root: Path = ROOT,
 ) -> list[str]:
-    """Require one pre-authorized waiver for the current RC or stable tag."""
+    """Require one version-scoped owner waiver for the current RC or stable tag."""
 
     errors = check_release_tag(release_tag, root)
     if errors:
@@ -1178,8 +1224,19 @@ def check_release_waiver(
         errors.append(f"release waiver is not authorized: {waiver}")
     candidate_version = gate.get("required_candidate_version")
     stable_version = contract.get("allowed_release_version")
-    if candidate_version != "3.2.0-rc.3" or stable_version != "3.2.0":
-        errors.append("release waiver is not scoped to the frozen v3.2.0-rc.3/v3.2.0 pair")
+    if (
+        candidate_version != _DIRECT_STABLE_OVERRIDE_CANDIDATE
+        or stable_version != _DIRECT_STABLE_OVERRIDE_VERSION
+    ):
+        errors.append("release waiver is not scoped to the approved v3.3.0-rc.1/v3.3.0 pair")
+    if contract.get("schema_version") != "1.1":
+        errors.append("release waiver contract schema_version must be '1.1'")
+    if contract.get("authorization_timing") != "post_candidate_owner_direction":
+        errors.append("release waiver authorization timing is invalid")
+    if contract.get("policy_deviation_paths") != list(
+        _DIRECT_STABLE_POLICY_DEVIATION_PATHS
+    ):
+        errors.append("release waiver policy-deviation path set is invalid")
     if contract.get("required_repository") != "d-init-d/d-research-skill":
         errors.append("release waiver repository scope is invalid")
     if contract.get("required_maintainer_login") != "d-init-d":
@@ -1192,6 +1249,9 @@ def check_release_waiver(
         "annotated_release_tag",
         "candidate_tag_object_binding",
         "candidate_ancestry",
+        "github_verified_candidate_tag",
+        "github_verified_release_tag",
+        "policy_deviation_hash_binding",
         "exact_release_sha_ci",
         "source_archive",
         "sha256_manifest",
@@ -1214,7 +1274,7 @@ def _check_maintainer_override(
     expected_candidate_commit: str | None = None,
     expected_candidate_tag_object: str | None = None,
 ) -> list[str]:
-    """Validate the one-release maintainer waiver without weakening hard gates."""
+    """Validate the owner-directed v3.3.0 waiver without weakening hard gates."""
 
     errors: list[str] = []
     contract = gate.get("maintainer_override")
@@ -1223,6 +1283,8 @@ def _check_maintainer_override(
 
     expected_contract_keys = {
         "schema_version",
+        "authorization_timing",
+        "policy_deviation_paths",
         "manifest_path",
         "allowed_release_version",
         "required_decision",
@@ -1241,10 +1303,22 @@ def _check_maintainer_override(
             "stable_release_gate.maintainer_override keys must be exactly "
             f"{sorted(expected_contract_keys)}"
         )
-    if contract.get("schema_version") != "1.0":
-        errors.append("maintainer override contract schema_version must be '1.0'")
+    if contract.get("schema_version") != "1.1":
+        errors.append("maintainer override contract schema_version must be '1.1'")
     if contract.get("allowed_release_version") != package_version:
         errors.append("maintainer override is not authorized for this stable version")
+    candidate_version = gate.get("required_candidate_version")
+    if (
+        candidate_version != _DIRECT_STABLE_OVERRIDE_CANDIDATE
+        or package_version != _DIRECT_STABLE_OVERRIDE_VERSION
+    ):
+        errors.append("maintainer override is outside the approved direct-stable release pair")
+    if contract.get("authorization_timing") != "post_candidate_owner_direction":
+        errors.append("maintainer override authorization_timing is invalid")
+    if contract.get("policy_deviation_paths") != list(
+        _DIRECT_STABLE_POLICY_DEVIATION_PATHS
+    ):
+        errors.append("maintainer override policy_deviation_paths is invalid")
     if contract.get("required_decision") != "approved_with_waivers":
         errors.append("maintainer override required_decision is invalid")
     if contract.get("required_repository") != "d-init-d/d-research-skill":
@@ -1264,6 +1338,9 @@ def _check_maintainer_override(
         "annotated_release_tag",
         "candidate_tag_object_binding",
         "candidate_ancestry",
+        "github_verified_candidate_tag",
+        "github_verified_release_tag",
+        "policy_deviation_hash_binding",
         "exact_release_sha_ci",
         "source_archive",
         "sha256_manifest",
@@ -1286,6 +1363,9 @@ def _check_maintainer_override(
         )
         required_waivers = list(_MAINTAINER_OVERRIDE_WAIVERS)
     required_checks = contract.get("required_checks")
+    if required_checks != list(_DIRECT_STABLE_REQUIRED_CHECKS):
+        errors.append("maintainer override required_checks must match the canonical v3.3.0 set")
+        required_checks = list(_DIRECT_STABLE_REQUIRED_CHECKS)
     if (
         not isinstance(required_checks, list)
         or not required_checks
@@ -1319,6 +1399,9 @@ def _check_maintainer_override(
 
     expected_override_keys = {
         "schema_version",
+        "authorization_timing",
+        "policy_deviation_paths",
+        "policy_deviation_sha256",
         "release_version",
         "release_tag",
         "candidate_version",
@@ -1341,11 +1424,35 @@ def _check_maintainer_override(
         )
     if override.get("schema_version") != contract.get("schema_version"):
         errors.append("maintainer override manifest schema_version mismatch")
+    if override.get("authorization_timing") != contract.get("authorization_timing"):
+        errors.append("maintainer override manifest authorization_timing mismatch")
+    if override.get("policy_deviation_paths") != contract.get("policy_deviation_paths"):
+        errors.append("maintainer override manifest policy_deviation_paths mismatch")
+    policy_hashes = override.get("policy_deviation_sha256")
+    policy_paths = list(_DIRECT_STABLE_POLICY_DEVIATION_PATHS)
+    if not isinstance(policy_hashes, dict) or set(policy_hashes) != set(policy_paths):
+        errors.append("maintainer override policy_deviation_sha256 must bind every policy path")
+    else:
+        for policy_path in policy_paths:
+            declared_policy_hash = policy_hashes.get(policy_path)
+            if (
+                not isinstance(declared_policy_hash, str)
+                or not _SHA256_RE.fullmatch(declared_policy_hash)
+            ):
+                errors.append(
+                    f"maintainer override policy hash is invalid for {policy_path}"
+                )
+                continue
+            resolved_policy_path = root / policy_path
+            if not resolved_policy_path.is_file():
+                errors.append(f"maintainer override policy path is missing: {policy_path}")
+                continue
+            if declared_policy_hash != _sha256_normalized_text_path(resolved_policy_path):
+                errors.append(f"maintainer override policy hash mismatch: {policy_path}")
     if override.get("release_version") != package_version:
         errors.append("maintainer override release_version must match package version")
     if override.get("release_tag") != f"v{package_version}":
         errors.append("maintainer override release_tag must match package version")
-    candidate_version = gate.get("required_candidate_version")
     if override.get("candidate_version") != candidate_version:
         errors.append("maintainer override candidate_version mismatch")
     candidate_tag = f"v{candidate_version}" if isinstance(candidate_version, str) else None
@@ -1543,11 +1650,11 @@ def check_stable_release_evidence(
     expected_candidate_tag_object: str | None = None,
     expected_baseline_tag_object: str | None = None,
 ) -> list[str]:
-    """Require the release-evidence mode frozen into the dogfooded RC.
+    """Require the selected stable release-evidence mode.
 
     Release candidates intentionally skip this gate. Stable metadata must use
-    either the default reviewer-approved live-evidence path or the narrowly
-    scoped maintainer override declared before the RC was tagged.
+    either the default reviewer-approved live-evidence path or the explicitly
+    recorded, version-scoped owner override.
     """
 
     errors: list[str] = []
@@ -2349,13 +2456,12 @@ def check_skill_and_routes(root: Path = ROOT) -> list[str]:
 
 
 def _repository_contract_version_matches(package_version: str, manifest: dict) -> bool:
-    """Accept an exact version or a stable release frozen to its dogfooded RC.
+    """Accept an exact version or a stable release bound to its candidate RC.
 
-    The route manifest is part of the executable candidate contract and is not
-    allowed to change after dogfood. Stable promotion therefore keeps its
-    ``repository_contract.version`` at the exact RC declared by
+    The repository contract remains at the exact RC declared by
     ``stable_release_gate.required_candidate_version`` while package metadata
-    advances from ``X.Y.Z-rc.N`` to ``X.Y.Z``.
+    advances from ``X.Y.Z-rc.N`` to ``X.Y.Z``. The separately disclosed v3.3.0
+    post-candidate policy amendment does not alter that repository contract.
     """
 
     contract = manifest.get("repository_contract")
@@ -2591,40 +2697,14 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                 errors.append("stable_release_gate.full_ci must require exact_release_sha")
             if full_ci.get("required_conclusion") != "success":
                 errors.append("stable_release_gate.full_ci must require conclusion success")
-        candidate_tag_contract = stable_gate.get("candidate_tag")
         if promotion_mode == "maintainer_override":
-            if (
-                not isinstance(candidate_tag_contract, dict)
-                or set(candidate_tag_contract)
-                != {"annotated", "github_verified", "bind_tag_object_sha", "verification_mode"}
-                or candidate_tag_contract.get("annotated") is not True
-                or candidate_tag_contract.get("github_verified") is not False
-                or candidate_tag_contract.get("bind_tag_object_sha") is not True
-                or candidate_tag_contract.get("verification_mode")
-                != "annotated_tag_object_sha"
-            ):
-                errors.append(
-                    "maintainer-override candidate_tag must require an annotated, "
-                    "tag-object-bound tag with explicit GitHub-verification waiver"
-                )
-            release_tag_contract = stable_gate.get("release_tag")
-            if (
-                not isinstance(release_tag_contract, dict)
-                or set(release_tag_contract)
-                != {"annotated", "github_verified", "verification_mode"}
-                or release_tag_contract.get("annotated") is not True
-                or release_tag_contract.get("github_verified") is not False
-                or release_tag_contract.get("verification_mode")
-                != "annotated_tag_object_sha"
-            ):
-                errors.append(
-                    "maintainer-override release_tag must remain annotated with an "
-                    "explicit GitHub-verification waiver"
-                )
+            errors.extend(_check_live_tag_contracts(stable_gate))
 
             override_contract = stable_gate.get("maintainer_override")
             expected_override_keys = {
                 "schema_version",
+                "authorization_timing",
+                "policy_deviation_paths",
                 "manifest_path",
                 "allowed_release_version",
                 "required_decision",
@@ -2643,20 +2723,34 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                     "stable_release_gate.maintainer_override has an invalid contract shape"
                 )
             else:
-                if override_contract.get("schema_version") != "1.0":
-                    errors.append("maintainer_override schema_version must be '1.0'")
+                if override_contract.get("schema_version") != "1.1":
+                    errors.append("maintainer_override schema_version must be '1.1'")
+                if (
+                    override_contract.get("authorization_timing")
+                    != "post_candidate_owner_direction"
+                ):
+                    errors.append("maintainer_override authorization_timing is invalid")
+                if override_contract.get("policy_deviation_paths") != list(
+                    _DIRECT_STABLE_POLICY_DEVIATION_PATHS
+                ):
+                    errors.append("maintainer_override policy_deviation_paths is invalid")
                 override_path = override_contract.get("manifest_path")
                 if (
                     not isinstance(override_path, str)
                     or "{version}" not in override_path
                     or _canonical_repo_relative(
-                        override_path.replace("{version}", "3.2.0")
+                        override_path.replace("{version}", _DIRECT_STABLE_OVERRIDE_VERSION)
                     )
                     is None
                 ):
                     errors.append("maintainer_override manifest_path is invalid")
-                if override_contract.get("allowed_release_version") != "3.2.0":
-                    errors.append("maintainer_override must be scoped exactly to v3.2.0")
+                if (
+                    override_contract.get("allowed_release_version")
+                    != _DIRECT_STABLE_OVERRIDE_VERSION
+                    or stable_gate.get("required_candidate_version")
+                    != _DIRECT_STABLE_OVERRIDE_CANDIDATE
+                ):
+                    errors.append("maintainer_override must be scoped exactly to v3.3.0")
                 if override_contract.get("required_decision") != "approved_with_waivers":
                     errors.append("maintainer_override required_decision is invalid")
                 if override_contract.get("required_repository") != "d-init-d/d-research-skill":
@@ -2668,6 +2762,8 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                 ):
                     errors.append("maintainer_override waiver set is invalid")
                 checks = override_contract.get("required_checks")
+                if checks != list(_DIRECT_STABLE_REQUIRED_CHECKS):
+                    errors.append("maintainer_override required_checks must match the canonical v3.3.0 set")
                 if (
                     not isinstance(checks, list)
                     or not checks
@@ -2688,6 +2784,9 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                     "annotated_release_tag",
                     "candidate_tag_object_binding",
                     "candidate_ancestry",
+                    "github_verified_candidate_tag",
+                    "github_verified_release_tag",
+                    "policy_deviation_hash_binding",
                     "exact_release_sha_ci",
                     "source_archive",
                     "sha256_manifest",
@@ -3917,7 +4016,8 @@ def self_test() -> int:
         sample_score_path.write_bytes(valid_score_bytes)
         write_promotion_and_signoff()
 
-        # Post-RC path allowlist: metadata/evidence only; code drift must fail.
+        # Post-RC path allowlist: metadata/evidence by default. The owner-directed
+        # v3.3.0 direct-stable decision admits exactly two policy files.
         allowed_only = validate_post_rc_changed_paths(
             [
                 "package.json",
@@ -3949,6 +4049,19 @@ def self_test() -> int:
             failures.append("post-RC allowlist must reject scripts/ code drift")
         if not any("SKILL.md" in e for e in code_drift):
             failures.append("post-RC allowlist must reject SKILL.md drift")
+        direct_stable_policy = validate_post_rc_changed_paths(
+            list(_DIRECT_STABLE_POLICY_DEVIATION_PATHS),
+            _DIRECT_STABLE_OVERRIDE_VERSION,
+        )
+        if direct_stable_policy:
+            failures.append(
+                "v3.3.0 direct-stable policy amendment paths were rejected: "
+                + "; ".join(direct_stable_policy)
+            )
+        if is_allowed_post_rc_change("scripts/research_plan.py", "3.3.0"):
+            failures.append("v3.3.0 direct-stable exception accepted unrelated code")
+        if is_allowed_post_rc_change("scripts/check_contract.py", "3.3.1"):
+            failures.append("direct-stable policy exception escaped its exact version")
         if is_allowed_post_rc_change("../evil", "3.2.0"):
             failures.append("post-RC allowlist must reject path traversal")
         if is_allowed_post_rc_change(
@@ -4108,13 +4221,27 @@ def self_test() -> int:
         if not any("identical runtime/model/tool" in error for error in runtime_mismatch):
             failures.append("stable gate must reject mismatched runtime/model/tool metadata")
 
-        # Explicit maintainer override: narrow waivers, immutable RC binding,
-        # strict JSON, and hash-bound local verification are all fail-closed.
-        required_checks = ["contract", "npm_self_test"]
+        # Owner-directed v3.3.0 promotion: narrow waivers, explicit post-candidate
+        # policy paths, verified tags, immutable RC binding, strict JSON, and
+        # hash-bound local verification are all fail-closed.
+        (stable_root / "package.json").write_text(
+            json.dumps({"version": _DIRECT_STABLE_OVERRIDE_VERSION}) + "\n",
+            encoding="utf-8",
+        )
+        evidence_dir = (
+            stable_root / "release-evidence" / f"v{_DIRECT_STABLE_OVERRIDE_VERSION}"
+        )
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        (stable_root / "scripts" / "check_contract.py").write_bytes(
+            (ROOT / "scripts" / "check_contract.py").read_bytes()
+        )
+        required_checks = list(_DIRECT_STABLE_REQUIRED_CHECKS)
         override_contract = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
+            "authorization_timing": "post_candidate_owner_direction",
+            "policy_deviation_paths": list(_DIRECT_STABLE_POLICY_DEVIATION_PATHS),
             "manifest_path": "release-evidence/v{version}/maintainer-override.json",
-            "allowed_release_version": "3.2.0",
+            "allowed_release_version": _DIRECT_STABLE_OVERRIDE_VERSION,
             "required_decision": "approved_with_waivers",
             "required_repository": "d-init-d/d-research-skill",
             "required_maintainer_login": "d-init-d",
@@ -4129,6 +4256,9 @@ def self_test() -> int:
                 "annotated_release_tag": True,
                 "candidate_tag_object_binding": True,
                 "candidate_ancestry": True,
+                "github_verified_candidate_tag": True,
+                "github_verified_release_tag": True,
+                "policy_deviation_hash_binding": True,
                 "exact_release_sha_ci": True,
                 "source_archive": True,
                 "sha256_manifest": True,
@@ -4136,7 +4266,21 @@ def self_test() -> int:
             },
         }
         stable_gate["promotion_mode"] = "maintainer_override"
-        stable_gate["required_candidate_version"] = "3.2.0-rc.3"
+        stable_gate["required_candidate_version"] = _DIRECT_STABLE_OVERRIDE_CANDIDATE
+        stable_gate["baseline_tag"]["github_verified"] = True
+        stable_gate["baseline_tag"]["verification_mode"] = "github_verified_tag_object_sha"
+        stable_gate["candidate_tag"] = {
+            "annotated": True,
+            "github_verified": True,
+            "bind_tag_object_sha": True,
+            "verification_mode": "github_verified_tag_object_sha",
+        }
+        stable_gate["release_tag"] = {
+            "annotated": True,
+            "github_verified": True,
+            "bind_tag_object_sha": True,
+            "verification_mode": "github_verified_tag_object_sha",
+        }
         stable_gate["maintainer_override"] = override_contract
         (stable_root / "templates" / "route-manifest.json").write_text(
             json.dumps({"stable_release_gate": stable_gate}, indent=2) + "\n",
@@ -4146,8 +4290,8 @@ def self_test() -> int:
         override_path = evidence_dir / "maintainer-override.json"
         local_record = {
             "schema_version": "1.0",
-            "release_version": "3.2.0",
-            "candidate_version": "3.2.0-rc.3",
+            "release_version": _DIRECT_STABLE_OVERRIDE_VERSION,
+            "candidate_version": _DIRECT_STABLE_OVERRIDE_CANDIDATE,
             "candidate_skill_commit": candidate_commit,
             "candidate_tag_object_sha": candidate_tag_object,
             "generated_at": "2026-07-09T00:05:00Z",
@@ -4170,12 +4314,15 @@ def self_test() -> int:
             "summary": {"passed": len(required_checks), "failed": 0},
         }
         override = {
-            "schema_version": "1.0",
-            "release_version": "3.2.0",
-            "release_tag": "v3.2.0",
-            "candidate_version": "3.2.0-rc.3",
+            "schema_version": "1.1",
+            "authorization_timing": "post_candidate_owner_direction",
+            "policy_deviation_paths": list(_DIRECT_STABLE_POLICY_DEVIATION_PATHS),
+            "policy_deviation_sha256": {},
+            "release_version": _DIRECT_STABLE_OVERRIDE_VERSION,
+            "release_tag": f"v{_DIRECT_STABLE_OVERRIDE_VERSION}",
+            "candidate_version": _DIRECT_STABLE_OVERRIDE_CANDIDATE,
             "candidate_skill_commit": candidate_commit,
-            "candidate_tag": "v3.2.0-rc.3",
+            "candidate_tag": f"v{_DIRECT_STABLE_OVERRIDE_CANDIDATE}",
             "candidate_tag_object_sha": candidate_tag_object,
             "repository": "d-init-d/d-research-skill",
             "decision": "approved_with_waivers",
@@ -4198,6 +4345,10 @@ def self_test() -> int:
                 json.dumps(local_record, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+            override["policy_deviation_sha256"] = {
+                policy_path: _sha256_normalized_text_path(stable_root / policy_path)
+                for policy_path in _DIRECT_STABLE_POLICY_DEVIATION_PATHS
+            }
             override["local_verification"] = {
                 "path": local_path.relative_to(stable_root).as_posix(),
                 "sha256": _sha256_path(local_path),
@@ -4217,17 +4368,63 @@ def self_test() -> int:
             failures.append(
                 "valid maintainer override rejected: " + "; ".join(override_valid[:3])
             )
-        if check_release_waiver("live_dogfood", "v3.2.0", stable_root):
+        if check_release_waiver(
+            "live_dogfood", f"v{_DIRECT_STABLE_OVERRIDE_VERSION}", stable_root
+        ):
             failures.append("authorized stable release waiver should pass")
-        if not check_release_waiver("exact_release_sha_ci", "v3.2.0", stable_root):
+        if not check_release_waiver(
+            "exact_release_sha_ci", f"v{_DIRECT_STABLE_OVERRIDE_VERSION}", stable_root
+        ):
             failures.append("non-waivable exact-SHA CI requirement was accepted")
+        if not check_release_waiver(
+            "github_verified_release_tag",
+            f"v{_DIRECT_STABLE_OVERRIDE_VERSION}",
+            stable_root,
+        ):
+            failures.append("GitHub-verified stable tag requirement was accepted as waivable")
+
+        override["authorization_timing"] = "pre_candidate"
+        write_override()
+        if not any(
+            "authorization_timing mismatch" in error
+            for error in check_stable_release_evidence(stable_root)
+        ):
+            failures.append("maintainer override accepted false authorization timing")
+        override["authorization_timing"] = "post_candidate_owner_direction"
+
+        override["policy_deviation_paths"] = ["scripts/check_contract.py", "SKILL.md"]
+        write_override()
+        if not any(
+            "policy_deviation_paths mismatch" in error
+            for error in check_stable_release_evidence(stable_root)
+        ):
+            failures.append("maintainer override accepted expanded policy-deviation paths")
+        override["policy_deviation_paths"] = list(_DIRECT_STABLE_POLICY_DEVIATION_PATHS)
+        write_override()
+
+        override["policy_deviation_sha256"]["scripts/check_contract.py"] = (
+            "sha256:" + ("0" * 64)
+        )
+        override_path.write_text(
+            json.dumps(override, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        if not any(
+            "policy hash mismatch" in error
+            for error in check_stable_release_evidence(stable_root)
+        ):
+            failures.append("maintainer override accepted a stale policy hash")
+        write_override()
+
         saved_hard_gates = override_contract["non_waivable"]
         override_contract["non_waivable"] = {}
         (stable_root / "templates" / "route-manifest.json").write_text(
             json.dumps({"stable_release_gate": stable_gate}, indent=2) + "\n",
             encoding="utf-8",
         )
-        if not check_release_waiver("live_dogfood", "v3.2.0", stable_root):
+        if not check_release_waiver(
+            "live_dogfood", f"v{_DIRECT_STABLE_OVERRIDE_VERSION}", stable_root
+        ):
             failures.append("release waiver query accepted an empty hard-gate set")
         override_contract["non_waivable"] = saved_hard_gates
         (stable_root / "templates" / "route-manifest.json").write_text(
@@ -4277,7 +4474,7 @@ def self_test() -> int:
             failures.append("maintainer override failed to bind the RC tag object")
 
         override_path.write_text(
-            '{"schema_version":"1.0","schema_version":"1.0"}\n',
+            '{"schema_version":"1.1","schema_version":"1.1"}\n',
             encoding="utf-8",
         )
         if not any(
@@ -4345,9 +4542,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--require-release-waiver",
-        choices=_MAINTAINER_OVERRIDE_WAIVERS,
+        choices=_RELEASE_WAIVER_CHOICES,
         help=(
-            "Exit successfully only when the frozen RC contract explicitly authorizes "
+            "Exit successfully only when the version-scoped release contract authorizes "
             "this waiver for --release-tag. Non-waivable release gates are rejected."
         ),
     )

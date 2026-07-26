@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.1",
+  "authorization_timing": "post_candidate_owner_direction",
+  "policy_deviation_paths": [
+    "scripts/check_contract.py",
+    "templates/route-manifest.json"
+  ],
+  "policy_deviation_sha256": {
+    "scripts/check_contract.py": "sha256:a4e90ccb1b4fde00c1dcbe1b38a993aa8e82a2913fcd28de901411c44086b07c",
+    "templates/route-manifest.json": "sha256:896be6fc1c8a2c9ad5af164fa1e0acb0afc9658b4079bcd94a18d8889ebe0178"
+  },
+  "release_version": "3.3.0",
+  "release_tag": "v3.3.0",
+  "candidate_version": "3.3.0-rc.1",
+  "candidate_skill_commit": "4be4890d5842426240c39b8b8e4725bfec511424",
+  "candidate_tag": "v3.3.0-rc.1",
+  "candidate_tag_object_sha": "5abb7d852239635d8c8da626aa00844c5e260998",
+  "repository": "d-init-d/d-research-skill",
+  "decision": "approved_with_waivers",
+  "maintainer": {
+    "login": "d-init-d",
+    "role": "repository_owner"
+  },
+  "authorized_at": "2026-07-26T08:11:04Z",
+  "waivers": [
+    "independent_reviewer",
+    "live_dogfood"
+  ],
+  "reason": "The repository owner explicitly directed immediate stable v3.3.0 publication from the fully tested v3.3.0-rc.1 candidate without a second RC. This record discloses the post-candidate release-policy amendment and preserves every technical hard gate.",
+  "risk_acceptance": {
+    "independent_reviewer": "The repository owner accepts the absence of an independent GitHub reviewer after contract self-tests, adversarial review, local verification, and exact-SHA CI; no independent-review claim is made.",
+    "live_dogfood": "The repository owner accepts the absence of uncontaminated live Tier-1 and Tier-2 baseline/candidate dogfood; synthetic, historical, and model-consensus artifacts are not represented as live promotion evidence."
+  },
+  "local_verification": {
+    "path": "release-evidence/v3.3.0/local-verification.json",
+    "sha256": "sha256:9e89e69c5e2f33880d2db0d45539bc83e361f950efd6e1b4d725e1c711db7bcc"
+  }
+}

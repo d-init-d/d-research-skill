@@ -171,7 +171,7 @@
     ]
   },
   "stable_release_gate": {
-    "promotion_mode": "live_evidence",
+    "promotion_mode": "maintainer_override",
     "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
     "required_baseline_version": "3.2.1",
     "required_candidate_version": "3.3.0-rc.1",
@@ -180,13 +180,6 @@
       "exact_candidate_sha": true,
       "exact_release_sha": true,
       "required_conclusion": "success"
-    },
-    "run_evidence": {
-      "canonical_layout": true,
-      "manifest_name": "run-result.json",
-      "run_result_schema_version": "2.1",
-      "bind_raw_artifacts": true,
-      "recompute_scores": true
     },
     "baseline_tag": {
       "annotated": true,
@@ -206,6 +199,64 @@
       "github_verified": true,
       "bind_tag_object_sha": true,
       "verification_mode": "github_verified_tag_object_sha"
+    },
+    "maintainer_override": {
+      "schema_version": "1.1",
+      "authorization_timing": "post_candidate_owner_direction",
+      "policy_deviation_paths": [
+        "scripts/check_contract.py",
+        "templates/route-manifest.json"
+      ],
+      "manifest_path": "release-evidence/v{version}/maintainer-override.json",
+      "allowed_release_version": "3.3.0",
+      "required_decision": "approved_with_waivers",
+      "required_repository": "d-init-d/d-research-skill",
+      "required_maintainer_login": "d-init-d",
+      "required_waivers": [
+        "independent_reviewer",
+        "live_dogfood"
+      ],
+      "required_checks": [
+        "npm_ci",
+        "node_self_test",
+        "python_self_test",
+        "acceptance",
+        "browser_smoke",
+        "package_check_after_bytecode",
+        "npm_pack_dry_run",
+        "ruff",
+        "compileall",
+        "node_syntax",
+        "internal_refs",
+        "decision_tree",
+        "contract",
+        "contract_self_test",
+        "bench_strict",
+        "quality_triple",
+        "promotion_anti_spoof",
+        "actionlint",
+        "git_diff_check",
+        "archive_replay",
+        "npm_audit",
+        "quick_validate"
+      ],
+      "bind_candidate_commit": true,
+      "bind_candidate_tag_object_sha": true,
+      "require_annotated_tags": true,
+      "require_exact_sha_ci": true,
+      "non_waivable": {
+        "annotated_candidate_tag": true,
+        "annotated_release_tag": true,
+        "candidate_tag_object_binding": true,
+        "candidate_ancestry": true,
+        "github_verified_candidate_tag": true,
+        "github_verified_release_tag": true,
+        "policy_deviation_hash_binding": true,
+        "exact_release_sha_ci": true,
+        "source_archive": true,
+        "sha256_manifest": true,
+        "provenance_attestation": true
+      }
     },
     "reviewer_attestation": {
       "type": "github_verified_pull_request_review",
