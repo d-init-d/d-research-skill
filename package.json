@@ -149,8 +149,8 @@
   "dResearchPackageManifest": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "file_count": 206,
-    "paths_sha256": "sha256:0aa5498a372a98eba2c6ca57ee7e6f2a343a8a75d0ca16e86ab537ef05c18e6e"
+    "file_count": 207,
+    "paths_sha256": "sha256:fbd13cc3b57a548f86036e6b48830a09b52e17ee2bc258b5d67d82bed13e2ad0"
   },
   "dependencies": {
     "playwright": "1.61.1"

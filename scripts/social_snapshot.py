@@ -37,7 +37,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-USER_AGENT = "d-research-skill/3.3.0-rc.1 (https://github.com/d-init-d/d-research-skill)"
+USER_AGENT = "d-research-skill/3.3.0 (https://github.com/d-init-d/d-research-skill)"
 SCHEMA_VERSION = "1.1"
 
 VALID_VERIFICATION_STATUS = {

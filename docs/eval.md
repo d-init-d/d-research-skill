@@ -516,7 +516,7 @@ release-evidence/v<version>/runs/
 The stable gate does not trust the submitted score JSON by itself. It requires
 exact bench task coverage, rejects extra/nested task bundles and symlink or
 reparse-point artifacts, verifies each raw hash, compares the prompt bytes to
-the canonical renderer, requires the exact 23-column ledger header, and
+the canonical renderer, requires the exact 37-column v3.3 ledger header, and
 recomputes the complete score artifact with the route-manifest threshold. It
 also enforces globally unique run IDs, session IDs, and UTC-normalized timestamp
 pairs; ordered timestamps preceding promotion generation; exact

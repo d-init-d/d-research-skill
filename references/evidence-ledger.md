@@ -13,7 +13,7 @@
 - [Final claim audit](#final-claim-audit)
 - [Social archival columns (v2.1)](#social-archival-columns-v21)
 - [Provenance / compliance columns (v3.0, optional)](#provenance--compliance-columns-v30-optional)
-- [Investigative policy columns (v3.3, optional)](#investigative-policy-columns-v33-optional)
+- [Investigative policy columns (v3.3)](#investigative-policy-columns-v33)
 - [Backward compatibility matrix](#backward-compatibility-matrix)
 - [PROV-O export](#prov-o-export)
 

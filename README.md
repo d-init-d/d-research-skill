@@ -383,7 +383,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── release-v3.2.1-rc.1.md            # initial production-capable optional helper RC
 │   ├── release-v3.2.1-rc.2.md            # attestation-hardened release candidate
 │   ├── release-v3.2.1.md                 # stable promotion note (candidate-frozen path)
-│   └── release-v3.3.0-rc.1.md            # investigation-policy release candidate
+│   ├── release-v3.3.0-rc.1.md            # investigation-policy release candidate
+│   └── release-v3.3.0.md                 # stable promotion note (candidate-frozen path)
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates
