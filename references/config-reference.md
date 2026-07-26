@@ -67,6 +67,7 @@ Important config fields:
 - output.redactSensitivePersonalData
 - api.defaultDelayMs
 - api.maxRetries
+- api.maxPagesPerEndpoint
 - api.respectRateLimitHeaders
 - database.queryTimeoutMs
 - database.maxResultRows
@@ -81,6 +82,29 @@ Important config fields:
 - largeScale.adaptiveRateLimit
 
 Default access policy is conservative and read-only.
+
+## api_fetch pagination config
+
+`scripts/api_fetch.mjs` reads `api.maxPagesPerEndpoint` from `research.config.json`
+in the current working directory (or from an explicit `--config <path>`). The
+precedence, highest first, is:
+
+1. CLI `--max-pages <n>`
+2. explicit `--config <path>` value for `api.maxPagesPerEndpoint`
+3. discovered `research.config.json` value for `api.maxPagesPerEndpoint`
+4. built-in default `10`
+
+With no config and no flag, the built-in default `10` is unchanged. A CLI
+`--max-pages` always wins over config. An invalid `--max-pages` or a
+non-positive-integer `api.maxPagesPerEndpoint` produces a structured error and
+the run does not silently fall back to another value. Use
+`--print-effective-config` to see the resolved pagination value and the config
+source; secret-looking config values (keys, tokens, authorization, cookies) are
+redacted in that output.
+
+Config discovery is intentionally narrow: only `research.config.json` in the
+chosen working directory is read. Anything outside that directory must be passed
+with `--config <path>`.
 
 `access.allowCaptchaSolving`, `access.allowStealthEvasion`,
 `access.allowRawLeakDumpFetch`, and `access.allowSecretValidation` are

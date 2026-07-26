@@ -9,8 +9,8 @@
       "examples_markdown": 9,
       "scripts_python": 36,
       "scripts_node_top_level": 8,
-      "scripts_node_lib": 5,
-      "scripts_total": 49,
+      "scripts_node_lib": 6,
+      "scripts_total": 50,
       "templates_files": 16,
       "evidence_ledger_columns": 37
     },
@@ -71,7 +71,9 @@
         "canonical_flags": [
           "--pagination",
           "--allow-partial",
-          "--cursor-key"
+          "--cursor-key",
+          "--config",
+          "--print-effective-config"
         ]
       },
       {

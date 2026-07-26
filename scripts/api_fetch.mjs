@@ -31,6 +31,7 @@ import {
   urlHasCredentials,
 } from './lib/credentials.mjs';
 import { HttpResourceLimitError, assertPublicHttpUrl, fetchPublicHttp } from './lib/ssrf_guards.mjs';
+import { loadConfig, getPositiveIntConfig, redactConfig } from './lib/config.mjs';
 
 const MAX_REDIRECTS = 10;
 const DEFAULT_MAX_BODY_BYTES = 20 * 1024 * 1024;
@@ -176,6 +177,9 @@ function parseArgs(argv) {
     params: {},
     pagination: 'auto',
     maxPages: 10,
+    maxPagesFromCli: false,
+    configPath: null,
+    printEffectiveConfig: false,
     delay: 500,
     out: null,
     format: 'json',
@@ -269,8 +273,15 @@ function parseArgs(argv) {
       } else {
         const n = Number.parseInt(raw, 10);
         if (!Number.isFinite(n) || n < 1) args.parseErrors.push(`invalid --max-pages: ${raw}`);
-        else args.maxPages = n;
+        else {
+          args.maxPages = n;
+          args.maxPagesFromCli = true;
+        }
       }
+    } else if (arg === '--config') {
+      args.configPath = need('--config');
+    } else if (arg === '--print-effective-config') {
+      args.printEffectiveConfig = true;
     } else if (arg === '--delay') {
       const raw = need('--delay');
       if (raw == null || !/^\d+$/.test(String(raw))) {
@@ -602,34 +613,42 @@ function writeSidecar(outPath, meta) {
   console.log(`Metadata written to: ${side}`);
 }
 
-async function main() {
-  const args = parseArgs(process.argv);
+// Fill defaults from config for values the CLI did not set explicitly.
+// Precedence: CLI flag > explicit --config > discovered research.config.json >
+// built-in default. Config never overrides a value the caller passed on the CLI.
+function applyConfigDefaults(args, { startDir = process.cwd() } = {}) {
+  const { config, source, error } = loadConfig({
+    explicitPath: args.configPath,
+    startDir,
+  });
+  if (error) args.parseErrors.push(error);
+  args.effectiveConfigSource = source;
+  args.effectiveConfig = config;
 
-  if (args.selfTest) {
-    await runSelfTest();
-    return;
-  }
-
-  if (args.unknown.length) {
-    console.error(`Error: ${args.unknown.length} unrecognized command-line argument(s)`);
-    process.exit(1);
-  }
-  if (args.parseErrors.length) {
-    for (const e of args.parseErrors) console.error(`Error: ${e}`);
-    process.exit(1);
-  }
-  if (!args.url) {
-    console.error('Error: --url is required');
-    console.error(
-      'Usage: node api_fetch.mjs --url <url> [--headers <json>] [--params <json>] ' +
-        '[--pagination auto|offset|cursor|page|link-header] [--cursor-key <path>] ' +
-        '[--max-pages <n>] [--delay <ms>] [--out <file>] [--format json|jsonl] ' +
-        '[--timeout <ms>] [--max-response-bytes <n>] [--allow-partial] ' +
-        '[--allow-next-origin <origin>]...'
+  if (!args.maxPagesFromCli) {
+    const { value, error: intError } = getPositiveIntConfig(
+      config,
+      'api.maxPagesPerEndpoint',
     );
-    process.exit(1);
+    if (intError) args.parseErrors.push(intError);
+    else if (value !== null) args.maxPages = value;
   }
 
+  return args;
+}
+
+function effectiveConfigReport(args) {
+  return {
+    source: args.effectiveConfigSource ?? null,
+    resolved: {
+      'api.maxPagesPerEndpoint': args.maxPages,
+      maxPagesFromCli: args.maxPagesFromCli,
+    },
+    config: redactConfig(args.effectiveConfig ?? {}),
+  };
+}
+
+async function fetchAllPages(args) {
   const initialUrl = applyParams(args.url, args.params);
   console.log(`Starting fetch from: ${redactUrl(initialUrl)}`);
   console.log(`Pagination mode: ${args.pagination}`);
@@ -777,6 +796,67 @@ async function main() {
     complete = false;
   }
 
+  return {
+    initialUrl,
+    allItems,
+    errors,
+    page,
+    complete,
+    stoppingReason,
+    resourceLimitFailure,
+  };
+}
+
+
+async function main() {
+  const args = parseArgs(process.argv);
+
+  if (args.selfTest) {
+    await runSelfTest();
+    return;
+  }
+
+  applyConfigDefaults(args);
+
+  if (args.printEffectiveConfig) {
+    if (args.parseErrors.length) {
+      for (const e of args.parseErrors) console.error(`Error: ${e}`);
+      process.exit(1);
+    }
+    process.stdout.write(JSON.stringify(effectiveConfigReport(args), null, 2) + '\n');
+    return;
+  }
+
+  if (args.unknown.length) {
+    console.error(`Error: ${args.unknown.length} unrecognized command-line argument(s)`);
+    process.exit(1);
+  }
+  if (args.parseErrors.length) {
+    for (const e of args.parseErrors) console.error(`Error: ${e}`);
+    process.exit(1);
+  }
+  if (!args.url) {
+    console.error('Error: --url is required');
+    console.error(
+      'Usage: node api_fetch.mjs --url <url> [--headers <json>] [--params <json>] ' +
+        '[--pagination auto|offset|cursor|page|link-header] [--cursor-key <path>] ' +
+        '[--max-pages <n>] [--config <path>] [--print-effective-config] ' +
+        '[--delay <ms>] [--out <file>] [--format json|jsonl] ' +
+        '[--timeout <ms>] [--max-response-bytes <n>] [--allow-partial] ' +
+        '[--allow-next-origin <origin>]...'
+    );
+    process.exit(1);
+  }
+
+  const {
+    initialUrl,
+    allItems,
+    errors,
+    page,
+    complete,
+    stoppingReason,
+    resourceLimitFailure,
+  } = await fetchAllPages(args);
   const pagesFetched = Math.max(0, page - 1);
   console.log(`Fetched ${allItems.length} total items across ${pagesFetched} pages.`);
 
@@ -1249,6 +1329,150 @@ async function runSelfTest() {
       /* ignore */
     }
   }
+
+  // --- D2: config-driven maxPages precedence matrix (real on-disk config) ---
+  {
+    const withConfigDir = (configObj, fn) => {
+      const dir = mkdtempSync(join(tmpdir(), 'api_cfg_unit_'));
+      try {
+        if (configObj !== null) {
+          writeFileSync(join(dir, 'research.config.json'), JSON.stringify(configObj), 'utf8');
+        }
+        return fn(dir);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const resolvedMaxPages = (cliArgs, configObj) =>
+      withConfigDir(configObj, (dir) => {
+        const a = parseArgs(['node', 'api_fetch.mjs', ...cliArgs]);
+        applyConfigDefaults(a, { startDir: dir });
+        return a;
+      });
+
+    // absent CLI, absent config -> default 10.
+    let a = resolvedMaxPages([], null);
+    if (a.maxPages !== 10 || a.parseErrors.length) {
+      errors.push(`precedence[absent,absent] expected 10, got ${a.maxPages}`);
+    }
+    // absent CLI, config 50 -> 50.
+    a = resolvedMaxPages([], { api: { maxPagesPerEndpoint: 50 } });
+    if (a.maxPages !== 50 || a.parseErrors.length) {
+      errors.push(`precedence[absent,50] expected 50, got ${a.maxPages}`);
+    }
+    // CLI 7, absent config -> 7.
+    a = resolvedMaxPages(['--max-pages', '7'], null);
+    if (a.maxPages !== 7 || a.parseErrors.length) {
+      errors.push(`precedence[7,absent] expected 7, got ${a.maxPages}`);
+    }
+    // CLI 7, config 50 -> 7 (CLI wins).
+    a = resolvedMaxPages(['--max-pages', '7'], { api: { maxPagesPerEndpoint: 50 } });
+    if (a.maxPages !== 7 || a.parseErrors.length) {
+      errors.push(`precedence[7,50] expected 7 (CLI wins), got ${a.maxPages}`);
+    }
+    // invalid CLI, config 50 -> parse error (must NOT silently proceed).
+    a = resolvedMaxPages(['--max-pages', 'nope'], { api: { maxPagesPerEndpoint: 50 } });
+    if (!a.parseErrors.some((e) => e.includes('--max-pages'))) {
+      errors.push('precedence[invalid,50] must record a --max-pages parse error');
+    }
+    // absent CLI, config invalid type -> structured config error, default retained.
+    a = resolvedMaxPages([], { api: { maxPagesPerEndpoint: 'lots' } });
+    if (!a.parseErrors.some((e) => e.includes('maxPagesPerEndpoint')) || a.maxPages !== 10) {
+      errors.push('precedence[absent,invalid] must record a structured config error');
+    }
+    // Missing explicit --config path is a structured error.
+    const missingCfg = parseArgs(['node', 'api_fetch.mjs', '--config', join(tmpdir(), 'no_such_dir_x', 'research.config.json')]);
+    applyConfigDefaults(missingCfg);
+    if (!missingCfg.parseErrors.some((e) => e.includes('config file not found'))) {
+      errors.push('explicit missing --config must error');
+    }
+    // --print-effective-config must never echo secret header/config values.
+    const secretCfgDir = mkdtempSync(join(tmpdir(), 'api_cfg_secret_'));
+    try {
+      writeFileSync(
+        join(secretCfgDir, 'research.config.json'),
+        JSON.stringify({ api: { maxPagesPerEndpoint: 3 }, headers: { Authorization: 'Bearer SUPERSECRET' } }),
+        'utf8',
+      );
+      const sa = parseArgs(['node', 'api_fetch.mjs', '--print-effective-config']);
+      applyConfigDefaults(sa, { startDir: secretCfgDir });
+      const report = JSON.stringify(effectiveConfigReport(sa));
+      if (report.includes('SUPERSECRET')) {
+        errors.push('--print-effective-config must redact secret values');
+      }
+      if (sa.maxPages !== 3) errors.push('effective config should reflect discovered maxPages');
+    } finally {
+      rmSync(secretCfgDir, { recursive: true, force: true });
+    }
+  }
+
+  // --- D2: real page-count integration (config value actually caps pagination) ---
+  // Drives the real fetchAllPages loop in-process against an offset-paginated
+  // mock server that always advertises more pages, so only maxPages can stop it.
+  // Loopback is reachable here because runSelfTest enabled the SSRF test options.
+  await (async () => {
+    let hits = 0;
+    const server = createServer((req, res) => {
+      hits++;
+      const u = new URL(req.url, 'http://127.0.0.1');
+      const offset = Number(u.searchParams.get('offset') || '0');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ offset, total: 100000, limit: 10, data: [offset] }));
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const port = server.address().port;
+    const cfgDir = mkdtempSync(join(tmpdir(), 'api_cfg_int_'));
+    const emptyDir = mkdtempSync(join(tmpdir(), 'api_cfg_empty_'));
+    writeFileSync(
+      join(cfgDir, 'research.config.json'),
+      JSON.stringify({ api: { maxPagesPerEndpoint: 3 } }),
+      'utf8',
+    );
+    const savedCachePath = process.env.D_RESEARCH_HTTP_CACHE_PATH;
+    const cacheDirs = [];
+    const runPages = async (cliArgs, startDir) => {
+      hits = 0;
+      // Fresh cache per run so every page is a real server hit (no cross-run reuse).
+      const cacheDir = mkdtempSync(join(tmpdir(), 'api_int_cache_'));
+      cacheDirs.push(cacheDir);
+      process.env.D_RESEARCH_HTTP_CACHE_PATH = cacheDir;
+      const a = parseArgs([
+        'node', 'api_fetch.mjs',
+        '--url', `http://127.0.0.1:${port}/data`,
+        '--pagination', 'offset',
+        '--delay', '0',
+        '--timeout', '5000',
+        ...cliArgs,
+      ]);
+      applyConfigDefaults(a, { startDir });
+      const res = await fetchAllPages(a);
+      return { pages: res.page - 1, hits };
+    };
+    try {
+      // Config maxPages=3 (discovered), no CLI flag -> exactly 3 real pages.
+      let r = await runPages([], cfgDir);
+      if (r.pages !== 3 || r.hits !== 3) {
+        errors.push(`config maxPages=3 should fetch 3 pages, got pages=${r.pages} hits=${r.hits}`);
+      }
+      // CLI --max-pages=2 overrides config -> exactly 2 real pages.
+      r = await runPages(['--max-pages', '2'], cfgDir);
+      if (r.pages !== 2 || r.hits !== 2) {
+        errors.push(`CLI --max-pages=2 must win, got pages=${r.pages} hits=${r.hits}`);
+      }
+      // No config, no flag -> built-in default 10 real pages.
+      r = await runPages([], emptyDir);
+      if (r.pages !== 10 || r.hits !== 10) {
+        errors.push(`default maxPages should fetch 10 pages, got pages=${r.pages} hits=${r.hits}`);
+      }
+    } finally {
+      await new Promise((r) => server.close(r));
+      if (savedCachePath === undefined) delete process.env.D_RESEARCH_HTTP_CACHE_PATH;
+      else process.env.D_RESEARCH_HTTP_CACHE_PATH = savedCachePath;
+      for (const d of cacheDirs) rmSync(d, { recursive: true, force: true });
+      rmSync(cfgDir, { recursive: true, force: true });
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  })();
 
   if (errors.length) {
     console.error('api_fetch self-test FAILED:');
