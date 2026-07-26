@@ -19,11 +19,10 @@ signing key is held by a single trusted party.
 
 The `prov-export` subcommand emits a PROV-O JSON-LD document describing
 the ledger as a graph of prov:Entity (claims/sources) and prov:Activity
-(extraction events identified by ``prov_activity_id``). It accepts
-14-column legacy, 19-column v2.1, and 22-column v3.0 ledgers; the
-prov:Activity graph is only populated for rows whose ``prov_activity_id``
-column exists and is non-empty (so legacy and v2.1 exports yield an
-entity-only graph).
+(extraction events identified by ``prov_activity_id``). It accepts exact
+14-column legacy, 19-column v2.1, 22-column v3.0, 23-column v3.1, and
+37-column v3.3 ledgers. The prov:Activity graph is populated only for rows
+whose ``prov_activity_id`` exists and is non-empty.
 """
 from __future__ import annotations
 
@@ -35,6 +34,7 @@ import io
 import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 FIELDS_BASE = [
@@ -63,7 +63,30 @@ FIELDS_BASE = [
 ]
 
 # v3.1 optional column (schema-compatible extension).
-FIELDS = FIELDS_BASE + ["record_type"]
+FIELDS_V3_1 = FIELDS_BASE + ["record_type"]
+
+# v3.3 investigative-policy columns. These are appended after the exact v3.1
+# header so older ledgers remain byte-for-byte schema compatible.
+FIELDS_POLICY = [
+    "source_access_class",
+    "subject_class",
+    "purpose_category",
+    "policy_tier",
+    "speaker_identity",
+    "speaker_relationship",
+    "content_origin",
+    "lineage_id",
+    "data_sensitivity",
+    "discovery_disposition",
+    "reporting_disposition",
+    "redaction_class",
+    "retention_until",
+    "authorization_scope_hash",
+]
+
+# Current v3.3 schema (37 columns).
+FIELDS_V3_3 = FIELDS_V3_1 + FIELDS_POLICY
+FIELDS = FIELDS_V3_3
 
 # The original 14 columns (pre-v2.1) for backward compatibility.
 FIELDS_LEGACY = FIELDS_BASE[:14]
@@ -80,11 +103,17 @@ FIELDS_SOCIAL = FIELDS_BASE[14:19]
 # Optional v3.0 provenance/compliance columns appended at the end.
 FIELDS_PROVENANCE = FIELDS_BASE[19:]
 
-# All currently-accepted header sets, in the order validate_ledger /
+# All currently-accepted *exact* header sets, in the order validate_ledger /
 # canonicalise / sign / verify try to match them. Newest first.
-ACCEPTED_FIELD_SETS = [FIELDS, FIELDS_V3_0, FIELDS_V2_1, FIELDS_LEGACY]
+ACCEPTED_FIELD_SETS = [
+    FIELDS_V3_3,
+    FIELDS_V3_1,
+    FIELDS_V3_0,
+    FIELDS_V2_1,
+    FIELDS_LEGACY,
+]
 
-VALID_RECORD_TYPES = {"claim", "process", "blocker", ""}
+VALID_RECORD_TYPES = {"claim", "lead", "process", "blocker", ""}
 
 VALID_SOURCE_TYPES = {
     "primary",
@@ -133,6 +162,133 @@ VALID_ROBOTS_STATUS = {
     "",
 }
 
+VALID_SOURCE_ACCESS_CLASSES = {
+    "standard_public",
+    "public_reporting",
+    "authorized_provider",
+    "user_provided_private",
+    "raw_leak_lead_only",
+    "prohibited_secret",
+    "",
+}
+
+VALID_SUBJECT_CLASSES = {
+    "organization",
+    "public_role_person",
+    "private_person",
+    "self",
+    "minor",
+    "infrastructure",
+    "event",
+    "unknown",
+    "",
+}
+
+VALID_PURPOSE_CATEGORIES = {
+    "general_research",
+    "academic",
+    "journalism",
+    "public_interest",
+    "due_diligence",
+    "fraud_prevention",
+    "low_risk_factual",
+    "self_research",
+    "self_audit",
+    "defensive_security",
+    "threat_intel",
+    "incident_response",
+    "authorized_pentest",
+    "",
+}
+
+VALID_POLICY_TIERS = {"R0", "R1", "R2", "R3", "R4", "RX", ""}
+
+VALID_SPEAKER_IDENTITIES = {
+    "official",
+    "verified_public_role",
+    "claimed_identity",
+    "pseudonymous",
+    "anonymous",
+    "unknown",
+    "",
+}
+
+VALID_SPEAKER_RELATIONSHIPS = {
+    "subject",
+    "authorized_representative",
+    "firsthand",
+    "journalist",
+    "secondhand",
+    "commentary",
+    "repost",
+    "unknown",
+    "",
+}
+
+VALID_CONTENT_ORIGINS = {
+    "original",
+    "firsthand",
+    "quote",
+    "repost",
+    "screenshot",
+    "unknown",
+    "",
+}
+
+VALID_DATA_SENSITIVITY = {
+    "public",
+    "professional",
+    "personal",
+    "sensitive",
+    "secret",
+    "minor",
+    "",
+}
+
+VALID_DISCOVERY_DISPOSITIONS = {
+    "permitted",
+    "evidence",
+    "lead_only",
+    "context_only",
+    "contradiction",
+    "discarded",
+    "blocked",
+    "prohibited",
+    "",
+}
+
+VALID_REPORTING_DISPOSITIONS = {
+    "main_findings",
+    "non_official_unverified_leads",
+    "context_only",
+    "blocked_prohibited_sources",
+    "redacted",
+    "excluded",
+    "prohibited",
+    "",
+}
+
+VALID_REDACTION_CLASSES = {
+    "none",
+    "personal_contact",
+    "residential",
+    "government_id",
+    "financial",
+    "medical",
+    "family_minor",
+    "whereabouts",
+    "secret",
+    "other_pii",
+    "",
+}
+
+_LINEAGE_ID_RE = re.compile(r"^\S{1,128}$")
+_SCOPE_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_RFC3339_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+    r"(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$"
+)
+
 # Lightweight SPDX-like identifier check. Accepts:
 #   - empty string
 #   - NOASSERTION
@@ -165,6 +321,51 @@ def _is_valid_prov_activity_id(value: str) -> bool:
     return bool(_PROV_ID_RE.match(value))
 
 
+def _is_valid_lineage_id(value: str) -> bool:
+    if not value:
+        return True
+    return bool(_LINEAGE_ID_RE.fullmatch(value))
+
+
+def _is_valid_scope_hash(value: str) -> bool:
+    if not value:
+        return True
+    return bool(_SCOPE_HASH_RE.fullmatch(value))
+
+
+def _is_valid_retention_until(value: str) -> bool:
+    """Accept an empty value or an RFC 3339 timestamp with a timezone."""
+    if not value:
+        return True
+    if not _RFC3339_RE.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+def _parse_retention_until(value: str) -> datetime | None:
+    if not _is_valid_retention_until(value):
+        return None
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def _retention_anchor(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def init_ledger(out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="", encoding="utf-8") as f:
@@ -187,11 +388,14 @@ def validate_ledger(file: Path) -> int:
     errors: list[str] = []
     with file.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        # Accept legacy (14), v2.1 (19), v3.0 (22), and v3.1 (23 with record_type).
-        active_fields = _match_fieldnames(list(reader.fieldnames) if reader.fieldnames else None)
+        # Accept only the canonical exact headers: legacy (14), v2.1 (19),
+        # v3.0 (22), v3.1 (23), and v3.3 investigative policy (37).
+        active_fields = _match_fieldnames(
+            list(reader.fieldnames) if reader.fieldnames else None
+        )
         if active_fields is None:
             errors.append(
-                "header mismatch: expected 14, 19, 22, or 23 column header; "
+                "header mismatch: expected 14, 19, 22, 23, or 37 column header; "
                 f"got {reader.fieldnames}"
             )
             print("\n".join(errors), file=sys.stderr)
@@ -199,6 +403,7 @@ def validate_ledger(file: Path) -> int:
         has_social_cols = len(active_fields) >= 19
         has_prov_cols = len(active_fields) >= 22
         has_record_type = "record_type" in active_fields
+        has_policy_cols = active_fields == FIELDS_V3_3
         seen_ids: set[str] = set()
         for i, row in enumerate(reader, start=2):
             claim_id = row.get("claim_id", "").strip()
@@ -210,13 +415,49 @@ def validate_ledger(file: Path) -> int:
             record_type = (row.get("record_type") or "").strip().lower()
             if not has_record_type or not record_type:
                 record_type = "claim"  # default for pre-3.1 ledgers
-            if record_type not in {"claim", "process", "blocker"}:
+            if record_type not in VALID_RECORD_TYPES - {""}:
                 errors.append(
                     f"line {i}: invalid record_type {record_type!r} "
-                    "(expected claim, process, blocker, or empty)"
+                    "(expected claim, lead, process, blocker, or empty)"
+                )
+            if record_type == "lead" and not has_policy_cols:
+                errors.append(
+                    f"line {i}: record_type=lead requires the 37-column v3.3 header"
                 )
             if not row.get("claim", "").strip():
                 errors.append(f"line {i}: missing claim")
+
+            source_access_class = (
+                (row.get("source_access_class") or "").strip().lower()
+            )
+            subject_class = (row.get("subject_class") or "").strip().lower()
+            purpose_category = (
+                (row.get("purpose_category") or "").strip().lower()
+            )
+            policy_tier = (row.get("policy_tier") or "").strip().upper()
+            speaker_identity = (
+                (row.get("speaker_identity") or "").strip().lower()
+            )
+            speaker_relationship = (
+                (row.get("speaker_relationship") or "").strip().lower()
+            )
+            content_origin = (row.get("content_origin") or "").strip().lower()
+            lineage_id = (row.get("lineage_id") or "").strip()
+            data_sensitivity = (
+                (row.get("data_sensitivity") or "").strip().lower()
+            )
+            discovery_disposition = (
+                (row.get("discovery_disposition") or "").strip().lower()
+            )
+            reporting_disposition = (
+                (row.get("reporting_disposition") or "").strip().lower()
+            )
+            redaction_class = (row.get("redaction_class") or "").strip().lower()
+            retention_until = (row.get("retention_until") or "").strip()
+            authorization_scope_hash = (
+                (row.get("authorization_scope_hash") or "").strip()
+            )
+
             # Process/blocker rows are exempt from narrative claim coverage, but
             # still need auditable source context, a reason, and a status.  A
             # public URL is optional for failures that happened before a stable
@@ -224,6 +465,12 @@ def validate_ledger(file: Path) -> int:
             source_url = row.get("source_url", "").strip()
             if not source_url and record_type == "claim":
                 errors.append(f"line {i}: missing source_url")
+            if (
+                not source_url
+                and record_type == "lead"
+                and source_access_class != "raw_leak_lead_only"
+            ):
+                errors.append(f"line {i}: lead row needs source_url")
             if record_type in {"process", "blocker"}:
                 source_title = (row.get("source_title") or "").strip()
                 notes = (row.get("notes") or "").strip()
@@ -284,6 +531,317 @@ def validate_ledger(file: Path) -> int:
                     errors.append(
                         f"line {i}: invalid prov_activity_id {prov_id!r}"
                     )
+            if has_policy_cols:
+                enum_values = (
+                    (
+                        "source_access_class",
+                        source_access_class,
+                        VALID_SOURCE_ACCESS_CLASSES,
+                    ),
+                    ("subject_class", subject_class, VALID_SUBJECT_CLASSES),
+                    (
+                        "purpose_category",
+                        purpose_category,
+                        VALID_PURPOSE_CATEGORIES,
+                    ),
+                    ("policy_tier", policy_tier, VALID_POLICY_TIERS),
+                    (
+                        "speaker_identity",
+                        speaker_identity,
+                        VALID_SPEAKER_IDENTITIES,
+                    ),
+                    (
+                        "speaker_relationship",
+                        speaker_relationship,
+                        VALID_SPEAKER_RELATIONSHIPS,
+                    ),
+                    ("content_origin", content_origin, VALID_CONTENT_ORIGINS),
+                    (
+                        "data_sensitivity",
+                        data_sensitivity,
+                        VALID_DATA_SENSITIVITY,
+                    ),
+                    (
+                        "discovery_disposition",
+                        discovery_disposition,
+                        VALID_DISCOVERY_DISPOSITIONS,
+                    ),
+                    (
+                        "reporting_disposition",
+                        reporting_disposition,
+                        VALID_REPORTING_DISPOSITIONS,
+                    ),
+                    (
+                        "redaction_class",
+                        redaction_class,
+                        VALID_REDACTION_CLASSES,
+                    ),
+                )
+                for field_name, value, allowed in enum_values:
+                    if value not in allowed:
+                        errors.append(f"line {i}: invalid {field_name} {value!r}")
+
+                required_policy_values = {
+                    "source_access_class": source_access_class,
+                    "subject_class": subject_class,
+                    "purpose_category": purpose_category,
+                    "policy_tier": policy_tier,
+                    "data_sensitivity": data_sensitivity,
+                    "discovery_disposition": discovery_disposition,
+                    "reporting_disposition": reporting_disposition,
+                    "redaction_class": redaction_class,
+                }
+                for field_name, value in required_policy_values.items():
+                    if not value:
+                        errors.append(
+                            f"line {i}: 37-column ledger requires {field_name}"
+                        )
+
+                if policy_tier in {"R0", "R1"} and record_type in {"claim", "lead"}:
+                    if subject_class in {
+                        "public_role_person",
+                        "private_person",
+                        "self",
+                        "minor",
+                    }:
+                        errors.append(
+                            f"line {i}: {policy_tier} person rows must use R2 or R3"
+                        )
+                    if (
+                        data_sensitivity not in {"public", "professional"}
+                        and not (
+                            record_type == "lead"
+                            and source_access_class == "raw_leak_lead_only"
+                            and data_sensitivity in {"personal", "sensitive"}
+                        )
+                    ):
+                        errors.append(
+                            f"line {i}: {policy_tier} permits only public/professional data"
+                        )
+                if policy_tier == "R2":
+                    if subject_class not in {
+                        "public_role_person",
+                        "private_person",
+                        "self",
+                    }:
+                        errors.append(f"line {i}: R2 requires a person/self subject")
+                    if (
+                        record_type in {"claim", "lead"}
+                        and data_sensitivity not in {"public", "professional"}
+                    ):
+                        errors.append(
+                            f"line {i}: R2 permits only public/professional data"
+                        )
+                if policy_tier == "R3" and subject_class not in {"self", "organization"}:
+                    errors.append(f"line {i}: R3 requires self or organization subject")
+
+                if reporting_disposition == "main_findings" and record_type != "claim":
+                    errors.append(
+                        f"line {i}: main_findings requires record_type=claim"
+                    )
+                if reporting_disposition == "non_official_unverified_leads" and record_type != "lead":
+                    errors.append(
+                        f"line {i}: non_official_unverified_leads requires record_type=lead"
+                    )
+                if discovery_disposition == "lead_only" and record_type != "lead":
+                    errors.append(f"line {i}: lead_only requires record_type=lead")
+                if data_sensitivity in {"personal", "sensitive"} and redaction_class in {
+                    "",
+                    "none",
+                }:
+                    errors.append(
+                        f"line {i}: personal/sensitive data requires a redaction_class"
+                    )
+
+                if not _is_valid_lineage_id(lineage_id):
+                    errors.append(f"line {i}: invalid lineage_id {lineage_id!r}")
+                if not _is_valid_retention_until(retention_until):
+                    errors.append(
+                        f"line {i}: retention_until must be an RFC3339 "
+                        "timestamp with timezone"
+                    )
+                if not _is_valid_scope_hash(authorization_scope_hash):
+                    errors.append(
+                        f"line {i}: authorization_scope_hash must be "
+                        "sha256:<64 lowercase hex>"
+                    )
+
+                social_values = (
+                    speaker_identity,
+                    speaker_relationship,
+                    content_origin,
+                )
+                if any(social_values) and not all(social_values):
+                    errors.append(
+                        f"line {i}: social classification requires speaker_identity, "
+                        "speaker_relationship, and content_origin together"
+                    )
+                if reporting_disposition == "main_findings" and any(social_values):
+                    direct_integrity = bool(
+                        verifiability == "direct_api"
+                        and snapshot_status == "intact"
+                        and (row.get("content_hash") or "").strip()
+                    )
+                    archive_integrity = bool(
+                        verifiability == "archive_snapshot"
+                        and (row.get("archive_url") or "").strip()
+                        and (row.get("content_hash") or "").strip()
+                    )
+                    notes_value = (row.get("notes") or "").strip().lower()
+                    if not (
+                        speaker_identity in {"official", "verified_public_role"}
+                        and speaker_relationship
+                        in {"subject", "authorized_representative"}
+                        and content_origin == "original"
+                        and (direct_integrity or archive_integrity)
+                    ):
+                        errors.append(
+                            f"line {i}: social main_findings requires an official/"
+                            "verified subject or representative, original content, "
+                            "and intact hash-bound direct or archive evidence"
+                        )
+                    if not re.search(
+                        r"(?:^|;\s*)claim_kind=statement_made(?:;|$)", notes_value
+                    ):
+                        errors.append(
+                            f"line {i}: social main_findings requires "
+                            "notes claim_kind=statement_made"
+                        )
+                if (
+                    content_origin in {"quote", "repost", "screenshot"}
+                    or speaker_relationship == "repost"
+                ) and not lineage_id:
+                    errors.append(
+                        f"line {i}: derivative social evidence requires lineage_id"
+                    )
+
+                prohibited_for_evidence = (
+                    data_sensitivity in {"secret", "minor"}
+                    or subject_class == "minor"
+                    or source_access_class == "prohibited_secret"
+                    or policy_tier == "RX"
+                    or discovery_disposition == "prohibited"
+                    or reporting_disposition == "prohibited"
+                )
+                if record_type in {"claim", "lead"} and prohibited_for_evidence:
+                    errors.append(
+                        f"line {i}: secret, minor, RX, or prohibited material "
+                        "cannot use record_type=claim or lead"
+                    )
+                if (
+                    prohibited_for_evidence
+                    and reporting_disposition == "main_findings"
+                ):
+                    errors.append(
+                        f"line {i}: prohibited material cannot report under "
+                        "main_findings"
+                    )
+
+                if (
+                    source_access_class == "prohibited_secret"
+                    or data_sensitivity == "secret"
+                ):
+                    secret_fields = {
+                        "source_url": source_url,
+                        "evidence": (row.get("evidence") or "").strip(),
+                        "quote_or_anchor": (
+                            row.get("quote_or_anchor") or ""
+                        ).strip(),
+                        "archive_url": (row.get("archive_url") or "").strip(),
+                        "content_hash": (row.get("content_hash") or "").strip(),
+                    }
+                    populated_secret_fields = [
+                        name for name, value in secret_fields.items() if value
+                    ]
+                    if populated_secret_fields:
+                        errors.append(
+                            f"line {i}: secret/prohibited metadata must not retain "
+                            + ", ".join(populated_secret_fields)
+                        )
+
+                if record_type == "lead":
+                    if not discovery_disposition:
+                        errors.append(
+                            f"line {i}: lead row requires discovery_disposition"
+                        )
+                    if not reporting_disposition:
+                        errors.append(
+                            f"line {i}: lead row requires reporting_disposition"
+                        )
+                    elif reporting_disposition == "main_findings":
+                        errors.append(
+                            f"line {i}: lead row cannot use "
+                            "reporting_disposition=main_findings"
+                        )
+
+                if source_access_class == "raw_leak_lead_only":
+                    if record_type not in {"lead", "process", "blocker"}:
+                        errors.append(
+                            f"line {i}: raw_leak_lead_only requires "
+                            "record_type=lead, process, or blocker"
+                        )
+                    raw_fields = {
+                        "source_url": source_url,
+                        "evidence": (row.get("evidence") or "").strip(),
+                        "quote_or_anchor": (
+                            row.get("quote_or_anchor") or ""
+                        ).strip(),
+                        "archive_url": (row.get("archive_url") or "").strip(),
+                        "content_hash": (row.get("content_hash") or "").strip(),
+                    }
+                    populated = [name for name, value in raw_fields.items() if value]
+                    if populated:
+                        errors.append(
+                            f"line {i}: raw_leak_lead_only must not retain "
+                            + ", ".join(populated)
+                        )
+                    if not (row.get("source_title") or "").strip():
+                        errors.append(
+                            f"line {i}: raw_leak_lead_only needs a redacted "
+                            "source_title"
+                        )
+                    if reporting_disposition == "main_findings":
+                        errors.append(
+                            f"line {i}: raw_leak_lead_only cannot report under "
+                            "main_findings"
+                        )
+                    if (
+                        record_type == "lead"
+                        and reporting_disposition
+                        != "non_official_unverified_leads"
+                    ):
+                        errors.append(
+                            f"line {i}: raw leak lead must report only under "
+                            "non_official_unverified_leads"
+                        )
+
+                if policy_tier in {"R3", "R4"}:
+                    if not authorization_scope_hash:
+                        errors.append(
+                            f"line {i}: {policy_tier} requires "
+                            "authorization_scope_hash"
+                        )
+                    if not retention_until:
+                        errors.append(
+                            f"line {i}: {policy_tier} requires retention_until"
+                        )
+                if policy_tier == "R3" and retention_until:
+                    retention_dt = _parse_retention_until(retention_until)
+                    anchor_dt = _retention_anchor(
+                        (row.get("date_accessed") or "").strip()
+                    )
+                    if anchor_dt is None:
+                        errors.append(
+                            f"line {i}: R3 requires a valid date_accessed "
+                            "to enforce the retention limit"
+                        )
+                    elif (
+                        retention_dt is not None
+                        and retention_dt > anchor_dt + timedelta(days=30)
+                    ):
+                        errors.append(
+                            f"line {i}: R3 retention_until exceeds the 30-day maximum"
+                        )
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
@@ -306,9 +864,10 @@ def canonicalise(file: Path) -> bytes:
     through this function so that benign formatting differences (e.g. a
     text editor switching to CRLF) do not falsely invalidate a signature.
 
-    Supports both legacy (14-column) and extended (19-column) ledgers.
-    When the new social columns are present, they are included in the
-    canonical bytes so that tampering with them is detected.
+    Supports the exact 14-, 19-, 22-, 23-, and 37-column schemas. Every
+    column present in the active schema is included in the canonical bytes,
+    so tampering with social, provenance, record-type, or policy fields is
+    detected.
     """
     with file.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -317,7 +876,7 @@ def canonicalise(file: Path) -> bytes:
         )
         if active_fields is None:
             raise ValueError(
-                "header mismatch: expected 14, 19, 22, or 23 column header; "
+                "header mismatch: expected 14, 19, 22, 23, or 37 column header; "
                 f"got {reader.fieldnames}"
             )
         rows = list(reader)
@@ -413,7 +972,8 @@ def prov_export(file: Path, out: Path | None) -> int:
             )
             if active is None:
                 print(
-                    "error: prov-export requires a 14, 19, 22, or 23 column ledger; "
+                    "error: prov-export requires a 14, 19, 22, 23, or 37 "
+                    "column ledger; "
                     f"got {reader.fieldnames}",
                     file=sys.stderr,
                 )
@@ -438,6 +998,48 @@ def prov_export(file: Path, out: Path | None) -> int:
         robots_status = (row.get("robots_status") or "").strip()
         access_method = (row.get("access_method") or "").strip()
         date_accessed = (row.get("date_accessed") or "").strip()
+        policy_properties: dict[str, str] = {}
+        if active == FIELDS_V3_3:
+            policy_properties = {
+                "dres:recordType": (row.get("record_type") or "claim").strip()
+                or "claim",
+                "dres:sourceAccessClass": (
+                    row.get("source_access_class") or ""
+                ).strip(),
+                "dres:subjectClass": (row.get("subject_class") or "").strip(),
+                "dres:purposeCategory": (
+                    row.get("purpose_category") or ""
+                ).strip(),
+                "dres:policyTier": (row.get("policy_tier") or "").strip(),
+                "dres:speakerIdentity": (
+                    row.get("speaker_identity") or ""
+                ).strip(),
+                "dres:speakerRelationship": (
+                    row.get("speaker_relationship") or ""
+                ).strip(),
+                "dres:contentOrigin": (
+                    row.get("content_origin") or ""
+                ).strip(),
+                "dres:lineageId": (row.get("lineage_id") or "").strip(),
+                "dres:dataSensitivity": (
+                    row.get("data_sensitivity") or ""
+                ).strip(),
+                "dres:discoveryDisposition": (
+                    row.get("discovery_disposition") or ""
+                ).strip(),
+                "dres:reportingDisposition": (
+                    row.get("reporting_disposition") or ""
+                ).strip(),
+                "dres:redactionClass": (
+                    row.get("redaction_class") or ""
+                ).strip(),
+                "dres:retentionUntil": (
+                    row.get("retention_until") or ""
+                ).strip(),
+                "dres:authorizationScopeHash": (
+                    row.get("authorization_scope_hash") or ""
+                ).strip(),
+            }
 
         # Claim entity
         claim_entity: dict = {
@@ -450,6 +1052,9 @@ def prov_export(file: Path, out: Path | None) -> int:
             claim_entity["prov:wasGeneratedBy"] = {"@id": prov_id}
         if license_spdx:
             claim_entity["dcterms:license"] = license_spdx
+        for property_name, value in policy_properties.items():
+            if value:
+                claim_entity[property_name] = value
         graph.append(claim_entity)
 
         # Source entity (deduplicated)
@@ -542,6 +1147,20 @@ def self_test() -> int:
                     "robots_status": "",
                     "prov_activity_id": "",
                     "record_type": "claim",
+                    "source_access_class": "standard_public",
+                    "subject_class": "organization",
+                    "purpose_category": "general_research",
+                    "policy_tier": "R0",
+                    "speaker_identity": "",
+                    "speaker_relationship": "",
+                    "content_origin": "",
+                    "lineage_id": "",
+                    "data_sensitivity": "public",
+                    "discovery_disposition": "permitted",
+                    "reporting_disposition": "main_findings",
+                    "redaction_class": "none",
+                    "retention_until": "",
+                    "authorization_scope_hash": "",
                 }
             )
         sig_path = path.with_suffix(".csv.hmac")
@@ -588,6 +1207,18 @@ def self_test() -> int:
             print("tamper on snapshot_status column not detected", file=sys.stderr)
             return 1
 
+        # Restore, re-sign, and verify that v3.3 policy fields are covered.
+        path.write_text(text, encoding="utf-8")
+        sign_ledger(path, "D_RESEARCH_LEDGER_KEY", None)
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace("standard_public", "public_reporting"),
+            encoding="utf-8",
+        )
+        if verify_ledger(path, "D_RESEARCH_LEDGER_KEY", None) == 0:
+            print("tamper on policy column not detected", file=sys.stderr)
+            return 1
+
         sig_path.unlink(missing_ok=True)
 
         # --- Test backward compatibility with legacy (14-column) ledger ---
@@ -623,6 +1254,71 @@ def self_test() -> int:
         if verify_ledger(legacy_path, "D_RESEARCH_LEDGER_KEY", None) != 0:
             print("legacy verify failed", file=sys.stderr)
             return 1
+
+        # Every historical exact header must remain readable, validatable,
+        # signable, verifiable, and exportable without migration.
+        compatibility_sets = (
+            ("legacy14", FIELDS_LEGACY),
+            ("social19", FIELDS_V2_1),
+            ("provenance22", FIELDS_V3_0),
+            ("record_type23", FIELDS_V3_1),
+        )
+        compatibility_row = {
+            "claim_id": "C900",
+            "claim": "compatibility claim",
+            "sub_question": "schema compatibility",
+            "source_title": "Compatibility Source",
+            "source_url": "https://example.com/compatibility",
+            "source_type": "primary",
+            "date_published": "2024-01-01",
+            "date_accessed": "2026-07-25",
+            "access_method": "fetch",
+            "evidence": "observed",
+            "quote_or_anchor": "section 1",
+            "contradiction": "none",
+            "confidence": "high",
+            "notes": "",
+            "archive_url": "",
+            "content_hash": "",
+            "snapshot_status": "intact",
+            "verifiability": "direct_api",
+            "verifiability_note": "Direct public API.",
+            "license_spdx": "CC-BY-4.0",
+            "robots_status": "not_applicable",
+            "prov_activity_id": "prov:compatibility:test",
+            "record_type": "claim",
+        }
+        for schema_name, field_set in compatibility_sets:
+            compatibility_path = Path(d) / f"{schema_name}.csv"
+            with compatibility_path.open("w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=field_set)
+                writer.writeheader()
+                writer.writerow(
+                    {name: compatibility_row.get(name, "") for name in field_set}
+                )
+            if validate_ledger(compatibility_path) != 0:
+                print(f"{schema_name} validation failed", file=sys.stderr)
+                return 1
+            if sign_ledger(
+                compatibility_path, "D_RESEARCH_LEDGER_KEY", None
+            ) != 0:
+                print(f"{schema_name} sign failed", file=sys.stderr)
+                return 1
+            if verify_ledger(
+                compatibility_path, "D_RESEARCH_LEDGER_KEY", None
+            ) != 0:
+                print(f"{schema_name} verify failed", file=sys.stderr)
+                return 1
+            compatibility_prov = Path(d) / f"{schema_name}.jsonld"
+            if prov_export(compatibility_path, compatibility_prov) != 0:
+                print(f"{schema_name} PROV-O export failed", file=sys.stderr)
+                return 1
+            exported = json.loads(
+                compatibility_prov.read_text(encoding="utf-8")
+            )
+            if not exported.get("@graph"):
+                print(f"{schema_name} PROV-O graph is empty", file=sys.stderr)
+                return 1
 
         # --- Test validation rejects invalid verifiability/snapshot_status ---
         bad_path = Path(d) / "bad_verifiability.csv"
@@ -676,6 +1372,14 @@ def self_test() -> int:
                         "snapshot_status": status,
                         "verifiability": "direct_api",
                         "record_type": "claim",
+                        "source_access_class": "standard_public",
+                        "subject_class": "organization",
+                        "purpose_category": "general_research",
+                        "policy_tier": "R0",
+                        "data_sensitivity": "public",
+                        "discovery_disposition": "evidence",
+                        "reporting_disposition": "main_findings",
+                        "redaction_class": "none",
                     }
                 )
         if validate_ledger(social_status_path) != 0:
@@ -715,6 +1419,14 @@ def self_test() -> int:
                     "confidence": "low",
                     "notes": "status=blocked; reason=access_control",
                     "record_type": "blocker",
+                    "source_access_class": "standard_public",
+                    "subject_class": "organization",
+                    "purpose_category": "general_research",
+                    "policy_tier": "R0",
+                    "data_sensitivity": "public",
+                    "discovery_disposition": "blocked",
+                    "reporting_disposition": "blocked_prohibited_sources",
+                    "redaction_class": "none",
                 }
             )
         if validate_ledger(blocker_path) != 0:
@@ -724,7 +1436,7 @@ def self_test() -> int:
         # --- Test v3.0 (22-column) ledger validates/signs/verifies ---
         v3_path = Path(d) / "v3.csv"
         with v3_path.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer = csv.DictWriter(f, fieldnames=FIELDS_V3_0)
             writer.writeheader()
             writer.writerow(
                 {
@@ -786,7 +1498,7 @@ def self_test() -> int:
         # --- Test 22-column validation rejects bad provenance values ---
         bad_prov = Path(d) / "bad_prov.csv"
         with bad_prov.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer = csv.DictWriter(f, fieldnames=FIELDS_V3_0)
             writer.writeheader()
             writer.writerow(
                 {
@@ -810,6 +1522,328 @@ def self_test() -> int:
                 file=sys.stderr,
             )
             return 1
+
+        # --- Test v3.3 investigative-policy conditional validation ---
+        policy_base = {
+            "claim_id": "C330",
+            "claim": "v3.3 policy claim",
+            "sub_question": "policy validation",
+            "source_title": "Public policy source",
+            "source_url": "https://example.com/policy",
+            "source_type": "primary",
+            "date_published": "2026-07-01",
+            "date_accessed": "2026-07-25",
+            "access_method": "fetch",
+            "evidence": "public evidence",
+            "quote_or_anchor": "section 3",
+            "contradiction": "none",
+            "confidence": "high",
+            "notes": "",
+            "archive_url": "",
+            "content_hash": "",
+            "snapshot_status": "intact",
+            "verifiability": "direct_api",
+            "verifiability_note": "Direct public source.",
+            "license_spdx": "",
+            "robots_status": "not_checked",
+            "prov_activity_id": "prov:policy:test",
+            "record_type": "claim",
+            "source_access_class": "standard_public",
+            "subject_class": "organization",
+            "purpose_category": "due_diligence",
+            "policy_tier": "R1",
+            "speaker_identity": "",
+            "speaker_relationship": "",
+            "content_origin": "",
+            "lineage_id": "",
+            "data_sensitivity": "public",
+            "discovery_disposition": "evidence",
+            "reporting_disposition": "main_findings",
+            "redaction_class": "none",
+            "retention_until": "",
+            "authorization_scope_hash": "",
+        }
+
+        def write_policy_fixture(name: str, **overrides: str) -> Path:
+            fixture = dict(policy_base)
+            fixture.update(overrides)
+            fixture_path = Path(d) / f"{name}.csv"
+            with fixture_path.open("w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=FIELDS_V3_3)
+                writer.writeheader()
+                writer.writerow(fixture)
+            return fixture_path
+
+        valid_lead = write_policy_fixture(
+            "valid_lead",
+            claim_id="L001",
+            claim="Community report suggests a checkable lead",
+            source_title="Public community post",
+            source_url="https://example.com/community/post",
+            source_type="community",
+            evidence="Public post describes the lead.",
+            confidence="low",
+            record_type="lead",
+            speaker_identity="anonymous",
+            speaker_relationship="commentary",
+            content_origin="original",
+            lineage_id="lineage:community:001",
+            discovery_disposition="lead_only",
+            reporting_disposition="non_official_unverified_leads",
+        )
+        if validate_ledger(valid_lead) != 0:
+            print("well-formed v3.3 lead should validate", file=sys.stderr)
+            return 1
+
+        lead_in_main = write_policy_fixture(
+            "lead_in_main",
+            claim_id="L002",
+            record_type="lead",
+            discovery_disposition="lead_only",
+            reporting_disposition="main_findings",
+        )
+        if validate_ledger(lead_in_main) == 0:
+            print("lead must not enter main_findings", file=sys.stderr)
+            return 1
+
+        prohibited_cases = (
+            ("secret_claim", {"data_sensitivity": "secret"}),
+            ("minor_claim", {"subject_class": "minor"}),
+            ("minor_data_claim", {"data_sensitivity": "minor"}),
+            (
+                "prohibited_source_claim",
+                {"source_access_class": "prohibited_secret"},
+            ),
+            ("rx_claim", {"policy_tier": "RX"}),
+            (
+                "prohibited_disposition_claim",
+                {"discovery_disposition": "prohibited"},
+            ),
+        )
+        for case_name, overrides in prohibited_cases:
+            prohibited_path = write_policy_fixture(case_name, **overrides)
+            if validate_ledger(prohibited_path) == 0:
+                print(
+                    f"{case_name} should not validate as claim evidence",
+                    file=sys.stderr,
+                )
+                return 1
+
+        secret_blocker = write_policy_fixture(
+            "secret_blocker",
+            claim_id="B330",
+            claim="Secret material was excluded before retention",
+            source_title="Redacted prohibited-secret source",
+            source_url="",
+            evidence="",
+            quote_or_anchor="",
+            archive_url="",
+            content_hash="",
+            notes="status=prohibited; reason=secret_material",
+            record_type="blocker",
+            source_access_class="prohibited_secret",
+            data_sensitivity="secret",
+            discovery_disposition="prohibited",
+            reporting_disposition="blocked_prohibited_sources",
+            redaction_class="secret",
+        )
+        if validate_ledger(secret_blocker) != 0:
+            print(
+                "redacted prohibited-secret blocker should validate",
+                file=sys.stderr,
+            )
+            return 1
+
+        raw_leak = write_policy_fixture(
+            "raw_leak",
+            claim_id="L003",
+            claim="A raw-leak claim exists and requires lawful verification",
+            source_title="Redacted raw-leak lead",
+            source_url="",
+            source_type="community",
+            evidence="",
+            quote_or_anchor="",
+            archive_url="",
+            content_hash="",
+            record_type="lead",
+            source_access_class="raw_leak_lead_only",
+            data_sensitivity="personal",
+            discovery_disposition="lead_only",
+            reporting_disposition="non_official_unverified_leads",
+            redaction_class="other_pii",
+        )
+        if validate_ledger(raw_leak) != 0:
+            print("redacted raw-leak lead should validate", file=sys.stderr)
+            return 1
+
+        raw_forbidden_fields = {
+            "source_url": "https://leak.invalid/raw",
+            "evidence": "raw row",
+            "quote_or_anchor": "raw quote",
+            "archive_url": "https://web.archive.org/raw",
+            "content_hash": "deadbeef",
+        }
+        for field_name, value in raw_forbidden_fields.items():
+            raw_overrides = {
+                "claim_id": f"L-{field_name}",
+                "claim": "raw leak field must be rejected",
+                "source_title": "Redacted raw-leak lead",
+                "source_url": "",
+                "evidence": "",
+                "quote_or_anchor": "",
+                "archive_url": "",
+                "content_hash": "",
+                "record_type": "lead",
+                "source_access_class": "raw_leak_lead_only",
+                "discovery_disposition": "lead_only",
+                "reporting_disposition": "non_official_unverified_leads",
+            }
+            raw_overrides[field_name] = value
+            raw_invalid = write_policy_fixture(
+                f"raw_leak_with_{field_name}",
+                **raw_overrides,
+            )
+            if validate_ledger(raw_invalid) == 0:
+                print(
+                    f"raw leak must reject populated {field_name}",
+                    file=sys.stderr,
+                )
+                return 1
+
+        raw_as_claim = write_policy_fixture(
+            "raw_leak_as_claim",
+            source_title="Redacted raw-leak lead",
+            source_url="",
+            evidence="",
+            quote_or_anchor="",
+            source_access_class="raw_leak_lead_only",
+            record_type="claim",
+            discovery_disposition="lead_only",
+            reporting_disposition="non_official_unverified_leads",
+        )
+        if validate_ledger(raw_as_claim) == 0:
+            print("raw leak cannot use record_type=claim", file=sys.stderr)
+            return 1
+
+        social_repost = write_policy_fixture(
+            "social_repost",
+            record_type="lead",
+            speaker_identity="claimed_identity",
+            speaker_relationship="repost",
+            content_origin="repost",
+            lineage_id="lineage:social:001",
+            discovery_disposition="lead_only",
+            reporting_disposition="non_official_unverified_leads",
+        )
+        if validate_ledger(social_repost) != 0:
+            print("complete social lineage should validate", file=sys.stderr)
+            return 1
+        missing_lineage = write_policy_fixture(
+            "missing_lineage",
+            record_type="lead",
+            speaker_identity="claimed_identity",
+            speaker_relationship="repost",
+            content_origin="repost",
+            lineage_id="",
+            discovery_disposition="lead_only",
+            reporting_disposition="non_official_unverified_leads",
+        )
+        if validate_ledger(missing_lineage) == 0:
+            print("derivative social row must require lineage_id", file=sys.stderr)
+            return 1
+        invalid_social_enum = write_policy_fixture(
+            "invalid_social_enum",
+            speaker_identity="certainly_real",
+            speaker_relationship="commentary",
+            content_origin="original",
+        )
+        if validate_ledger(invalid_social_enum) == 0:
+            print("invalid social enum should fail", file=sys.stderr)
+            return 1
+
+        official_social_main = write_policy_fixture(
+            "official_social_main",
+            notes="claim_kind=statement_made",
+            content_hash="a" * 64,
+            speaker_identity="official",
+            speaker_relationship="subject",
+            content_origin="original",
+            lineage_id="lineage:social:official",
+        )
+        if validate_ledger(official_social_main) != 0:
+            print("intact official social statement should validate", file=sys.stderr)
+            return 1
+        anonymous_social_main = write_policy_fixture(
+            "anonymous_social_main",
+            notes="claim_kind=statement_made",
+            content_hash="a" * 64,
+            speaker_identity="anonymous",
+            speaker_relationship="secondhand",
+            content_origin="repost",
+            lineage_id="lineage:social:anonymous",
+        )
+        if validate_ledger(anonymous_social_main) == 0:
+            print("anonymous repost must not enter main findings", file=sys.stderr)
+            return 1
+
+        for tier in ("R3", "R4"):
+            missing_scope = write_policy_fixture(
+                f"{tier.lower()}_missing_scope",
+                policy_tier=tier,
+                authorization_scope_hash="",
+                retention_until="",
+            )
+            if validate_ledger(missing_scope) == 0:
+                print(f"{tier} must require scope hash and retention", file=sys.stderr)
+                return 1
+            invalid_scope = write_policy_fixture(
+                f"{tier.lower()}_invalid_scope",
+                policy_tier=tier,
+                authorization_scope_hash="sha256:not-a-valid-hash",
+                retention_until="2026-07-26 00:00:00",
+            )
+            if validate_ledger(invalid_scope) == 0:
+                print(
+                    f"{tier} must reject malformed scope hash or retention",
+                    file=sys.stderr,
+                )
+                return 1
+            valid_scope = write_policy_fixture(
+                f"{tier.lower()}_valid_scope",
+                policy_tier=tier,
+                authorization_scope_hash="sha256:" + "a" * 64,
+                retention_until="2026-07-26T00:00:00Z",
+            )
+            if validate_ledger(valid_scope) != 0:
+                print(f"well-formed {tier} scope should validate", file=sys.stderr)
+                return 1
+
+        r3_missing_anchor = write_policy_fixture(
+            "r3_missing_anchor",
+            policy_tier="R3",
+            date_accessed="",
+            authorization_scope_hash="sha256:" + "a" * 64,
+            retention_until="2026-07-26T00:00:00Z",
+        )
+        if validate_ledger(r3_missing_anchor) == 0:
+            print("R3 retention must require a valid date_accessed", file=sys.stderr)
+            return 1
+
+        policy_prov = Path(d) / "policy.jsonld"
+        if prov_export(valid_lead, policy_prov) != 0:
+            print("v3.3 PROV-O export failed", file=sys.stderr)
+            return 1
+        policy_doc = json.loads(policy_prov.read_text(encoding="utf-8"))
+        policy_joined = json.dumps(policy_doc)
+        for marker in (
+            "dres:recordType",
+            "dres:sourceAccessClass",
+            "dres:reportingDisposition",
+            "dres:lineageId",
+        ):
+            if marker not in policy_joined:
+                print(f"v3.3 PROV-O export missing {marker}", file=sys.stderr)
+                return 1
 
         # --- Test prov-export on a 22-column ledger ---
         prov_out = Path(d) / "prov.jsonld"

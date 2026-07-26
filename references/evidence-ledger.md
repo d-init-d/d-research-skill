@@ -4,6 +4,7 @@
 
 - [Purpose](#purpose)
 - [Required fields](#required-fields)
+- [Record types](#record-types)
 - [CSV quoting (RFC 4180)](#csv-quoting-rfc-4180)
 - [Failed fallback attempts](#failed-fallback-attempts)
 - [Atomic claims](#atomic-claims)
@@ -12,6 +13,9 @@
 - [Final claim audit](#final-claim-audit)
 - [Social archival columns (v2.1)](#social-archival-columns-v21)
 - [Provenance / compliance columns (v3.0, optional)](#provenance--compliance-columns-v30-optional)
+- [Investigative policy columns (v3.3)](#investigative-policy-columns-v33)
+- [Backward compatibility matrix](#backward-compatibility-matrix)
+- [PROV-O export](#prov-o-export)
 
 Use this file for every non-trivial research task.
 
@@ -37,6 +41,22 @@ The evidence ledger prevents unsupported claims, weak synthesis, and source conf
 | contradiction | none, possible, direct, unresolved |
 | confidence | high, medium, low |
 | notes | caveats and extraction notes |
+
+## Record types
+
+The 23- and 37-column schemas include `record_type`:
+
+| Value | Meaning | Narrative claim coverage |
+|---|---|---|
+| `claim` or empty | Factual claim offered as evidence. Empty defaults to `claim`. | Required. |
+| `lead` | Lawful discovery lead that is not yet admissible as a main finding. | Excluded; report separately. |
+| `process` | Search, extraction, verification, or fallback action. | Excluded. |
+| `blocker` | A source or branch that could not be reached lawfully. | Excluded. |
+
+`lead` requires the 37-column v3.3 header, a discovery disposition, and a
+reporting disposition. It can never use `reporting_disposition=main_findings`.
+When a lead is corroborated, preserve the lead row and add a separate `claim`
+row; do not silently relabel the original evidence.
 
 ## CSV quoting (RFC 4180)
 
@@ -115,7 +135,7 @@ Five optional columns appended after `notes` to support social-media evidence ro
 |---|---|---|
 | archive_url | Any URL or empty | Wayback Machine or other archive URL for the captured content. Empty for Tier A direct-API captures that have no archive copy. |
 | content_hash | SHA-256 hex string or empty | Hash of the canonicalised post text at capture time. Used for tamper detection on re-verification. Empty when text could not be extracted (Tier B). |
-| snapshot_status | `intact`, `edited`, `deleted`, `unknown`, or empty | Result of the most recent verification pass. `intact` = content unchanged, `edited` = content differs from original hash, `deleted` = source returned 404, `unknown` = cannot re-verify (Tier B / archive-only). Empty if never verified. |
+| snapshot_status | `intact`, `edited`, `deleted`, `access_denied`, `rate_limited`, `unavailable`, `malformed`, `unknown`, or empty | Result of the most recent verification pass. `intact` = content unchanged, `edited` = content differs from the original hash, and the remaining values preserve the observed failure state. Empty if never verified. |
 | verifiability | `direct_api`, `direct_api_deleted`, `archive_snapshot`, `screenshot_only`, `unverified`, or empty | Confidence classification for the evidence capture method. `direct_api` = fetched from a stable public API with content hash. `direct_api_deleted` = was direct_api but post has since been deleted. `archive_snapshot` = captured via Wayback Machine only. `screenshot_only` = only a screenshot exists. `unverified` = no independent verification path available. Empty for non-social rows. |
 | verifiability_note | Plain-language sentence or empty | Human-readable explanation of what the verifiability label means for this specific row. Example: "Fetched directly from Reddit JSON API; content hash can be re-verified." |
 
@@ -145,17 +165,83 @@ Validation rules:
 - `robots_status` must be empty or one of the values above.
 - `prov_activity_id` must be empty or a non-whitespace token of length 1-128.
 
-### Backward compatibility matrix
+## Investigative policy columns (v3.3)
+
+The v3.3 exact header appends 14 policy fields after `record_type`, producing a
+37-column ledger. Empty enum values remain listed for parser diagnostics and
+legacy conversion, but every 37-column row must populate source access,
+subject, purpose, tier, sensitivity, discovery/reporting disposition, and
+redaction class. Use an exact 14/19/22/23 header when intentionally preserving a
+legacy ledger.
+
+| Field | Allowed values / format | Semantics |
+|---|---|---|
+| `source_access_class` | empty, `standard_public`, `public_reporting`, `authorized_provider`, `user_provided_private`, `raw_leak_lead_only`, `prohibited_secret` | How the source may lawfully be accessed and retained. |
+| `subject_class` | empty, `organization`, `public_role_person`, `private_person`, `self`, `minor`, `infrastructure`, `event`, `unknown` | Subject category used by privacy and authorization gates. |
+| `purpose_category` | empty or a canonical investigative purpose such as `general_research`, `journalism`, `due_diligence`, `self_audit`, `threat_intel`, or `incident_response` | Scoped purpose; it is context, not proof of authorization. |
+| `policy_tier` | empty, `R0`, `R1`, `R2`, `R3`, `R4`, `RX` | Capability tier applied to the row. `RX` is non-executable/prohibited. |
+| `speaker_identity` | empty, `official`, `verified_public_role`, `claimed_identity`, `pseudonymous`, `anonymous`, `unknown` | Identity confidence for a social or public statement. |
+| `speaker_relationship` | empty, `subject`, `authorized_representative`, `firsthand`, `journalist`, `secondhand`, `commentary`, `repost`, `unknown` | Speaker's relationship to the recorded claim. |
+| `content_origin` | empty, `original`, `firsthand`, `quote`, `repost`, `screenshot`, `unknown` | Whether the item is an original or derivative copy. |
+| `lineage_id` | empty or one non-whitespace token, 1-128 characters | Stable origin/repost lineage. Required for quote, repost, screenshot, or repost relationships. |
+| `data_sensitivity` | empty, `public`, `professional`, `personal`, `sensitive`, `secret`, `minor` | Highest data class retained in the row. |
+| `discovery_disposition` | empty, `permitted`, `evidence`, `lead_only`, `context_only`, `contradiction`, `discarded`, `blocked`, `prohibited` | Whether the item may open or support a research branch. |
+| `reporting_disposition` | empty, `main_findings`, `non_official_unverified_leads`, `context_only`, `blocked_prohibited_sources`, `redacted`, `excluded`, `prohibited` | Where, if anywhere, the item may appear in output. |
+| `redaction_class` | empty, `none`, `personal_contact`, `residential`, `government_id`, `financial`, `medical`, `family_minor`, `whereabouts`, `secret`, `other_pii` | Redaction applied without preserving the sensitive value. |
+| `retention_until` | empty or RFC 3339 timestamp with timezone | Deadline for retaining scoped material. |
+| `authorization_scope_hash` | empty or `sha256:<64 lowercase hex>` | Opaque binding to a verified authorization scope; never a credential. |
+
+### Conditional validation
+
+- A `lead` row requires the v3.3 header, non-empty discovery/reporting
+  dispositions, and cannot enter `main_findings`.
+- `main_findings` requires `record_type=claim`; `lead_only` or
+  `non_official_unverified_leads` requires `record_type=lead`.
+- `R0`/`R1` cannot carry person subjects or personal/sensitive data; use `R2`
+  for public-professional person research and `R3` for verified self data.
+  `R2` permits only public/professional data.
+- Personal or sensitive retained metadata requires a non-`none` redaction
+  class; the raw value should be discarded before model context when possible.
+- Secret, minor, `RX`, or otherwise prohibited material cannot be a `claim` or
+  `lead`; retain only non-sensitive process/blocker metadata when appropriate.
+  Secret/prohibited rows must also leave `source_url`, `evidence`,
+  `quote_or_anchor`, `archive_url`, and `content_hash` empty.
+- `raw_leak_lead_only` is restricted to `lead`, `process`, or `blocker`. Its
+  `source_url`, `evidence`, `quote_or_anchor`, `archive_url`, and `content_hash`
+  must be empty. Use a redacted `source_title`; never store a raw dump URL or
+  location. A raw-leak lead reports only under
+  `non_official_unverified_leads`; no raw-leak row may enter `main_findings`.
+- If any social classification field is populated, `speaker_identity`,
+  `speaker_relationship`, and `content_origin` must all be populated. A quote,
+  repost, screenshot, or repost relationship also requires `lineage_id`.
+- Every `R3` or `R4` row requires both a valid `authorization_scope_hash` and
+  `retention_until` timestamp. `R3` retention may not exceed 30 days from
+  `date_accessed`.
+- When the ledger belongs to a bound investigative plan, the authorization
+  hash must equal the hash in the bound scope file, and `R3`/`R4` rows must use
+  the bound mode. Social rows under `main_findings` additionally require an
+  official or verified subject/representative, original content, a hash-matched
+  intact direct/API or archive capture, and `notes` containing
+  `claim_kind=statement_made`; otherwise keep them as leads.
+
+The HMAC covers all 37 fields when the v3.3 header is active. `prov-export`
+also emits populated policy values as `dres:*` properties on the claim entity.
+
+## Backward compatibility matrix
 
 | Schema | Columns | Status |
 |---|---|---|
 | Legacy | 14 | Read-only support: validates, signs, verifies. Skips social/provenance checks. |
 | v2.1 social | 19 | Validates, signs, verifies. Provenance columns are not present. |
 | v3.0 provenance | 22 | Validates, signs, verifies. All five social columns plus three provenance columns are included in the canonical bytes hashed by HMAC-SHA256, so tampering with any of them is detected. |
+| v3.1 record type | 23 | Validates, signs, verifies, and accepts `claim`, `process`, or `blocker`; missing `record_type` defaults to `claim`. |
+| v3.3 investigative policy | 37 | Current schema. Adds `lead` and 14 typed policy columns with conditional validation. |
 
-`evidence_ledger.py init` writes the 22-column header so new ledgers default to v3.0. `validate`, `sign`, and `verify` accept all three header sets.
+`evidence_ledger.py init` writes the 37-column v3.3 header. `validate`, `sign`,
+`verify`, and `prov-export` continue to accept the exact legacy 14-, 19-, 22-,
+and 23-column headers without rewriting them.
 
-### PROV-O export
+## PROV-O export
 
 ```bash
 python scripts/evidence_ledger.py prov-export \
@@ -184,4 +270,4 @@ The exporter emits a JSON-LD document with this shape:
 }
 ```
 
-Rows without a `prov_activity_id` still appear as `prov:Entity` nodes; they just do not participate in the activity graph. Legacy and v2.1 ledgers without provenance columns export a graph with only entity nodes (no activities).
+Rows without a `prov_activity_id` still appear as `prov:Entity` nodes; they just do not participate in the activity graph. Legacy and v2.1 ledgers without provenance columns export a graph with only entity nodes (no activities). Populated v3.3 policy fields are exported as `dres:*` properties.

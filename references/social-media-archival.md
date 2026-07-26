@@ -3,7 +3,7 @@
 ## Contents
 
 - [Privacy boundary (read first)](#privacy-boundary-read-first)
-- [Tier A vs Tier B](#tier-a-vs-tier-b)
+- [Capture Tier A vs Tier B](#capture-tier-a-vs-tier-b)
 - [Per-platform recipes](#per-platform-recipes)
 - [Verification cycle](#verification-cycle)
 - [Evidence-ledger integration](#evidence-ledger-integration)
@@ -20,8 +20,11 @@ entire workflow into a single CLI with subcommands: `snapshot`, `verify`,
 
 ## Privacy boundary (read first)
 
-The privacy boundary is a **hard stop**, not abstract guidance. It runs
-BEFORE any HTTP call and exits with code 2 on violation.
+The privacy boundary is a **hard stop**, not abstract guidance. The calling
+agent must run intake before invoking the CLI. `social_snapshot.py` rejects a
+small set of explicit unsafe URL markers as defense in depth, but a URL alone
+cannot reveal the user's intent, subject age, or stalking context; do not claim
+the script independently enforces the full policy before every HTTP call.
 
 ### Allowed
 
@@ -56,9 +59,9 @@ BEFORE any HTTP call and exits with code 2 on violation.
 
 ---
 
-## Tier A vs Tier B
+## Capture Tier A vs Tier B
 
-The script uses a two-tier architecture based on API availability:
+The script uses two **capture tiers** based on API availability:
 
 | Tier | Platforms | Method | Verifiability |
 |------|-----------|--------|---------------|
@@ -70,10 +73,16 @@ the post directly, extracts structured fields, computes a SHA-256
 content hash, and writes a Snapshot JSON file. Re-verification is
 possible by re-fetching and comparing hashes.
 
-**Tier B** platforms block direct bot access. The only lawful archival
-path is a Wayback Machine snapshot via `scripts/wayback.py`. Text
+**Tier B** is the bundled CLI's conservative archive-only route for platforms
+where it has no stable public API adapter. This is a transport choice, not a
+claim that every other lawful first-party access path is impossible. Text
 extraction is not guaranteed (`post.text` may be null), and
 re-verification against the original is not possible.
+
+Capture tier and verifiability never determine evidentiary authority. A
+company's original Facebook statement can be primary evidence that the
+statement was made; an anonymous Reddit post remains a lead. For cross-platform
+claim classification use `references/social-source-research.md`.
 
 ### Verifiability table
 
@@ -267,7 +276,27 @@ python scripts/social_snapshot.py to-ledger \
   --out-row row.csv
 ```
 
-The 5 new columns added to the evidence ledger for social archival:
+The safe default is a 37-column `record_type=lead` routed to
+`non_official_unverified_leads`, with unknown speaker identity/relationship.
+Transport tier does not change that default. For a verified original statement
+by the subject or authorized representative, classify the statement explicitly:
+
+```bash
+python scripts/social_snapshot.py to-ledger \
+  --file snap.json \
+  --out-row row.csv \
+  --record-type claim \
+  --reporting-disposition main_findings \
+  --claim-kind statement_made \
+  --speaker-identity official \
+  --speaker-relationship subject \
+  --content-origin original
+```
+
+This verifies that the statement was made; underlying material claims still
+need their own corroborated claim rows.
+
+The five v2.1 capture columns remain part of the 37-column v3.3 ledger:
 
 | Column | Source field | Description |
 |--------|-------------|-------------|
@@ -277,9 +306,13 @@ The 5 new columns added to the evidence ledger for social archival:
 | `verifiability` | `verifiability` | Label from the verifiability table above |
 | `verifiability_note` | `verifiability_note` | Plain-language explanation |
 
-These columns are optional in the ledger schema — existing ledgers
-without them continue to validate. When present, they are included in
-the HMAC signature computed by `scripts/evidence_ledger.py sign`.
+The v3.3 policy block additionally records `speaker_identity`,
+`speaker_relationship`, `content_origin`, `lineage_id`, data sensitivity, and
+discovery/reporting dispositions. `social_snapshot.py` captures transport
+metadata and exposes explicit claim-level classification flags; invalid
+main-findings promotion fails closed unless the content hash matches an intact
+direct/API or sufficiently populated archive snapshot. Exact legacy 14/19/22/23 headers remain valid. Every field in an
+active header is covered by the HMAC signature.
 
 ---
 
@@ -303,6 +336,7 @@ capture. Templated phrases by label:
 ```bash
 npm run social:snapshot -- reddit --url <url> --out snap.json
 npm run social:verify -- --file snap.json
+npm run social:to-ledger -- --file snap.json --out-row row.csv
 ```
 
 The self-test is wired into the `npm run self-test` chain and runs
@@ -320,4 +354,5 @@ fully offline (no network requests).
 - `references/source-quality-rubric.md` — scoring rubric with social modifiers
 - `references/wayback-archive.md` — Wayback Machine reference
 - `references/person-aggregation.md` — privacy boundary for person lookups
+- `references/social-source-research.md` — platform-neutral source classification
 - `references/safety-and-access-policy.md` — full safety and access policy

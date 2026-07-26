@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.3.0-rc.1] - 2026-07-25
+
+Capability-expansion release candidate for stronger investigative, social,
+public-data, and self-exposure research while preserving read-only access,
+privacy, legality, and output controls.
+
+### Added
+
+- Added a scoped investigative-research route with explicit capability tiers,
+  risk budgets, source-admissibility decisions, contradiction search, and
+  saturation-based stopping criteria instead of fixed person/source caps.
+- Added platform-neutral social-source research that classifies each item by
+  speaker identity, relationship to the claim, origin, integrity, and
+  corroboration rather than assigning one trust label to an entire platform.
+- Added conditional handling for breach reporting, authorized provider data,
+  user-provided private material, raw-leak leads, and prohibited secrets.
+- Added a self-exposure audit route gated by ownership or authorization,
+  minimum disclosure, bounded identifiers, redaction, and remediation-focused
+  output.
+- Added `scripts/investigation_policy.py` and
+  `templates/investigation-scope.json` for deterministic scope validation and
+  source-disposition checks.
+- Added the 37-column v3.3 evidence-ledger schema with a typed `lead` record
+  and policy, speaker, lineage, sensitivity, disposition, redaction,
+  retention, and authorization fields while preserving exact legacy-header
+  support.
+- Added authorization attestation binding, immutable plan-policy hashes, and
+  `investigation_scope_valid` dispatch enforcement across research and
+  synthesis tasks.
+
+### Changed
+
+- Research outputs now separate evidence-backed main findings from
+  non-official or unverified leads, contradictions, and prohibited/blocked
+  source classes.
+- Social `to-ledger` now emits a 37-column lead by default, scores transport
+  integrity separately from speaker authority, deduplicates derivative
+  lineages, and requires an explicit statement-made classification for direct
+  main-findings promotion.
+- Strict report lint now validates the ledger and enforces main, non-official
+  lead, blocked/prohibited, and contradiction/unknown sections for
+  investigative outputs.
+- Person and investigative research use explicit scope and risk controls while
+  retaining hard stops for minors, stalking, doxxing, pseudonym
+  re-identification, precise whereabouts, stolen secrets, and access-control
+  bypass.
+- Package and release metadata now identify the candidate as `3.3.0-rc.1` /
+  `3.3.0rc1` with Beta status.
+
+### Release assurance
+
+- Stable promotion remains in `live_evidence` mode against baseline v3.2.1
+  and this exact v3.3.0-rc.1 candidate.
+- This entry freezes the candidate contract; it does not pre-claim live
+  dogfood, independent review, exact-SHA CI, archive reproduction, or
+  provenance results that do not yet exist.
+
 ## [3.2.1] - 2026-07-16
 
 Stable production release promoting the exact v3.2.1-rc.2 candidate without
@@ -1046,7 +1103,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.2.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.3.0-rc.1...HEAD
+[3.3.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.3.0-rc.1
 [3.2.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1
 [3.2.1-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.2
 [3.2.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.1

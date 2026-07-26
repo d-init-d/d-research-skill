@@ -163,6 +163,7 @@ def decision_tree_audit(repo: Path) -> list[str]:
 
 def scan(repo: Path) -> list[tuple[Path, str]]:
     broken: list[tuple[Path, str]] = []
+    archive_mode = not (repo / ".git").is_dir()
     for md in repo.rglob("*.md"):
         # Don't scan vendored or git-internal files.
         if any(part.startswith(".") and part not in {".agents", ".github"} for part in md.parts):
@@ -185,6 +186,12 @@ def scan(repo: Path) -> list[tuple[Path, str]]:
                 continue
             target = (repo / token).resolve()
             if not target.exists():
+                # npm source archives intentionally omit repository-only
+                # automation trees such as .agents/ and .github/. Keep strict
+                # checking in Git worktrees, but do not make an extracted
+                # runtime archive fail on those non-published references.
+                if archive_mode and token.split("/", 1)[0] in {".agents", ".github"}:
+                    continue
                 broken.append((md.relative_to(repo), token))
     return broken
 

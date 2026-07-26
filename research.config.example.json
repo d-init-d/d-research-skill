@@ -37,6 +37,24 @@
     "preferPrimarySources": true,
     "minSourcesForStrongClaim": 2,
     "searchLogRequired": true,
+    "investigation": {
+      "enabled": true,
+      "defaultTier": "R1",
+      "requireScopeManifest": true,
+      "requirePlanBinding": true,
+      "maxSources": 500,
+      "maxDepth": 3,
+      "stopAfterNoNewClaims": 3,
+      "allowRawLeakMetadataLeads": true,
+      "requireDistinctSocialLineage": true
+    },
+    "selfExposureAudit": {
+      "requireOwnershipVerification": true,
+      "requireAuthorizationScopeHash": true,
+      "defaultRetentionDays": 3,
+      "maxRetentionDays": 30,
+      "minimumDisclosure": true
+    },
     "executionGates": {
       "enabled": true,
       "lowRecallGuard": true,
@@ -80,6 +98,8 @@
     "allowPaywalledSources": false,
     "allowCaptchaSolving": false,
     "allowStealthEvasion": false,
+    "allowRawLeakDumpFetch": false,
+    "allowSecretValidation": false,
     "defaultMode": "read-only",
     "_safetyNote": "allowCaptchaSolving and allowStealthEvasion MUST remain false. Values of true fail validation — captcha solving and stealth evasion are never allowed."
   },
@@ -87,7 +107,10 @@
     "defaultReport": "research-report",
     "includeBlockedSources": true,
     "includeConfidence": true,
-    "includeNextSearches": true
+    "includeNextSearches": true,
+    "separateNonOfficialLeads": true,
+    "separateContradictionsAndUnknowns": true,
+    "redactSensitivePersonalData": true
   },
   "api": {
     "defaultDelayMs": 500,

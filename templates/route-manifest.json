@@ -2,17 +2,17 @@
   "schema_version": "1.0",
   "skill_name": "d-research",
   "repository_contract": {
-    "version": "3.2.1-rc.2",
+    "version": "3.3.0-rc.1",
     "counts": {
-      "references_markdown": 48,
+      "references_markdown": 52,
       "adapters_markdown": 9,
       "examples_markdown": 9,
-      "scripts_python": 35,
+      "scripts_python": 36,
       "scripts_node_top_level": 8,
       "scripts_node_lib": 5,
-      "scripts_total": 48,
-      "templates_files": 14,
-      "evidence_ledger_columns": 23
+      "scripts_total": 49,
+      "templates_files": 15,
+      "evidence_ledger_columns": 37
     },
     "core_paths": [
       "SKILL.md",
@@ -26,20 +26,26 @@
       "scripts/lib/browser_limits.mjs",
       "scripts/lib/browser_ssrf.mjs",
       "scripts/content_sanitize.py",
+      "scripts/investigation_policy.py",
       "scripts/quality_eval.py",
       "docs/ssrf-helper-inventory.md",
       "templates/research-plan.json",
       "templates/evidence-ledger.csv",
+      "templates/investigation-scope.json",
       "templates/route-manifest.json",
       "references/workflow-routes.md",
+      "references/investigative-research.md",
+      "references/social-source-research.md",
+      "references/self-exposure-audit.md",
+      "references/leaked-data-handling.md",
       "references/script-inventory.md",
       "references/config-reference.md"
     ],
     "readme_markers": [
-      "`references/` — 48 deep-dive guides",
-      "# 48 deep-dive guides",
-      "23 columns",
-      "48 small, self-contained files"
+      "`references/` — 52 deep-dive guides",
+      "# 52 deep-dive guides",
+      "37 columns",
+      "49 small, self-contained files"
     ],
     "installation_contract": {
       "final_directory": "d-research",
@@ -93,7 +99,30 @@
         "path": "scripts/research_plan.py",
         "canonical_flags": [
           "--workspace",
-          "--gate"
+          "--gate",
+          "--route",
+          "--scope"
+        ]
+      },
+      {
+        "path": "scripts/investigation_policy.py",
+        "canonical_flags": [
+          "--mode",
+          "--file",
+          "--status",
+          "--source-access-class",
+          "--claim-kind",
+          "--corroboration-id"
+        ]
+      },
+      {
+        "path": "scripts/social_snapshot.py",
+        "canonical_flags": [
+          "--speaker-identity",
+          "--speaker-relationship",
+          "--content-origin",
+          "--reporting-disposition",
+          "--claim-kind"
         ]
       },
       {
@@ -144,8 +173,8 @@
   "stable_release_gate": {
     "promotion_mode": "live_evidence",
     "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
-    "required_baseline_version": "3.2.0",
-    "required_candidate_version": "3.2.1-rc.2",
+    "required_baseline_version": "3.2.1",
+    "required_candidate_version": "3.3.0-rc.1",
     "full_ci": {
       "workflow_path": ".github/workflows/lint-and-self-test.yml",
       "exact_candidate_sha": true,
@@ -161,10 +190,10 @@
     },
     "baseline_tag": {
       "annotated": true,
-      "github_verified": false,
+      "github_verified": true,
       "bind_tag_object_sha": true,
-      "expected_tag_object_sha": "091997d33825a29ed6f30b089c33de9acf897ae3",
-      "verification_mode": "annotated_tag_object_sha"
+      "expected_tag_object_sha": "4f797f0cb0f75539edfc9bc9332ca4dd041e881c",
+      "verification_mode": "github_verified_tag_object_sha"
     },
     "candidate_tag": {
       "annotated": true,
@@ -201,6 +230,40 @@
         "pass_threshold": null
       }
     }
+  },
+  "investigation_contract": {
+    "scope_schema_version": "1.0",
+    "scope_template": "templates/investigation-scope.json",
+    "validator": "scripts/investigation_policy.py",
+    "tiers": {
+      "R0": "public_research",
+      "R1": "deep_investigation",
+      "R2": "scoped_person_osint",
+      "R3": "verified_self_exposure_audit",
+      "R4": "authorized_security",
+      "RX": "prohibited"
+    },
+    "source_access_classes": [
+      "standard_public",
+      "public_reporting",
+      "authorized_provider",
+      "user_provided_private",
+      "raw_leak_lead_only",
+      "prohibited_secret"
+    ],
+    "required_output_sections": [
+      "main_findings",
+      "non_official_unverified_leads",
+      "blocked_prohibited_sources",
+      "contradictions_unknowns"
+    ],
+    "hard_floor": [
+      "no_access_control_bypass",
+      "no_stolen_secret_use",
+      "no_minor_targeting",
+      "no_stalking_doxxing_harassment",
+      "no_unauthorized_intrusion_or_exfiltration"
+    ]
   },
   "documentation_contract": {
     "skill_required_statements": [
@@ -252,15 +315,59 @@
       "reference": "references/social-media-archival.md"
     },
     {
-      "id": "person_public_role",
+      "id": "social_cross_platform",
       "skill_surface": {
         "kind": "table_row",
-        "label": "Named public-role person",
+        "label": "Cross-platform social research",
+        "target": "`references/social-source-research.md`"
+      },
+      "labels": ["cross-platform social", "social claims"],
+      "intake_labels": ["social_cross_platform"],
+      "reference": "references/social-source-research.md"
+    },
+    {
+      "id": "person_osint_scoped",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Scoped person OSINT",
         "target": "`references/person-aggregation.md`"
       },
-      "labels": ["named person", "public role"],
-      "intake_labels": ["person_public_role"],
+      "labels": ["named person", "public role", "scoped person OSINT"],
+      "intake_labels": ["person_osint_scoped", "person_public_role"],
       "reference": "references/person-aggregation.md"
+    },
+    {
+      "id": "investigative_osint",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Investigative OSINT / threat intelligence",
+        "target": "`references/investigative-research.md`"
+      },
+      "labels": ["investigative OSINT", "threat intelligence"],
+      "intake_labels": ["investigative_osint"],
+      "reference": "references/investigative-research.md"
+    },
+    {
+      "id": "self_exposure_audit",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Verified self-exposure audit",
+        "target": "`references/self-exposure-audit.md`"
+      },
+      "labels": ["self exposure", "breach exposure audit"],
+      "intake_labels": ["self_exposure_audit"],
+      "reference": "references/self-exposure-audit.md"
+    },
+    {
+      "id": "leaked_data_handling",
+      "skill_surface": {
+        "kind": "table_row",
+        "label": "Leak reporting / authorized corpus",
+        "target": "`references/leaked-data-handling.md`"
+      },
+      "labels": ["leak reporting", "authorized breach corpus"],
+      "intake_labels": [],
+      "reference": "references/leaked-data-handling.md"
     },
     {
       "id": "semantic_retrieval",
@@ -523,6 +630,10 @@
     "references/execution-gates.md",
     "references/safety-and-access-policy.md",
     "references/evidence-ledger.md",
+    "references/investigative-research.md",
+    "references/social-source-research.md",
+    "references/self-exposure-audit.md",
+    "references/leaked-data-handling.md",
     "references/tool-adapter-policy.md",
     "references/anti-bot-fallback.md",
     "templates/route-manifest.json"
@@ -534,6 +645,7 @@
       "workspace_layout",
       "execution_configured",
       "plan_rendered",
+      "investigation_scope_valid",
       "no_dependency_cycles",
       "no_orphan_dependencies",
       "no_task_is_done",
@@ -545,6 +657,7 @@
       "workspace_layout",
       "execution_configured",
       "plan_rendered",
+      "investigation_scope_valid",
       "no_dependency_cycles",
       "no_orphan_dependencies",
       "no_task_is_done",
@@ -557,6 +670,7 @@
       "workspace_layout",
       "execution_configured",
       "plan_rendered",
+      "investigation_scope_valid",
       "no_dependency_cycles",
       "no_orphan_dependencies",
       "no_task_is_done",
@@ -567,6 +681,7 @@
       "schema_valid",
       "workspace_layout",
       "execution_configured",
+      "investigation_scope_valid",
       "research_tasks_terminal",
       "research_outputs_exist",
       "blocked_research_justified",

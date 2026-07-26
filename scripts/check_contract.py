@@ -1117,7 +1117,7 @@ def _validate_live_runs(
         else:
             if ledger_header != canonical_header:
                 errors.append(
-                    f"{label}.{task_id} ledger must use the exact canonical 23-column header"
+                    f"{label}.{task_id} ledger must use the exact canonical 37-column header"
                 )
 
     try:
@@ -2070,7 +2070,12 @@ def check_config_safety() -> list[str]:
     errors: list[str] = []
     cfg = _load_json(ROOT / "research.config.example.json")
     access = cfg.get("access") or {}
-    for key in ("allowCaptchaSolving", "allowStealthEvasion"):
+    for key in (
+        "allowCaptchaSolving",
+        "allowStealthEvasion",
+        "allowRawLeakDumpFetch",
+        "allowSecretValidation",
+    ):
         if key not in access:
             errors.append(f"research.config.example.json missing access.{key}")
         elif access.get(key) is not False:
@@ -2378,7 +2383,7 @@ def _repository_contract_version_matches(package_version: str, manifest: dict) -
 
 
 def _check_live_tag_contracts(stable_gate: dict) -> list[str]:
-    """Require an immutable legacy baseline and verified candidate/release tags."""
+    """Require an immutable baseline and verified candidate/release tags."""
 
     errors: list[str] = []
     baseline_contract = stable_gate.get("baseline_tag")
@@ -2389,19 +2394,27 @@ def _check_live_tag_contracts(stable_gate: dict) -> list[str]:
         "expected_tag_object_sha",
         "verification_mode",
     }
-    if (
-        not isinstance(baseline_contract, dict)
-        or set(baseline_contract) != baseline_expected_keys
-        or baseline_contract.get("annotated") is not True
-        or baseline_contract.get("github_verified") is not False
-        or baseline_contract.get("bind_tag_object_sha") is not True
-        or not isinstance(baseline_contract.get("expected_tag_object_sha"), str)
-        or not _FULL_COMMIT_RE.fullmatch(baseline_contract["expected_tag_object_sha"])
-        or baseline_contract.get("verification_mode") != "annotated_tag_object_sha"
-    ):
+    baseline_valid = (
+        isinstance(baseline_contract, dict)
+        and set(baseline_contract) == baseline_expected_keys
+        and baseline_contract.get("annotated") is True
+        and isinstance(baseline_contract.get("github_verified"), bool)
+        and baseline_contract.get("bind_tag_object_sha") is True
+        and isinstance(baseline_contract.get("expected_tag_object_sha"), str)
+        and _FULL_COMMIT_RE.fullmatch(baseline_contract["expected_tag_object_sha"])
+        is not None
+    )
+    if baseline_valid:
+        expected_mode = (
+            "github_verified_tag_object_sha"
+            if baseline_contract["github_verified"]
+            else "annotated_tag_object_sha"
+        )
+        baseline_valid = baseline_contract.get("verification_mode") == expected_mode
+    if not baseline_valid:
         errors.append(
-            "stable_release_gate.baseline_tag must pin the exact annotated legacy "
-            "tag object and explicitly record its historical verification status"
+            "stable_release_gate.baseline_tag must pin the exact annotated tag "
+            "object and use a verification_mode consistent with github_verified"
         )
 
     expected_keys = {
@@ -2994,15 +3007,15 @@ def check_required_paths() -> list[str]:
     if plan.get("tasks"):
         errors.append("templates/research-plan.json draft must have empty tasks")
 
-    # Canonical ledger header 23 columns
+    # Canonical ledger header 37 columns
     ledger_header = (
         (ROOT / "templates/evidence-ledger.csv").read_text(encoding="utf-8").splitlines()[0]
     )
     cols = ledger_header.split(",")
     if "record_type" not in cols:
         errors.append("templates/evidence-ledger.csv must include record_type column")
-    if len(cols) != 23:
-        errors.append(f"templates/evidence-ledger.csv must have 23 columns, got {len(cols)}")
+    if len(cols) != 37:
+        errors.append(f"templates/evidence-ledger.csv must have 37 columns, got {len(cols)}")
 
     # OAI-PMH fixture must be real schema 2.0 with explicit phases
     oai = ROOT / "examples/fixtures/research-plan-oai-pmh-example.json"
@@ -3377,7 +3390,7 @@ def self_test() -> int:
         if _repository_contract_version_matches("3.2.0", drifted_gate):
             failures.append("stable metadata must reject an RC/gate version mismatch")
 
-        valid_live_tags = {
+        legacy_live_tags = {
             "baseline_tag": {
                 "annotated": True,
                 "github_verified": False,
@@ -3398,9 +3411,28 @@ def self_test() -> int:
                 "verification_mode": "github_verified_tag_object_sha",
             },
         }
-        if _check_live_tag_contracts(valid_live_tags):
-            failures.append("valid symmetric live tag contracts were rejected")
-        invalid_live_tags = json.loads(json.dumps(valid_live_tags))
+        if _check_live_tag_contracts(legacy_live_tags):
+            failures.append("valid legacy-baseline live tag contracts were rejected")
+
+        verified_live_tags = json.loads(json.dumps(legacy_live_tags))
+        verified_live_tags["baseline_tag"]["github_verified"] = True
+        verified_live_tags["baseline_tag"][
+            "verification_mode"
+        ] = "github_verified_tag_object_sha"
+        if _check_live_tag_contracts(verified_live_tags):
+            failures.append("valid verified-baseline live tag contracts were rejected")
+
+        mismatched_baseline_mode = json.loads(json.dumps(verified_live_tags))
+        mismatched_baseline_mode["baseline_tag"][
+            "verification_mode"
+        ] = "annotated_tag_object_sha"
+        if not any(
+            "baseline_tag" in error
+            for error in _check_live_tag_contracts(mismatched_baseline_mode)
+        ):
+            failures.append("baseline verification mode mismatch was accepted")
+
+        invalid_live_tags = json.loads(json.dumps(verified_live_tags))
         invalid_live_tags["release_tag"]["github_verified"] = False
         if not any(
             "release_tag" in error
@@ -3831,7 +3863,7 @@ def self_test() -> int:
             encoding="utf-8",
         )
         noncanonical_ledger = check_stable_release_evidence(stable_root)
-        if not any("exact canonical 23-column header" in error for error in noncanonical_ledger):
+        if not any("exact canonical 37-column header" in error for error in noncanonical_ledger):
             failures.append("stable gate accepted a noncanonical evidence ledger")
         sample_ledger.write_bytes(valid_ledger_bytes)
         sample_manifest.write_bytes(valid_manifest_bytes)

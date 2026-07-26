@@ -405,12 +405,21 @@ def _strip_generated_block(text: str, begin: str, end: str) -> str:
     return pattern.sub("", text)
 
 
+def _row_is_reportable_claim(row: dict[str, str]) -> bool:
+    record_type = (row.get("record_type") or "claim").strip().lower() or "claim"
+    reporting = (row.get("reporting_disposition") or "").strip().lower()
+    source_access = (row.get("source_access_class") or "").strip().lower()
+    sensitivity = (row.get("data_sensitivity") or "").strip().lower()
+    return bool(
+        record_type == "claim"
+        and reporting in {"", "main_findings", "context_only"}
+        and source_access not in {"raw_leak_lead_only", "prohibited_secret"}
+        and sensitivity not in {"secret", "minor"}
+    )
+
+
 def _build_evidence_block(rows: list[dict[str, str]]) -> list[str]:
-    claim_rows = [
-        r
-        for r in rows
-        if (r.get("record_type") or "claim").strip().lower() in {"", "claim"}
-    ]
+    claim_rows = [row for row in rows if _row_is_reportable_claim(row)]
     lines = [
         GENERATED_EVIDENCE_BEGIN,
         "## Evidence Summary",
@@ -441,6 +450,24 @@ def _build_references_block(rows: list[dict[str, str]]) -> list[str]:
     seen_urls: set[str] = set()
     ref_num = 1
     for row in rows:
+        record_type = (row.get("record_type") or "claim").strip().lower() or "claim"
+        reporting = (row.get("reporting_disposition") or "").strip().lower()
+        source_access = (row.get("source_access_class") or "").strip().lower()
+        sensitivity = (row.get("data_sensitivity") or "").strip().lower()
+        if (
+            record_type in {"lead", "process", "blocker"}
+            or reporting
+            in {
+                "non_official_unverified_leads",
+                "blocked_prohibited_sources",
+                "redacted",
+                "excluded",
+                "prohibited",
+            }
+            or source_access in {"raw_leak_lead_only", "prohibited_secret"}
+            or sensitivity in {"secret", "minor"}
+        ):
+            continue
         url = _safe_source_url(row.get("source_url", ""))
         title_ref = _generated_markdown_text(row.get("source_title", ""), limit=300)
         if url and url not in seen_urls:
@@ -685,9 +712,18 @@ def cmd_lint(args: argparse.Namespace) -> int:
         report_file = next((p for p in candidates if p.is_file()), None)
 
     claim_ids: set[str] = set()
+    lead_ids: set[str] = set()
     process_blocker_ids: set[str] = set()
     seen_ids: set[str] = set()
+    policy_rows: list[dict[str, str]] = []
     if ledger_path.is_file():
+        try:
+            from evidence_ledger import validate_ledger
+
+            if validate_ledger(ledger_path) != 0:
+                errors.append("evidence ledger failed schema/policy validation")
+        except (ImportError, OSError, UnicodeError) as exc:
+            errors.append(f"could not validate evidence ledger: {exc}")
         rows = _load_ledger(ledger_path)
         for row in rows:
             cid = (row.get("claim_id", "") or "").strip()
@@ -699,8 +735,21 @@ def cmd_lint(args: argparse.Namespace) -> int:
             rtype = (row.get("record_type") or "claim").strip().lower() or "claim"
             if rtype in {"process", "blocker"}:
                 process_blocker_ids.add(cid)
-            else:
-                claim_ids.add(cid)
+            elif rtype == "lead":
+                lead_ids.add(cid)
+            elif rtype == "claim":
+                if _row_is_reportable_claim(row):
+                    claim_ids.add(cid)
+            if any(
+                (row.get(key) or "").strip()
+                for key in (
+                    "policy_tier",
+                    "source_access_class",
+                    "reporting_disposition",
+                    "data_sensitivity",
+                )
+            ) or rtype == "lead":
+                policy_rows.append(row)
     else:
         warnings.append("no evidence-ledger.csv found in workspace")
 
@@ -713,6 +762,116 @@ def cmd_lint(args: argparse.Namespace) -> int:
         errors.extend(marker_errors)
         refs = re.findall(r"\[ref:([^\]]+)\]", narrative)
         referenced_claims = {r.strip() for r in refs if r.strip()}
+
+        refs_by_section: dict[str, set[str]] = {}
+        current_section = "preamble"
+        for line in narrative.splitlines():
+            heading = re.match(r"^##\s+(.+?)\s*$", line)
+            if heading:
+                current_section = re.sub(
+                    r"[^a-z0-9]+", " ", heading.group(1).lower()
+                ).strip()
+                refs_by_section.setdefault(current_section, set())
+            for ref in re.findall(r"\[ref:([^\]]+)\]", line):
+                refs_by_section.setdefault(current_section, set()).add(ref.strip())
+
+        def section_refs(*required_terms: str) -> set[str]:
+            found: set[str] = set()
+            for heading, section_ids in refs_by_section.items():
+                if all(term in heading for term in required_terms):
+                    found.update(section_ids)
+            return found
+
+        main_section_ids = section_refs("main", "findings")
+        lead_section_ids = section_refs("non official", "lead") | section_refs(
+            "unverified", "lead"
+        )
+        blocked_section_ids = section_refs("blocked", "prohibited")
+        contradiction_section_ids = section_refs("contradiction", "unknown")
+        non_lead_section_ids = set().union(
+            *(
+                section_ids
+                for heading, section_ids in refs_by_section.items()
+                if not (
+                    "lead" in heading
+                    and ("non official" in heading or "unverified" in heading)
+                )
+            ),
+            set(),
+        )
+        non_blocked_section_ids = set().union(
+            *(
+                section_ids
+                for heading, section_ids in refs_by_section.items()
+                if not ("blocked" in heading and "prohibited" in heading)
+            ),
+            set(),
+        )
+
+        investigative = any(
+            (row.get("policy_tier") or "").strip().upper() in {"R1", "R2", "R3", "R4"}
+            for row in policy_rows
+        )
+        if investigative:
+            required_sections = {
+                "Main findings": main_section_ids,
+                "Non-official / unverified leads": lead_section_ids,
+                "Blocked / prohibited sources": blocked_section_ids,
+                "Contradictions and unknowns": contradiction_section_ids,
+            }
+            normalized_headings = set(refs_by_section)
+            section_presence = {
+                "Main findings": any("main" in h and "findings" in h for h in normalized_headings),
+                "Non-official / unverified leads": any(
+                    "lead" in h and ("non official" in h or "unverified" in h)
+                    for h in normalized_headings
+                ),
+                "Blocked / prohibited sources": any(
+                    "blocked" in h and "prohibited" in h for h in normalized_headings
+                ),
+                "Contradictions and unknowns": any(
+                    "contradiction" in h and "unknown" in h for h in normalized_headings
+                ),
+            }
+            for label in required_sections:
+                if not section_presence[label]:
+                    errors.append(f"investigative report missing required section: {label}")
+
+        for row in policy_rows:
+            cid = (row.get("claim_id") or "").strip()
+            if not cid:
+                continue
+            rtype = (row.get("record_type") or "claim").strip().lower() or "claim"
+            reporting = (row.get("reporting_disposition") or "").strip().lower()
+            source_access = (row.get("source_access_class") or "").strip().lower()
+            sensitivity = (row.get("data_sensitivity") or "").strip().lower()
+            if rtype == "lead" or reporting == "non_official_unverified_leads":
+                if cid in referenced_claims and (
+                    cid not in lead_section_ids or cid in non_lead_section_ids
+                ):
+                    errors.append(f"lead referenced outside non-official lead section: {cid}")
+            if reporting == "main_findings" and investigative:
+                if cid in referenced_claims and cid not in main_section_ids:
+                    errors.append(f"main finding referenced outside Main findings: {cid}")
+            if (
+                reporting in {"blocked_prohibited_sources", "prohibited"}
+                or source_access == "prohibited_secret"
+                or sensitivity in {"secret", "minor"}
+            ) and cid in referenced_claims:
+                if (
+                    cid not in blocked_section_ids
+                    or cid in non_blocked_section_ids
+                    or reporting == "prohibited"
+                ):
+                    errors.append(f"prohibited evidence referenced in report: {cid}")
+            if reporting in {"redacted", "excluded"} and cid in referenced_claims:
+                errors.append(f"non-reportable evidence referenced in report: {cid}")
+            contradiction = (row.get("contradiction") or "").strip().lower()
+            if contradiction in {"direct", "unresolved"} and cid in referenced_claims:
+                if cid not in contradiction_section_ids:
+                    errors.append(
+                        f"unresolved contradiction missing from contradiction section: {cid}"
+                    )
 
         missing = referenced_claims - seen_ids
         for cid in sorted(missing):
@@ -1226,6 +1385,131 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                         "generated ledger metadata produced an active HTML element: "
                         f"{active_html.group(0)!r}"
                     )
+
+        # Test 11: investigative claims and leads stay in separate sections.
+        partition_ws = Path(tmpdir) / "partition-workspace"
+        partition_ws.mkdir()
+        partition_ledger = partition_ws / "evidence-ledger.csv"
+        partition_rows = [
+            {
+                "claim_id": "C100",
+                "claim": "verified public finding",
+                "source_title": "Official source",
+                "source_url": "https://example.com/official",
+                "source_type": "official",
+                "access_method": "fetch",
+                "evidence": "verified",
+                "contradiction": "none",
+                "confidence": "high",
+                "record_type": "claim",
+                "source_access_class": "standard_public",
+                "subject_class": "organization",
+                "purpose_category": "general_research",
+                "policy_tier": "R1",
+                "data_sensitivity": "public",
+                "discovery_disposition": "evidence",
+                "reporting_disposition": "main_findings",
+                "redaction_class": "none",
+            },
+            {
+                "claim_id": "L100",
+                "claim": "unverified community lead",
+                "source_title": "Community source",
+                "source_url": "https://example.com/community",
+                "source_type": "community",
+                "access_method": "fetch",
+                "evidence": "lead only",
+                "contradiction": "none",
+                "confidence": "low",
+                "record_type": "lead",
+                "source_access_class": "standard_public",
+                "subject_class": "organization",
+                "purpose_category": "general_research",
+                "policy_tier": "R1",
+                "speaker_identity": "pseudonymous",
+                "speaker_relationship": "commentary",
+                "content_origin": "original",
+                "lineage_id": "lineage:community-100",
+                "data_sensitivity": "public",
+                "discovery_disposition": "lead_only",
+                "reporting_disposition": "non_official_unverified_leads",
+                "redaction_class": "none",
+            },
+            {
+                "claim_id": "E100",
+                "claim": "excluded item that must not render",
+                "source_title": "Excluded source",
+                "source_url": "https://example.com/excluded",
+                "source_type": "secondary",
+                "access_method": "fetch",
+                "evidence": "excluded",
+                "contradiction": "none",
+                "confidence": "low",
+                "record_type": "claim",
+                "source_access_class": "standard_public",
+                "subject_class": "organization",
+                "purpose_category": "general_research",
+                "policy_tier": "R1",
+                "data_sensitivity": "public",
+                "discovery_disposition": "discarded",
+                "reporting_disposition": "excluded",
+                "redaction_class": "none",
+            },
+        ]
+        with partition_ledger.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=_el_mod.FIELDS)
+            writer.writeheader()
+            writer.writerows(partition_rows)
+        valid_partition_report = (
+            "# Investigative report\n\n"
+            "## Main findings\n\nVerified. [ref:C100]\n\n"
+            "## Non-official / unverified leads\n\nLead. [ref:L100]\n\n"
+            "## Blocked / prohibited sources\n\nNone.\n\n"
+            "## Contradictions and unknowns\n\nNone.\n"
+        )
+        (partition_ws / "report.md").write_text(
+            valid_partition_report, encoding="utf-8"
+        )
+        partition_lint = argparse.Namespace(
+            workspace=str(partition_ws),
+            report=None,
+            strict=True,
+            allow_unreferenced=False,
+        )
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(
+            _io.StringIO()
+        ):
+            partition_rc = cmd_lint(partition_lint)
+        if partition_rc != 0:
+            errors.append("valid investigative section partition failed lint")
+        if any("E100" in line for line in _build_evidence_block(partition_rows)):
+            errors.append("excluded claim leaked into generated Evidence Summary")
+        (partition_ws / "report.md").write_text(
+            "# Investigative report\n\n"
+            "## Main findings\n\nVerified. [ref:C100] Lead. [ref:L100]\n\n"
+            "## Non-official / unverified leads\n\nLead. [ref:L100]\n\n"
+            "## Blocked / prohibited sources\n\nNone.\n\n"
+            "## Contradictions and unknowns\n\nNone.\n",
+            encoding="utf-8",
+        )
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(
+            _io.StringIO()
+        ):
+            partition_bad_rc = cmd_lint(partition_lint)
+        if partition_bad_rc == 0:
+            errors.append("lead referenced outside lead section passed lint")
+        (partition_ws / "report.md").write_text(
+            valid_partition_report.replace(
+                "Verified. [ref:C100]", "Verified. [ref:C100] Excluded. [ref:E100]"
+            ),
+            encoding="utf-8",
+        )
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(
+            _io.StringIO()
+        ):
+            excluded_bad_rc = cmd_lint(partition_lint)
+        if excluded_bad_rc == 0:
+            errors.append("excluded claim reference passed lint")
 
     if errors:
         print("report_render self-test FAILED:", file=sys.stderr)

@@ -38,9 +38,12 @@ Use D Research when an agent needs to:
 - compare contradictory sources and record uncertainty;
 - work across search engines, browser pages, APIs, PDFs, archives, academic IDs, and local files;
 - run systematic reviews, technical research, market/public-data scans, or multi-step long-horizon research;
+- run scoped investigative OSINT, cross-platform social research, authorized threat intelligence, or a verified self-exposure audit;
 - verify that a skill upgrade did not regress core research behavior.
 
-Do **not** use it to bypass access controls, scrape private data, deanonymize people, evade platform restrictions, or run a live monitoring service without separate operational controls.
+Do **not** use it to bypass access controls, target minors, stalk/doxx/harass,
+retain or test stolen secrets, deanonymize a person without authorization, or
+run a live monitoring service without separate operational controls.
 
 ## Product scope
 
@@ -53,11 +56,11 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 48 deep-dive guides (research intake, evidence ledger, query patterns, browser-first crawl, academic databases, API workflow, data pipeline, citation management, PRISMA 2020 systematic-review protocol, synthesis-pattern decision tree, data-extraction toolbox, reproducibility checklist, source-quality rubric, multilingual research, **portable execution gates**, **Vietnamese source discovery**, **research-plan protocol for long-horizon tasks**, **frontier search for gap-driven follow-up**, **fact-verification fast path for atomic-fact lookups**, **person-aggregation with an explicit privacy boundary**, **anti-bot fallback chain for blocked public sources**, **PDF extraction**, **Wayback Machine archive access**, **social-media archival with two-tier platform architecture**, **report generation**, **OCR extraction**, **semantic retrieval**, **register & jargon expansion**, **config reference**, **script inventory**, **workflow routes**, …) plus `references/i18n/` refusal templates (en, vi).
+- `references/` — 52 deep-dive guides, including investigative tiers, scoped person OSINT, cross-platform social classification, verified self-exposure, leak-derived lead handling, research intake, evidence ledgers, academic/systematic review, extraction, execution gates, frontier search, and reproducibility guidance, plus `references/i18n/` refusal templates (en, vi).
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
-- `templates/` — CSV/BibTeX/JSON drop-in starters: evidence ledger (v3.2, 23 columns including optional `record_type`/`license_spdx`/`robots_status`/`prov_activity_id`), screening log, search log, data dictionary, API request log, citation library, **PRISMA flow diagram**, **Frictionless Data Package**, **research-plan schema**, **frontier ledger**, **coverage map**, **register vocab log**.
-- `scripts/` — 48 small, self-contained files (35 Python + 8 top-level Node + 5 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_contract.py`, `package_manifest_check.mjs`, `release_verify.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`) run as CI gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version; `npm run package:check` rejects untracked, sensitive, or omitted runtime files before packaging.
+- `templates/` — CSV/BibTeX/JSON drop-in starters: the v3.3 evidence ledger with 37 columns, investigation scope, screening/search logs, data dictionary, API request log, citation library, PRISMA flow, Frictionless Data Package, research-plan schema, frontier ledger, coverage map, and register vocab log.
+- `scripts/` — 49 small, self-contained files (36 Python + 8 top-level Node + 5 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_contract.py`, `package_manifest_check.mjs`, `release_verify.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`) run as CI gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version; `npm run package:check` rejects untracked, sensitive, or omitted runtime files before packaging.
 - `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, `examples/evals/quality-suite.json`, and `docs/eval.md` — offline eval: 12-task regression, 52-task frontier (bench 3.0), and a 42-case held-out quality suite (development / held-out / adversarial) with multi-dimension scoring, hostile fixtures, fuzz/mutation gates (`scripts/quality_eval.py`, `npm run eval:quality`).
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
@@ -87,7 +90,15 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.2.1 is the stable release of three production-capable optional upgrades:
+v3.3.0-rc.1 is the current release candidate. It adds executable `R0`-`R4`
+investigation scopes, scope-bound plan dispatch, a 37-column policy-aware
+ledger, scoped person OSINT without a fixed 25-row cap, platform-neutral social
+classification, separate non-official lead output, and verified self-exposure
+handling. It does not pre-claim stable promotion, live dogfood, review, CI,
+archive, or provenance results. See
+[`docs/release-v3.3.0-rc.1.md`](docs/release-v3.3.0-rc.1.md).
+
+v3.2.1 is the latest stable release of three production-capable optional upgrades:
 semantic retrieval, rich citation export, and language detection. Semantic
 retrieval now prefers
 local sentence-transformers and uses deterministic built-in lexical retrieval
@@ -154,7 +165,7 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 4. **Public API workflow** for REST / GraphQL / SPARQL endpoints, with pagination patterns, rate-limit handling, and retry/backoff guidance. See `references/api-access-workflow.md` and `adapters/graphql.md`.
 5. **Academic database access** via free APIs (OpenAlex, CrossRef, PubMed E-utilities, Semantic Scholar, arXiv, CORE). See `references/academic-databases.md`.
 6. **Read-only database access** for SQL/NoSQL when the user provides credentials. See `adapters/database-readonly.md`.
-7. **Evidence ledger** — atomic claims with source, type, date, access method, evidence, contradiction status, confidence. **Tamper-evident via HMAC-SHA256** (`scripts/evidence_ledger.py sign / verify`). See `references/evidence-ledger.md` and `templates/evidence-ledger.csv`.
+7. **Evidence ledger** — 37-column v3.3 schema for claims, leads, source access, subject/purpose/tier, social lineage, sensitivity, reporting/redaction/retention, and authorization scope; exact 14/19/22/23-column ledgers remain supported. **Tamper-evident via HMAC-SHA256** (`scripts/evidence_ledger.py sign / verify`). See `references/evidence-ledger.md` and `templates/evidence-ledger.csv`.
 8. **Citation management** — BibTeX/RIS export from an evidence-ledger CSV plus **multi-style rendering** (APA, MLA, IEEE, Chicago, Vancouver, Harvard, Nature, Science, ACM, AMA, …) via `scripts/citation_render.py` (pandoc + CSL). For DOI/PMID/arXiv/ISBN inputs, `scripts/citation_resolver.py` resolves canonical metadata via free public APIs (CrossRef, Datacite, NCBI, arXiv, Open Library, Unpaywall) before export. See `references/citation-management.md` and `adapters/citation-resolver.md`.
 9. **Data processing pipeline** — audit, clean, dedup, validate, merge. See `references/data-processing-pipeline.md`.
 10. **Data extraction toolbox** — recipe-style playbooks for HTML tables (with `scripts/extract_tables.py`), JSON-LD, embedded JSON, dataLayer, sitemaps, RSS, OAI-PMH, REST/GraphQL, PDFs, web archives. See `references/data-extraction-toolbox.md`.
@@ -164,16 +175,18 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 14. **Context-safe long-horizon protocol** — for tasks bigger than one model context window: create one workspace directory, write `research-plan.json`, annotate subagent slots/context budgets, render `PLAN.md` for review, require approval before dispatch, gate execution/synthesis, and write findings to disk immediately to avoid context loss. See `references/research-plan-protocol.md` and `examples/long-horizon-research-plan.md`.
 15. **Frontier search for gap-driven follow-up** — when the first pass leaves evidence gaps, obscure facts, or contested claims, build a small best-first priority queue over candidate queries / URLs / files / APIs / citations / repos / aliases / archives, score each node against the unresolved sub-question, and stop on evidence saturation. Not a literal pathfinding algorithm; no A* / Dijkstra. Maintains a `frontier-ledger.csv` and `coverage-map.json` alongside the evidence ledger. Never bypasses access controls. See `references/frontier-search.md`, `templates/frontier-ledger.csv`, and `templates/coverage-map.json`.
 16. **Fact-verification fast path** — for one-entity / one-attribute / deterministic-primary-source questions (commit SHA, package version, API limit, license clause). Skips decompose, source map, query fanout, and crawl. Hits the primary source once, quotes verbatim, files one ledger row with a one-shot independent re-check, and reports. Bails to the broad workflow on any anomaly. See `references/fact-verification.md`.
-17. **Person aggregation with a privacy boundary** — a dedicated branch for cross-source public-role lookups about a named person (maintainer, author, speaker, journalist, public figure). Anchors on one canonical source (GitHub profile, ORCID, package author, faculty page, verified byline), aggregates verified public-role claims, and **enforces an explicit privacy boundary**: home address, family, private accounts, personal contact, photos, medical / financial / legal / orientation / whereabouts, pseudonym-to-real-name re-identification, and explicitly-private items are out of scope regardless of whether they appear on the open web. Refuses on minors, private individuals, and harassment / stalking / doxxing framings. Saturates at 25 ledger rows or three sources adding no new verified claims. See `references/person-aggregation.md`.
+17. **Scoped person OSINT** — `R2` entity/alias resolution, public-professional timelines, relationships, contradiction search, and bounded frontier expansion. It has no fixed evidence-row cap; scope, risk, resource budgets, and saturation control stopping. Private-person work requires authorization or reviewed public interest, while minors, stalking/doxxing/harassment, secrets, sensitive retention, real-time whereabouts, and weaponized dossiers hard-stop. See `references/person-aggregation.md`.
 18. **Offline eval harness** — a two-tier ground-truth suite (`examples/evals/dogfood-bench.json` for regression and `examples/evals/frontier-bench.json` for frontier probes) plus a stdlib-only harness (`scripts/run_dogfood.py`) that validates benches in CI, verifies per-task schema-2.1 `run-result.json` files with hashed raw prompt/output/ledger provenance, scores agent-produced ledgers, and compares isolated baseline vs. candidate score artifacts. Designed as a regression detector and upgrade signal, not a leaderboard. See `docs/eval.md`.
 19. **Anti-bot fallback chain** — when a relevant public tier-1 source is blocked by Cloudflare, JavaScript challenge, captcha, 403, 429, or repeated browser/fetch failure, try exactly one lawful fallback chain: canonical API/static form, public web archive, cache/snippet if available, fetch-only/no-JS retrieval, then blocker report. Failed attempts are recorded as low-confidence process rows, not positive evidence. See `references/anti-bot-fallback.md`.
 20. **Large-scale collection** — checkpointing, adaptive rate limiting, error budgets for >100-record runs. See `references/large-scale-collection.md`.
 21. **Multilingual research, change monitoring, and specialized-domain sources** (financial / patent / legal / government / geospatial). See the matching files in `references/`.
 22. **Blocker reports** — when a source is unreachable (login, paywall, captcha, rate limit, robots disallow), the skill produces a structured report telling the user exactly what to retrieve manually. See `references/blocker-report.md`.
-23. **Social-media archival** — capture public social-media posts from 12 platforms (Reddit, HN, Mastodon, Bluesky, Lemmy, X, Facebook, Instagram, TikTok, YouTube, Threads, LinkedIn) plus a generic fallback. Tier A platforms use direct public API fetch with SHA-256 content hashing for high verifiability; Tier B platforms use archive-only via Wayback Machine. Every capture carries a mandatory verifiability label and plain-language note. See `references/social-media-archival.md` and `scripts/social_snapshot.py`.
+23. **Social archival and cross-platform research** — capture public posts from 12 platforms plus a generic fallback, then classify every item by speaker identity, relationship, content origin, integrity, lineage, sensitivity, and reporting disposition. Transport tiers describe capture only; they never determine authority. `to-ledger` emits a 37-column lead by default, and only a verified original statement can be explicitly promoted as a statement-made claim. See `references/social-media-archival.md`, `references/social-source-research.md`, and `scripts/social_snapshot.py`.
 24. **Portable execution gates** — before non-trivial synthesis, agents run source-map, coverage/recall, identity/date/inference, evidence-verification, and synthesis-readiness gates. Subagents can accelerate the checks, but the main agent can perform them manually in any runtime. See `references/execution-gates.md`.
 25. **Vietnamese source discovery companion** — opt-in guidance for Vietnamese and Vietnam-local research: diacritic/no-diacritic aliases, local source basins, public-source privacy discipline, and compact coverage tables. See `references/vietnamese-source-discovery.md`.
 26. **Register & jargon expansion companion** — opt-in recall layer for when the evidence basin speaks a different register than the query (clinical vs. lay, legal vs. street, standards vs. shop-floor, academic vs. community jargon, emergent slang). Walks a bidirectional register ladder — formal → vernacular to open recall, vernacular → formal to anchor every community term to a primary source. Harvests vocabulary from fresh results at runtime (never from model memory), keeps only terms recurring across ≥2 independent community sources, and treats the harvested vocabulary as a discovery layer, never as evidence — every claim still passes the source-quality rubric and contradiction pass. Audit-grade runs log vocabulary in `templates/register-vocab-log.csv`. See `references/register-and-jargon-expansion.md`.
+27. **Tiered investigative policy** — `investigation_policy.py` validates `R0` public research, `R1` deep investigation, `R2` scoped person OSINT, `R3` verified self-exposure, and `R4` authorized security work under one non-negotiable `RX` floor. `research_plan.py bind-policy` binds exact scope bytes to every task and invalidates dispatch after drift. See `references/investigative-research.md`.
+28. **Leak-derived research without secret handling** — public incident reporting is admissible normally; authorized providers and affected-user data are scope-bound; raw leak claims create redacted metadata leads only; stolen secrets are never acquired, retained, tested, or reported. See `references/leaked-data-handling.md` and `references/self-exposure-audit.md`.
 
 ---
 
@@ -213,9 +226,11 @@ Not allowed:
 - bypass paywalls or subscription checks
 - solve or evade captchas
 - evade rate limits or anti-bot systems
-- use stealth plugins by default
-- use stolen cookies, leaked tokens, or credentials not explicitly provided by the user
-- access private, personal, or sensitive data without authorization
+- use stealth or anti-detection plugins
+- acquire raw leak dumps or retain/test stolen cookies, passwords, tokens,
+  sessions, MFA material, or private keys
+- target minors, stalk/doxx/harass, or access personal/sensitive data outside a
+  validated scope and authorization
 - ignore robots or explicit site restrictions when acting as a crawler
 
 When blocked, the agent stops and produces a blocker report — it does not force access.
@@ -247,7 +262,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
 │   └── translation.md                    # new — machine-translation adapter
 │
-├── references/                           # 48 deep-dive guides
+├── references/                           # 52 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources
@@ -265,12 +280,14 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── fact-verification.md              # new — atomic-fact fast path
 │   ├── final-report-template.md
 │   ├── frontier-search.md                # new — gap-driven follow-up controller
+│   ├── investigative-research.md         # v3.3 — R0-R4/RX scope and investigation loop
+│   ├── leaked-data-handling.md           # v3.3 — leak taxonomy and lead-only handling
 │   ├── large-scale-collection.md
 │   ├── monitoring-change-detection.md
 │   ├── multilingual-research.md
 │   ├── ocr.md                            # new — OCR / image-to-text extraction
 │   ├── pdf-extraction.md                 # new — PDF extraction reference
-│   ├── person-aggregation.md              # new — public-role aggregation w/ privacy boundary
+│   ├── person-aggregation.md              # v3.3 — scoped person OSINT
 │   ├── query-patterns.md
 │   ├── register-and-jargon-expansion.md  # new — register/jargon recall companion
 │   ├── report-generation.md              # new — final report generation
@@ -280,6 +297,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── research-plan-protocol.md         # new — context-safe long-horizon protocol
 │   ├── safety-and-access-policy.md
 │   ├── semantic-retrieval.md             # new — embedding-based corpus retrieval
+│   ├── self-exposure-audit.md             # v3.3 — verified owned-identifier exposure audit
+│   ├── social-source-research.md          # v3.3 — platform-neutral social evidence
 │   ├── source-discovery.md
 │   ├── source-quality-rubric.md
 │   ├── specialized-domains.md
@@ -315,6 +334,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── data-dictionary.csv
 │   ├── data-package.json                 # new — Frictionless Data Package
 │   ├── evidence-ledger.csv
+│   ├── investigation-scope.json          # v3.3 — tier, scope, authorization, output controls
 │   ├── frontier-ledger.csv               # new — frontier-search trace
 │   ├── prisma-flow.json                  # new — PRISMA 2020 flow diagram
 │   ├── register-vocab-log.csv            # new — register/jargon vocabulary audit log
@@ -329,6 +349,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── api_fetch.mjs                     # paginated API fetch w/ rate limit
 │   ├── web_search.mjs                    # new — multi-engine web search w/ fallback chain
 │   ├── evidence_ledger.py                # init/validate/sign/verify ledger
+│   ├── investigation_policy.py           # v3.3 — scope and source-disposition gate
 │   ├── data_clean.py                     # clean/dedup/validate/merge/stats
 │   ├── citation_export.py                # rich BibTeX/RIS export + CrossRef enrich
 │   ├── citation_render.py                # new — APA/MLA/IEEE/… via pandoc+CSL
@@ -361,7 +382,9 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── release-v3.2.0.md                 # stable release notes
 │   ├── release-v3.2.1-rc.1.md            # initial production-capable optional helper RC
 │   ├── release-v3.2.1-rc.2.md            # attestation-hardened release candidate
-│   └── release-v3.2.1.md                 # stable promotion note (candidate-frozen path)
+│   ├── release-v3.2.1.md                 # stable promotion note (candidate-frozen path)
+│   ├── release-v3.3.0-rc.1.md            # investigation-policy release candidate
+│   └── release-v3.3.0.md                 # stable promotion note (candidate-frozen path)
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates

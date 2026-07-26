@@ -188,6 +188,27 @@ Use `--agent main` to move a task back to the main agent. Any execution
 change revokes approval and removes stale `PLAN.md`; render and approve
 again.
 
+For routes `investigative_osint`, `person_osint_scoped`,
+`social_cross_platform`, `self_exposure_audit`, or `leaked_data_handling`,
+validate the scope artifact and bind it before rendering:
+
+```sh
+node scripts/run_python.mjs scripts/investigation_policy.py check \
+  --file investigation-scope.json
+node scripts/run_python.mjs scripts/research_plan.py bind-policy \
+  --file research-plan.json \
+  --route investigative_osint \
+  --scope investigation-scope.json
+```
+
+`bind-policy` stores the exact file SHA-256 and adds the policy to every
+research and synthesis task input. `investigation_scope_valid` checks the hash,
+policy tier/route compatibility, authorization expiry, and per-task input at
+`plan_ready`, `execute_ready`, and `synthesize_ready`. The ledger gate also
+requires the exact 37-column policy header and binds every R3/R4 row's
+`authorization_scope_hash` to the bound scope. Any policy edit revokes the
+operational assumption: bind again, render again, and re-approve.
+
 Render the plan for human review:
 
 ```sh
@@ -365,7 +386,7 @@ if any fail.
 
 Four standard gates are provided. A plan can add more.
 
-- **`gate.plan_ready`** — schema is valid; workspace layout exists;
+- **`gate.plan_ready`** — schema and any bound investigation scope are valid; workspace layout exists;
   execution annotations are configured; `PLAN.md` exists; dependency
   graph is acyclic; all dependencies point at known task ids; no task is
   `done` yet. Passes before approval.

@@ -457,18 +457,32 @@ def score_row(row: dict[str, str], today: date | None = None) -> Score:
         traceability=score_traceability(row),
         independence=score_independence(row),
     )
-    # Social scoring modifiers (v2.1): applied when verifiability column is present.
+    # Social provenance modifiers (v3.3). Transport verifiability, speaker role,
+    # content origin, and reporting disposition are separate signals. A platform
+    # or author handle alone never establishes authority or truth.
     verifiability = (row.get("verifiability") or "").strip().lower()
     if verifiability == "archive_snapshot":
-        sc.social_bonus += 2
-    if verifiability == "unverified":
-        sc.social_bonus -= 1
-    # Author handle bonus: check notes field for author_handle indicator
-    # or a dedicated column if present in the row.
-    notes = (row.get("notes") or "").strip()
-    author_handle = (row.get("author_handle") or "").strip()
-    if author_handle or "author_handle=" in notes.lower():
         sc.social_bonus += 1
+    if verifiability == "direct_api":
+        sc.social_bonus += 1
+    if verifiability == "unverified":
+        sc.social_bonus -= 2
+    speaker_identity = (row.get("speaker_identity") or "").strip().lower()
+    speaker_relationship = (row.get("speaker_relationship") or "").strip().lower()
+    content_origin = (row.get("content_origin") or "").strip().lower()
+    reporting = (row.get("reporting_disposition") or "").strip().lower()
+    if (
+        speaker_identity in {"official", "verified_public_role"}
+        and speaker_relationship in {"subject", "authorized_representative", "firsthand"}
+        and content_origin in {"original", "firsthand"}
+    ):
+        sc.social_bonus += 1
+    if speaker_identity in {"anonymous", "unknown"}:
+        sc.social_bonus -= 1
+    if content_origin in {"quote", "repost", "screenshot"}:
+        sc.social_bonus -= 1
+    if reporting == "non_official_unverified_leads":
+        sc.social_bonus -= 1
     sc.review_gates = _review_gates_from_row(row)
     return sc
 
@@ -764,19 +778,45 @@ def cmd_self_test() -> int:
     ]
 
     ss1 = score_row(social_samples[0], today=fixed_today)
-    # archive_snapshot -> +2, author_handle in notes -> +1 = social_bonus 3
-    assert ss1.social_bonus == 3, f"expected social_bonus=3, got {ss1.social_bonus}"
-    print(f"  [PASS] social archive_snapshot + author_handle -> social_bonus={ss1.social_bonus}, total={ss1.total}")
+    # Archive integrity helps traceability; a handle alone adds no authority.
+    assert ss1.social_bonus == 1, f"expected social_bonus=1, got {ss1.social_bonus}"
+    print(f"  [PASS] social archive integrity -> social_bonus={ss1.social_bonus}, total={ss1.total}")
 
     ss2 = score_row(social_samples[1], today=fixed_today)
-    # unverified -> -1, no author_handle -> social_bonus -1
-    assert ss2.social_bonus == -1, f"expected social_bonus=-1, got {ss2.social_bonus}"
+    # Unverified transport is a provenance penalty.
+    assert ss2.social_bonus == -2, f"expected social_bonus=-2, got {ss2.social_bonus}"
     print(f"  [PASS] social unverified -> social_bonus={ss2.social_bonus}, total={ss2.total}")
 
     ss3 = score_row(social_samples[2], today=fixed_today)
-    # direct_api -> no archive bonus, author_handle in notes -> +1 = social_bonus 1
+    # Direct API improves integrity; a handle alone still adds no authority.
     assert ss3.social_bonus == 1, f"expected social_bonus=1, got {ss3.social_bonus}"
     print(f"  [PASS] social direct_api + author_handle -> social_bonus={ss3.social_bonus}, total={ss3.total}")
+
+    official_statement = dict(social_samples[2])
+    official_statement.update(
+        {
+            "speaker_identity": "official",
+            "speaker_relationship": "subject",
+            "content_origin": "original",
+            "reporting_disposition": "main_findings",
+        }
+    )
+    ss4 = score_row(official_statement, today=fixed_today)
+    assert ss4.social_bonus == 2, f"expected social_bonus=2, got {ss4.social_bonus}"
+    print(f"  [PASS] official original statement -> social_bonus={ss4.social_bonus}")
+
+    anonymous_repost = dict(social_samples[1])
+    anonymous_repost.update(
+        {
+            "speaker_identity": "anonymous",
+            "speaker_relationship": "repost",
+            "content_origin": "repost",
+            "reporting_disposition": "non_official_unverified_leads",
+        }
+    )
+    ss5 = score_row(anonymous_repost, today=fixed_today)
+    assert ss5.social_bonus == -5, f"expected social_bonus=-5, got {ss5.social_bonus}"
+    print(f"  [PASS] anonymous repost lead -> social_bonus={ss5.social_bonus}")
 
     print("\nAll self-tests passed!")
     return 0
