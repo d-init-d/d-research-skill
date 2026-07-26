@@ -57,15 +57,14 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
-v3.3.0-rc.1 là release candidate hiện tại. Bản này thêm policy điều tra thực thi
-được theo tier `R0`-`R4`, khóa scope vào plan bằng hash, ledger 37 cột, person
-OSINT không còn cap cứng 25 dòng, phân loại social theo người đăng/quan hệ/nội
-dung thay vì theo platform, tách nguồn phi chính thống thành phần riêng, và
-self-exposure audit có xác minh. RC này không tuyên bố trước rằng stable
-promotion, live dogfood, review, CI, archive hay provenance đã pass. Xem
-[`docs/release-v3.3.0-rc.1.md`](docs/release-v3.3.0-rc.1.md).
+v3.3.0 là bản stable hiện tại. Bản này thêm policy điều tra thực thi được theo
+tier `R0`-`R4`, khóa scope vào plan bằng hash, ledger 37 cột, person OSINT
+không còn cap cứng 25 dòng, phân loại social theo người đăng/quan hệ/nội dung
+thay vì theo platform, tách nguồn phi chính thống thành phần riêng, xử lý
+nguồn rò rỉ theo từng lớp và self-exposure audit có xác minh. Xem
+[`docs/release-v3.3.0.md`](docs/release-v3.3.0.md).
 
-v3.2.1 là bản stable gần nhất, nâng ba nhánh optional lên backend production: semantic
+v3.2.1 là bản stable trước đó, nâng ba nhánh optional lên backend production: semantic
 retrieval, citation export giàu metadata và language detection. Semantic
 retrieval ưu
 tiên sentence-transformers cục bộ và dùng fallback lexical deterministic tích

@@ -1,0 +1,178 @@
+{
+  "schema_version": "1.0",
+  "release_version": "3.3.0",
+  "candidate_version": "3.3.0-rc.1",
+  "candidate_skill_commit": "4be4890d5842426240c39b8b8e4725bfec511424",
+  "candidate_tag_object_sha": "5abb7d852239635d8c8da626aa00844c5e260998",
+  "generated_at": "2026-07-26T08:04:05Z",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "python_versions": [
+      "3.11.15"
+    ],
+    "node_versions": [
+      "24.14.0"
+    ]
+  },
+  "commands": [
+    {
+      "id": "npm_ci",
+      "command": "npm ci --ignore-scripts --no-audit --no-fund",
+      "runtime": "npm 11.9.0 / Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "node_self_test",
+      "command": "npm run self-test:node",
+      "runtime": "Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "python_self_test",
+      "command": "npm run self-test:python",
+      "runtime": "Python 3.11.15 / Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "acceptance",
+      "command": "npm run acceptance",
+      "runtime": "Python 3.11.15 / Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "browser_smoke",
+      "command": "npm run browser:smoke",
+      "runtime": "Node 24.14.0 / Playwright 1.61.1 Chromium",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "package_check_after_bytecode",
+      "command": "python -m compileall -q scripts examples && npm run package:check",
+      "runtime": "Python 3.11.15 / npm 11.9.0 / Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "npm_pack_dry_run",
+      "command": "npm pack --dry-run --json",
+      "runtime": "npm 11.9.0 / Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "ruff",
+      "command": "uvx ruff==0.15.21 check scripts/",
+      "runtime": "Ruff 0.15.21 via uvx",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "compileall",
+      "command": "python -m compileall -q scripts examples",
+      "runtime": "Python 3.11.15",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "node_syntax",
+      "command": "python scripts/check_node_syntax.py",
+      "runtime": "Python 3.11.15 / Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "internal_refs",
+      "command": "python scripts/check_internal_refs.py",
+      "runtime": "Python 3.11.15",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "decision_tree",
+      "command": "python scripts/check_internal_refs.py --decision-tree",
+      "runtime": "Python 3.11.15",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "contract",
+      "command": "python scripts/check_contract.py",
+      "runtime": "Python 3.11.15",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "contract_self_test",
+      "command": "python scripts/check_contract.py self-test",
+      "runtime": "Python 3.11.15",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "bench_strict",
+      "command": "python scripts/bench_harness_check.py check-all --strict",
+      "runtime": "Python 3.11.15",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "quality_triple",
+      "command": "python scripts/quality_eval.py triple",
+      "runtime": "Python 3.11.15",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "promotion_anti_spoof",
+      "command": "python scripts/quality_eval.py promotion-anti-spoof",
+      "runtime": "Python 3.11.15",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "actionlint",
+      "command": "go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7",
+      "runtime": "Go 1.26.1 / actionlint 1.7.7",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "git_diff_check",
+      "command": "git diff --cached --check",
+      "runtime": "Git 2.55.0.windows.2",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "archive_replay",
+      "command": "git write-tree; git archive <prospective-tree>; extract without .git; npm ci --ignore-scripts --no-audit --no-fund; npm run self-test; npm pack --dry-run --json; fail on every non-zero exit",
+      "runtime": "Content-addressed prospective staged v3.3.0 tree / Python 3.11.15 / Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "npm_audit",
+      "command": "npm audit --omit=dev --audit-level=moderate",
+      "runtime": "npm 11.9.0 / Node 24.14.0",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "quick_validate",
+      "command": "$env:PYTHONUTF8='1'; python C:\\Users\\dmn05\\.codex\\skills\\.system\\skill-creator\\scripts\\quick_validate.py .",
+      "runtime": "Python 3.11.15 / skill-creator validator",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "summary": {
+    "passed": 22,
+    "failed": 0
+  }
+}

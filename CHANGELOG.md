@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-07-26
+
+Stable production release of the v3.3 investigative-research expansion.
+The research runtime is inherited from the fully tested `v3.3.0-rc.1`
+candidate; the stable tree adds lifecycle metadata, final documentation,
+release evidence, and a narrowly scoped release-policy amendment.
+
+### Added
+
+- Added scope-bound investigative tiers `R0`-`R4`, deterministic policy
+  validation, authorization binding, and risk-budgeted stopping criteria.
+- Added platform-neutral social research across Reddit, X, Facebook,
+  Instagram, Hacker News, and other public sources, with item-level speaker,
+  origin, integrity, and corroboration classification.
+- Added verified self-exposure audits and leak-aware lead handling that keep
+  public reporting, authorized corpora, user-provided material, raw-leak
+  metadata, and prohibited stolen secrets in distinct classes.
+- Added a 37-column policy-aware evidence ledger and four-part investigative
+  report contract for main findings, non-official leads, blocked/prohibited
+  sources, and contradictions/unknowns.
+
+### Changed
+
+- Promoted package metadata to `3.3.0` / PEP 440 `3.3.0` with
+  `Production/Stable` lifecycle status.
+- Replaced fixed person/source caps with explicit purpose, authorization,
+  sensitivity, retention, resource, and saturation controls while preserving
+  hard stops for harmful or unauthorized targeting.
+- Limited the v3.3.0 maintainer override to `independent_reviewer` and
+  `live_dogfood`; exact SHA-256 bindings for the two policy-amendment files,
+  GitHub-verified annotated tags, candidate ancestry, exact-SHA CI,
+  archive/checksum replay, independent reproduction, and build provenance
+  remain non-waivable.
+
+### Release assurance
+
+- The exact `v3.3.0-rc.1` candidate passed 34/34 adversarial acceptance
+  scenarios, all 14 Chromium smoke groups, the 207-path package boundary,
+  dependency audit, cross-platform runtime CI, extracted-tree replay, archive
+  reproduction, checksum validation, and provenance attestation.
+- At the repository owner's explicit direction, v3.3.0 proceeds without a
+  second RC. The stable tree therefore records a post-candidate release-policy
+  amendment limited to `scripts/check_contract.py` and
+  `templates/route-manifest.json`; this is not represented as a metadata-only
+  promotion.
+- Live Tier-1/Tier-2 dogfood and an independent GitHub reviewer are explicitly
+  waived and are not represented as completed evidence.
+
 ## [3.3.0-rc.1] - 2026-07-25
 
 Capability-expansion release candidate for stronger investigative, social,
@@ -1103,7 +1151,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.3.0-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.3.0...HEAD
+[3.3.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.3.0
 [3.3.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.3.0-rc.1
 [3.2.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1
 [3.2.1-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1-rc.2
