@@ -6,7 +6,7 @@
     "templates/route-manifest.json"
   ],
   "policy_deviation_sha256": {
-    "scripts/check_contract.py": "sha256:37962828120a537f9678965db815ea74c6322686efbb3f959b3ecbf7115eb198",
+    "scripts/check_contract.py": "sha256:a4e90ccb1b4fde00c1dcbe1b38a993aa8e82a2913fcd28de901411c44086b07c",
     "templates/route-manifest.json": "sha256:896be6fc1c8a2c9ad5af164fa1e0acb0afc9658b4079bcd94a18d8889ebe0178"
   },
   "release_version": "3.3.0",
@@ -21,7 +21,7 @@
     "login": "d-init-d",
     "role": "repository_owner"
   },
-  "authorized_at": "2026-07-26T08:04:06Z",
+  "authorized_at": "2026-07-26T08:11:04Z",
   "waivers": [
     "independent_reviewer",
     "live_dogfood"
@@ -33,6 +33,6 @@
   },
   "local_verification": {
     "path": "release-evidence/v3.3.0/local-verification.json",
-    "sha256": "sha256:f29dbe966b5513e67e2412bb92869f4ad1c019affea8fe786d67ede502c81e4f"
+    "sha256": "sha256:9e89e69c5e2f33880d2db0d45539bc83e361f950efd6e1b4d725e1c711db7bcc"
   }
 }

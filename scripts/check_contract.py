@@ -95,6 +95,30 @@ _DIRECT_STABLE_POLICY_DEVIATION_PATHS = (
     "scripts/check_contract.py",
     "templates/route-manifest.json",
 )
+_DIRECT_STABLE_REQUIRED_CHECKS = (
+    "npm_ci",
+    "node_self_test",
+    "python_self_test",
+    "acceptance",
+    "browser_smoke",
+    "package_check_after_bytecode",
+    "npm_pack_dry_run",
+    "ruff",
+    "compileall",
+    "node_syntax",
+    "internal_refs",
+    "decision_tree",
+    "contract",
+    "contract_self_test",
+    "bench_strict",
+    "quality_triple",
+    "promotion_anti_spoof",
+    "actionlint",
+    "git_diff_check",
+    "archive_replay",
+    "npm_audit",
+    "quick_validate",
+)
 
 _WINDOWS_DEVICE_NAMES = {
     "CON",
@@ -1339,6 +1363,9 @@ def _check_maintainer_override(
         )
         required_waivers = list(_MAINTAINER_OVERRIDE_WAIVERS)
     required_checks = contract.get("required_checks")
+    if required_checks != list(_DIRECT_STABLE_REQUIRED_CHECKS):
+        errors.append("maintainer override required_checks must match the canonical v3.3.0 set")
+        required_checks = list(_DIRECT_STABLE_REQUIRED_CHECKS)
     if (
         not isinstance(required_checks, list)
         or not required_checks
@@ -2735,6 +2762,8 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                 ):
                     errors.append("maintainer_override waiver set is invalid")
                 checks = override_contract.get("required_checks")
+                if checks != list(_DIRECT_STABLE_REQUIRED_CHECKS):
+                    errors.append("maintainer_override required_checks must match the canonical v3.3.0 set")
                 if (
                     not isinstance(checks, list)
                     or not checks
@@ -4206,7 +4235,7 @@ def self_test() -> int:
         (stable_root / "scripts" / "check_contract.py").write_bytes(
             (ROOT / "scripts" / "check_contract.py").read_bytes()
         )
-        required_checks = ["contract", "npm_self_test"]
+        required_checks = list(_DIRECT_STABLE_REQUIRED_CHECKS)
         override_contract = {
             "schema_version": "1.1",
             "authorization_timing": "post_candidate_owner_direction",

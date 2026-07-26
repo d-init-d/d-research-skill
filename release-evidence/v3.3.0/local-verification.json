@@ -4,7 +4,7 @@
   "candidate_version": "3.3.0-rc.1",
   "candidate_skill_commit": "4be4890d5842426240c39b8b8e4725bfec511424",
   "candidate_tag_object_sha": "5abb7d852239635d8c8da626aa00844c5e260998",
-  "generated_at": "2026-07-26T08:04:05Z",
+  "generated_at": "2026-07-26T08:11:03Z",
   "environment": {
     "os": "Microsoft Windows NT 10.0.26200.0",
     "architecture": "AMD64",
@@ -151,8 +151,8 @@
     },
     {
       "id": "archive_replay",
-      "command": "git write-tree; git archive <prospective-tree>; extract without .git; npm ci --ignore-scripts --no-audit --no-fund; npm run self-test; npm pack --dry-run --json; fail on every non-zero exit",
-      "runtime": "Content-addressed prospective staged v3.3.0 tree / Python 3.11.15 / Node 24.14.0",
+      "command": "$ErrorActionPreference='Stop'; $tree=(git write-tree).Trim(); $archive=Join-Path $env:TEMP 'd-research-v330-source.tar.gz'; $extract=Join-Path $env:TEMP 'd-research-v330-source'; New-Item -ItemType Directory -Force -Path $extract | Out-Null; git archive --format=tar.gz -o $archive $tree; if($LASTEXITCODE){throw 'git archive failed'}; tar -xzf $archive -C $extract; if($LASTEXITCODE){throw 'extract failed'}; if(Test-Path (Join-Path $extract '.git')){throw 'archive contains .git'}; Push-Location $extract; try { npm ci --ignore-scripts --no-audit --no-fund; if($LASTEXITCODE){throw 'npm ci failed'}; npm run self-test; if($LASTEXITCODE){throw 'self-test failed'}; npm pack --dry-run --json; if($LASTEXITCODE){throw 'dry-pack failed'}; python scripts/check_contract.py; if($LASTEXITCODE){throw 'contract failed'} } finally { Pop-Location }",
+      "runtime": "Prospective staged tree resolved by git write-tree / Python 3.11.15 / Node 24.14.0",
       "exit_code": 0,
       "result": "passed"
     },
