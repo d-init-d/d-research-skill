@@ -257,7 +257,7 @@ and verifiability only. Evidentiary authority is item-level and platform-neutral
 under `references/social-source-research.md`.
 
 Self-exposure work is `R3`, requires verified ownership/authorization and a
-named-recipient output, and reports exposure metadata plus remediationâ€”never
+named-recipient output, and reports exposure metadata plus remediation—never
 secrets or unrelated victims. Raw-leak references are metadata-only `lead`
 rows with no dump URL, excerpt, hash, or main-finding disposition.
 

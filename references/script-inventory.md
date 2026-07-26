@@ -48,6 +48,14 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/quality_eval.py`: validate / list / integrity / hostile / fuzz / mutation / perf-compare / degraded / promotion-report / promotion-anti-spoof / self-test / triple — held-out research-quality suite, fail-closed enforcement of every promotion threshold, exact candidate/CI binding, integrity-covered evaluation and deterministic-run artifacts, citation/date integrity, and production-path hostile checks via `content_sanitize`. See `examples/evals/quality-suite.json` and `docs/eval.md`
 - `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE) and bounded credential-isolating manual redirects; see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
+- `scripts/run_python.mjs`: portable Node-to-Python wrapper that runs every bundled Python helper through one entry point (runtime-internal; used by all `npm run` Python scripts)
+- `scripts/lib/config.mjs`: shared standard-library config loader — cwd-scoped `research.config.json` discovery, explicit `--config`, typed reads, and secret redaction; used by `api_fetch.mjs` (runtime-internal; see `references/config-reference.md`)
+- `scripts/run_metadata.py`: record / self-test — append local run-metadata JSONL with optional `--redact-secrets`, `--command-hash`, and `--omit-hostname` privacy modes (strictly local, never uploaded)
+- `scripts/harvest_terms.py`: harvest / self-test — harvest domain terms/jargon from collected text to seed register-aware search (runtime-internal)
+- `scripts/run_dogfood.py`: self-test / validate / baseline / list / classes / render / score / compare — offline dogfood evaluation harness over bundled bench fixtures (developer-test; **not** an agent benchmark)
+- `scripts/generate_test_pdf.py`: generate deterministic PDF fixtures for `pdf_extract` / `ocr` tests (developer-test)
+- `scripts/check_node_syntax.py`: CI guard that `node --check`s every bundled `.mjs` (release-only)
+- `scripts/check_no_plan_files.py`: CI guard that rejects stray planning/working files from the package (release-only)
 
 The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.
 
