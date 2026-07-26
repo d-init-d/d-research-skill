@@ -14,6 +14,7 @@ import {
   installBrowserSsrfGuard,
   structuredBlocker,
 } from './lib/browser_ssrf.mjs';
+import { browserUserAgent } from './lib/package_metadata.mjs';
 
 function parseArgs(argv) {
   const args = { headless: true, timeout: 30000, waitMs: 750, maxResponseBytes: null };
@@ -80,8 +81,7 @@ async function ensureDirFor(filePath) {
 }
 
 // Must match robots User-agent token used by playwright_crawl.mjs
-const BROWSER_USER_AGENT =
-  'Mozilla/5.0 (compatible; DResearchBot/3.2; +https://github.com/d-init-d/d-research-skill)';
+const BROWSER_USER_AGENT = browserUserAgent();
 
 async function run(args) {
   if (!args.url) throw new Error('Missing --url');

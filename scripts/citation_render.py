@@ -46,12 +46,15 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from package_metadata import package_user_agent
 from resource_limits import (
     ResourceLimitError,
     emit_blocker_and_exit,
     load_limits,
     read_http_response_bounded,
 )
+
+CITATION_STYLE_USER_AGENT = package_user_agent(component="citation-render")
 
 DEFAULT_STYLES: dict[str, str] = {
     "apa": "apa",
@@ -183,7 +186,7 @@ def resolve_csl(style: str, *, allow_download: bool = True) -> Path | None:
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "d-research-skill citation_render (+lawful-public-fetch)"
+                "User-Agent": CITATION_STYLE_USER_AGENT
             },
         )
         limits = load_limits()

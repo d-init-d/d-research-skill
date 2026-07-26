@@ -99,11 +99,11 @@ private / mismatched peers, response limits); `api_fetch.mjs --self-test`.
 
 ## Browser arbitrary URL - fail-closed (not accepted-risk)
 
-- **Helpers:** `browser_ssrf.mjs` used by `playwright_probe.mjs`, `playwright_extract.mjs`, `playwright_crawl.mjs`.
+- **Helpers:** `scripts/lib/browser_ssrf.mjs` used by `scripts/playwright_probe.mjs`, `scripts/playwright_extract.mjs`, `scripts/playwright_crawl.mjs`.
 - **Policy:** Private destinations are denied with structured blockers; private nav/subresource/fetch/popup/WebSocket attempts are zero-request denials.
 - **Connection binding:** Allowed HTTP(S) browser requests are fulfilled through `fetchPublicHttp`, which validates DNS, connects to the validated peer, preserves Host/SNI, and re-checks the connected peer before streaming the response back to Playwright.
 - **Route scope:** Guards are installed on the browser context, not only the page, and contexts use `serviceWorkers: 'block'` so service-worker interception cannot bypass routing. WebSockets are closed instead of proxied because Playwright's WebSocket server bridge does not provide D Research's pinned-peer guarantee.
-- **Fixture loopback:** Browser helpers accept loopback only through the hidden `--allow-loopback-fixture` test hook used by `browser_smoke.mjs`; `D_RESEARCH_SSRF_ALLOW_LOOPBACK` is not read by `browser_ssrf.mjs`.
+- **Fixture loopback:** Browser helpers accept loopback only through the hidden `--allow-loopback-fixture` test hook used by `scripts/browser_smoke.mjs`; `D_RESEARCH_SSRF_ALLOW_LOOPBACK` is not read by `scripts/lib/browser_ssrf.mjs`.
 - **Tests:** `node scripts/lib/browser_ssrf.mjs --self-test`; `npm run browser:smoke` covers subresource/fetch/popup/WebSocket zero-request behavior, service-worker blocking, TLS default failure/opt-in, and resource-limit blockers.
 
 ## Accepted-risk details (fixed endpoints only)

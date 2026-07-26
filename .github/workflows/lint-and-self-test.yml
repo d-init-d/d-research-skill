@@ -86,7 +86,10 @@ jobs:
           done
           python scripts/check_internal_refs.py
           python scripts/check_internal_refs.py --decision-tree
+          python scripts/check_doc_examples.py
           python scripts/check_contract.py
+          python release-evidence/v3.4.0/baseline/capability_baseline.py \
+            check --baseline release-evidence/v3.4.0/baseline/capability-baseline.json
 
   optional-python-backends:
     name: real optional backends (ubuntu / py${{ matrix.python-version }})
@@ -255,6 +258,11 @@ jobs:
           D_RESEARCH_LEDGER_KEY: ""
         run: npm run self-test
 
+      - name: Verify capability superset and artifact profiles
+        run: |
+          npm run capability:check
+          npm run artifact:self-test
+
       - name: Run adversarial acceptance without duplicate browser launch
         env:
           D_RESEARCH_SKIP_BROWSER_SMOKE: "1"
@@ -311,6 +319,12 @@ jobs:
         env:
           D_RESEARCH_LEDGER_KEY: ""
         run: npm run self-test
+
+      - name: Verify capability superset and artifact profiles
+        shell: pwsh
+        run: |
+          npm run capability:check
+          npm run artifact:self-test
 
       - name: Run adversarial acceptance without duplicate browser launch
         env:

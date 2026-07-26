@@ -24,12 +24,52 @@ or default is removed, and all v3.3.0 inputs remain valid. See
   (npm `ledger:contract`) plus the committed snapshot
   `templates/interop-contract.json`, generated from live ledger constants and
   route ids, and validated for drift by `check_contract.py`.
+- Added config-backed API pagination with CLI-over-config precedence while
+  preserving the no-config `10`-page default.
+- Added explicit POST/PUT/PATCH/DELETE request construction, intent labels,
+  JSON/file bodies, content types, opt-in retry attempts, and cross-origin
+  redirect authorization to `api_fetch.mjs`.
+- Added Wayback `--submit-archive`, `--dry-run`, and `--json` interfaces plus
+  run-metadata secret redaction.
+- Added deterministic-for-identical-input `full` and `runtime` release
+  artifacts with trusted allowlist contracts, bounded verification, embedded
+  and sidecar manifests, per-file/tree SHA-256, extracted-profile self-tests,
+  and forged-contract regression coverage.
+- Added canonical Python and Node package-identity helpers so every network
+  User-Agent resolves the live package version instead of embedding stale
+  release labels.
 
 ### Changed
 
 - Bumped the candidate version to `3.4.0-rc.1` (Beta classifier) so the
   candidate is exempt from the stable release-evidence gate while feature work
   proceeds, per the repository's own `-rc.N` promotion model.
+- Routed all 52 reference guides directly from `SKILL.md`, expanded executable
+  path checks, completed the 55-file script inventory, and added fenced
+  Python/JavaScript syntax checks.
+- Replaced end-user repository-clone instructions with a checksummed,
+  allowlisted runtime artifact. The historical `full` profile remains
+  capability-complete; `source` remains its accepted alias.
+
+### Fixed
+
+- Prevented automatic retries from duplicating state-changing API requests;
+  additional attempts now require explicit opt-in.
+- Corrected 301/302/303/307/308 method, body, credential, and origin handling;
+  accepted valid 204/205/empty responses; and preserved GraphQL/JSON objects.
+- Rejected unknown CLI options even with `--print-effective-config`, applied
+  bodyless `--content-type`, and closed camelCase/URL/quoted-secret redaction
+  gaps.
+- Corrected the Wayback documentation mismatch without changing the historical
+  `save` command behavior.
+
+### Security
+
+- Runtime artifact verification now uses the trusted local profile contract
+  rather than an archive-supplied allowlist, binds optional expected version
+  and SHA-256 values, limits compressed/member/file/uncompressed sizes, rejects
+  noncanonical archive metadata, and refuses path, junction, reparse-point, or
+  case-collision escapes.
 
 ## [3.3.0] - 2026-07-26
 
@@ -411,7 +451,7 @@ installed-skill readiness gaps found after rc.1 preparation.
 - **F-05 / direct HTTP SSRF:** `api_fetch.mjs` uses connection-bound
   `fetchPublicHttp` (validate DNS → connect to validated IP → peer re-check;
   URL-derived Host + DNS SNI). Rebinding / mixed DNS / peer mismatch covered in
-  `ssrf_guards.mjs` self-test.
+  `scripts/lib/ssrf_guards.mjs` self-test.
 - **Browser SSRF:** arbitrary browser URLs are fail-closed by default (not
   accepted-risk). Local fixture loopback only via
   the hidden `--allow-loopback-fixture` test hook (browser_smoke / acceptance

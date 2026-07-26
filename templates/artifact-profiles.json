@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "artifact_root": "d-research",
+  "manifest_path": "ARTIFACT-MANIFEST.json",
+  "profiles": {
+    "full": {
+      "aliases": [
+        "source"
+      ],
+      "description": "Complete source/developer/auditor profile. This remains the capability-complete distribution.",
+      "include": [
+        ".agents/**",
+        ".github/**",
+        ".gitattributes",
+        ".gitignore",
+        ".lycheeignore",
+        ".npmignore",
+        ".pre-commit-config.yaml",
+        "AGENTS.md",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "LICENSE",
+        "README.md",
+        "README.vi.md",
+        "SKILL.md",
+        "adapters/**",
+        "agents/**",
+        "docs/**",
+        "examples/**",
+        "package-lock.json",
+        "package.json",
+        "pyproject.toml",
+        "references/**",
+        "release-evidence/**",
+        "research.config.example.json",
+        "scripts/**",
+        "templates/**"
+      ],
+      "exclude_categories": {
+        "version_control": [
+          ".git/**"
+        ],
+        "dependency_installations": [
+          "node_modules/**",
+          ".venv/**",
+          "venv/**"
+        ],
+        "generated_build_outputs": [
+          "dist/**",
+          "build/**",
+          "artifacts/**"
+        ],
+        "runtime_caches": [
+          "**/__pycache__/**",
+          "**/*.pyc",
+          "**/*.pyo",
+          "**/.pytest_cache/**",
+          "**/.ruff_cache/**"
+        ]
+      },
+      "required_paths": [
+        ".agents/skills/testing-scripts/SKILL.md",
+        ".github/workflows/lint-and-self-test.yml",
+        "SKILL.md",
+        "agents/openai.yaml",
+        "examples/evals/quality/fixtures/hostile/inject_ignore_instructions.html",
+        "package.json",
+        "release-evidence/v3.2.1/promotion.json",
+        "scripts/check_contract.py",
+        "scripts/evidence_ledger.py",
+        "scripts/release_verify.py",
+        "templates/interop-contract.json",
+        "templates/route-manifest.json"
+      ],
+      "route_closure": false,
+      "package_projection": "none",
+      "self_test_script": "self-test:source"
+    },
+    "runtime": {
+      "aliases": [],
+      "description": "Additional end-user runtime profile; the full/source profile remains available without capability removal.",
+      "include": [
+        "AGENTS.md",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "LICENSE",
+        "README.md",
+        "README.vi.md",
+        "SKILL.md",
+        "adapters/**",
+        "agents/**",
+        "docs/**",
+        "examples/**",
+        "package-lock.json",
+        "package.json",
+        "pyproject.toml",
+        "references/**",
+        "research.config.example.json",
+        "scripts/**",
+        "templates/**"
+      ],
+      "exclude_categories": {
+        "version_control": [
+          ".git/**"
+        ],
+        "dependency_installations": [
+          "node_modules/**",
+          ".venv/**",
+          "venv/**"
+        ],
+        "generated_build_outputs": [
+          "dist/**",
+          "build/**",
+          "artifacts/**"
+        ],
+        "runtime_caches": [
+          "**/__pycache__/**",
+          "**/*.pyc",
+          "**/*.pyo",
+          "**/.pytest_cache/**",
+          "**/.ruff_cache/**"
+        ],
+        "ci_history": [
+          ".github/**"
+        ],
+        "release_evidence": [
+          "release-evidence/**"
+        ],
+        "developer_subskill": [
+          ".agents/**"
+        ],
+        "hostile_prompt_fixtures": [
+          "examples/evals/quality/fixtures/hostile/**"
+        ],
+        "source_control_metadata": [
+          ".gitattributes",
+          ".gitignore",
+          ".lycheeignore",
+          ".npmignore",
+          ".pre-commit-config.yaml"
+        ]
+      },
+      "required_paths": [
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "LICENSE",
+        "README.md",
+        "README.vi.md",
+        "SKILL.md",
+        "agents/openai.yaml",
+        "docs/eval.md",
+        "examples/evals/quality-suite.json",
+        "examples/fixtures/test.pdf",
+        "examples/long-horizon-research-plan.md",
+        "examples/systematic-review-prisma.md",
+        "examples/fixtures/v3.1.1-workspace/PLAN.md",
+        "examples/fixtures/v3.1.1-workspace/research-plan.json",
+        "package.json",
+        "references/research-intake.md",
+        "scripts/evidence_ledger.py",
+        "scripts/check_internal_refs.py",
+        "scripts/lib/config.mjs",
+        "scripts/run_python.mjs",
+        "templates/artifact-profiles.json",
+        "templates/interop-contract.json",
+        "templates/route-manifest.json"
+      ],
+      "forbidden_paths": [
+        ".agents/skills/testing-scripts/SKILL.md",
+        ".github/workflows/lint-and-self-test.yml",
+        "examples/evals/quality/fixtures/hostile/inject_ignore_instructions.html",
+        "release-evidence/v3.2.1/promotion.json"
+      ],
+      "route_closure": true,
+      "package_projection": "runtime",
+      "self_test_script": "self-test:runtime"
+    }
+  }
+}

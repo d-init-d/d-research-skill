@@ -26,6 +26,7 @@ import http.server
 import io
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -40,6 +41,7 @@ try:
     import http_cache as _http_cache
 except ImportError:  # pragma: no cover
     _http_cache = None
+from package_metadata import package_user_agent
 from resource_limits import (  # type: ignore
     ResourceLimitError,
     add_resource_limit_arguments,
@@ -60,12 +62,29 @@ RATE_LIMIT_PER_MIN = 15
 MAX_RETRIES = 3
 MAX_RETRY_DELAY_SECONDS = 120
 
-USER_AGENT = "d-research-skill/0.2.0 (https://github.com/d-init-d/d-research-skill)"
+USER_AGENT = package_user_agent(component="wayback")
+
+_SECRET_QUERY_KEY_RE = (
+    r"api[_-]?key|apikey|access[_-]?token|client[_-]?secret|refresh[_-]?token|"
+    r"token|key|auth|password|secret|credential"
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _redact_url_for_output(url: str) -> str:
+    """Redact URL userinfo and secret-bearing query values before printing."""
+    text = str(url or "")
+    text = re.sub(r"://([^/@\s]+):([^/@\s]+)@", r"://[REDACTED]:[REDACTED]@", text)
+    return re.sub(
+        rf"([?&#](?:{_SECRET_QUERY_KEY_RE})=)[^&#\s]*",
+        r"\1[REDACTED]",
+        text,
+        flags=re.IGNORECASE,
+    )
 
 
 def _retry_after_seconds(
@@ -417,18 +436,18 @@ def fetch_with_backoff(url: str, method: str = "GET", max_retries: int = MAX_RET
                 continue
             if e.code == 429:
                 print(
-                    f"error: rate limited after {max_retries} retries for {url}",
+                    f"error: rate limited after {max_retries} retries for {_redact_url_for_output(url)}",
                     file=sys.stderr,
                 )
                 sys.exit(1)
-            print(f"error: request failed for {url}: HTTP {e.code}", file=sys.stderr)
+            print(f"error: request failed for {_redact_url_for_output(url)}: HTTP {e.code}", file=sys.stderr)
             sys.exit(1)
         except urllib.error.URLError as e:
-            print(f"error: request failed for {url}: {e.reason}", file=sys.stderr)
+            print(f"error: request failed for {_redact_url_for_output(url)}: {e.reason}", file=sys.stderr)
             sys.exit(1)
 
     # Should not reach here, but guard against logic errors
-    print(f"error: unexpected failure for {url}", file=sys.stderr)
+    print(f"error: unexpected failure for {_redact_url_for_output(url)}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -443,6 +462,8 @@ def cmd_save(args: argparse.Namespace) -> int:
     mutation, and `--json` emits a structured result.
     """
     save_url = f"{SAVE_URL_PREFIX}{args.url}"
+    safe_save_url = _redact_url_for_output(save_url)
+    safe_target = _redact_url_for_output(args.url)
     as_json = getattr(args, "json", False)
 
     if getattr(args, "dry_run", False):
@@ -452,15 +473,15 @@ def cmd_save(args: argparse.Namespace) -> int:
                     {
                         "action": "save",
                         "method": "POST",
-                        "endpoint": save_url,
-                        "target": args.url,
+                        "endpoint": safe_save_url,
+                        "target": safe_target,
                         "dry_run": True,
                         "submitted": False,
                     }
                 )
             )
         else:
-            print(f"[dry-run] would POST to Save Page Now: {save_url} (no request sent)")
+            print(f"[dry-run] would POST to Save Page Now: {safe_save_url} (no request sent)")
         return 0
 
     raw = fetch_with_backoff(save_url, method="POST")
@@ -475,16 +496,16 @@ def cmd_save(args: argparse.Namespace) -> int:
                 {
                     "action": "save",
                     "method": "POST",
-                    "endpoint": save_url,
-                    "target": args.url,
+                    "endpoint": safe_save_url,
+                    "target": safe_target,
                     "dry_run": False,
                     "submitted": True,
-                    "archive_url": archive_url,
+                    "archive_url": _redact_url_for_output(archive_url),
                 }
             )
         )
     else:
-        print(f"Saved: {archive_url}")
+        print(f"Saved: {_redact_url_for_output(archive_url)}")
     return 0
 
 
@@ -968,6 +989,23 @@ def cmd_self_test(args: argparse.Namespace) -> int:
             sys.stdout = old_stdout
         if rc != 0:
             errors.append("save --submit-archive alias must be accepted")
+
+        # Output paths must not disclose credentials embedded in a target URL.
+        secret_save_ns = argparse.Namespace(
+            url="https://user:pass@example.com/page?token=SAVESECRET&client_secret=CLIENTSECRET",
+            submit_archive=False,
+            dry_run=True,
+            json=True,
+        )
+        captured = io.StringIO()
+        sys.stdout = captured
+        try:
+            rc = cmd_save(secret_save_ns)
+        finally:
+            sys.stdout = old_stdout
+        secret_output = captured.getvalue()
+        if rc != 0 or any(secret in secret_output for secret in ("pass@", "SAVESECRET", "CLIENTSECRET")):
+            errors.append("save --dry-run output leaked URL credentials")
 
         # Report results
         if errors:

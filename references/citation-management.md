@@ -396,7 +396,7 @@ Before finalizing any citation export, verify:
 | **DOI format valid** | DOIs match `10.xxxx/xxxxx` pattern | Verify or search for correct DOI |
 | **Journal title** | Abbreviated or full name consistent | Use CrossRef canonical form |
 
-**Validation**: there is no separate `citation_validate.py` script. Use the existing evidence-ledger validator, which checks the evidence-ledger CSV that `citation_export.py` consumes (required headers, non-empty atomic claims, present source URLs, well-formed confidence values, etc.):
+**Validation**: there is no separate citation-validation helper. Use the existing evidence-ledger validator, which checks the evidence-ledger CSV that `citation_export.py` consumes (required headers, non-empty atomic claims, present source URLs, well-formed confidence values, etc.):
 
 ```bash
 python3 scripts/evidence_ledger.py validate --file evidence.csv

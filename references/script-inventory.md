@@ -19,11 +19,13 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/package_manifest_check.mjs`: fail-closed npm tarball validation in Git worktrees and extracted source archives; rejects untracked/local/sensitive artifacts, missing tracked runtime files, and path-fingerprint drift
 - `scripts/release_verify.py`: offline validation of exact-SHA GitHub Actions success and the default-policy GitHub tag/reviewer API responses; scoped waivers are authorized only by `check_contract.py`
 - `scripts/_ssrf_helpers.py`: shared Python public-host / SSRF guards, DNS-pinned streaming HTTPS transport, and bounded same-origin-only private redirect policy for social, translation, and embedding callers
+- `scripts/package_metadata.py`: canonical package-version and User-Agent resolver used by Python network helpers; standalone copies fall back to an explicit `unknown` version instead of a stale release number
 - `scripts/content_sanitize.py`: production HTML/visible-text extraction, secret redaction, hostile-source processing, safe download names (used by multi_extract + quality eval)
 - `scripts/lib/ssrf_guards.mjs`: shared public-host / SSRF guards + **connection-bound** `fetchPublicHttp` (Node; used by `api_fetch.mjs`)
 - `scripts/lib/browser_ssrf.mjs`: context-level browser SSRF/read-only guard with Node-pinned GET/HEAD fulfillment, page-originated mutation-method blocking, aggregate/request budgets, service-worker blocking, and WebSocket fail-closed behavior; used by playwright probe/extract/crawl
 - `scripts/lib/credentials.mjs`: credential classification and redaction for Node HTTP clients
 - `scripts/lib/browser_limits.mjs`: shared Playwright response/output caps, structured exit-3 blockers, and limit parsing used by probe/extract/crawl
+- `scripts/lib/package_metadata.mjs`: canonical package-version and User-Agent resolver shared by browser and Node network helpers
 - `scripts/browser_smoke.mjs`: real Chromium launch + local fixture smoke (probe/extract/crawl/robots/TLS/local-only/browser SSRF adversarial/service-worker blocking)
 - `scripts/adversarial_acceptance.py`: mandatory adversarial acceptance matrix; CI sets `D_RESEARCH_SKIP_BROWSER_SMOKE=1` and runs one explicit browser smoke per OS
 - `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + path-contained official CSL slug caching
@@ -56,6 +58,9 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/generate_test_pdf.py`: generate deterministic PDF fixtures for `pdf_extract` / `ocr` tests (developer-test)
 - `scripts/check_node_syntax.py`: CI guard that `node --check`s every bundled `.mjs` (release-only)
 - `scripts/check_no_plan_files.py`: CI guard that rejects stray planning/working files from the package (release-only)
+- `scripts/check_doc_examples.py`: compile Python and syntax-check JavaScript fenced examples, plus UTF-8/mojibake screening (release-only)
+- `scripts/build_release_artifacts.py`: deterministic-for-identical-input `full`/`runtime` artifact builder and trusted-profile verifier with bounded decompression, per-file/tree SHA-256 manifests, package-command closure, and forged-contract regression tests (release-only)
+- `scripts/runtime_self_test.mjs`: dependency-light extracted-runtime verification that rejects hostile/release/CI payloads and dangling commands or references (runtime-internal)
 
 The scripts are optional. If dependencies are unavailable, follow the workflow manually using the agent's browser or web tools.
 
@@ -66,6 +71,9 @@ The scripts are optional. If dependencies are unavailable, follow the workflow m
 - `npm run self-test:python`: offline Python helper and contract checks through the portable Node-to-Python wrapper (includes `quality_eval.py self-test`).
 - `npm run eval:quality`: held-out quality suite offline self-test (validate + integrity + hostile + fuzz + mutation + degraded + perf).
 - `npm run self-test`: complete offline Node + Python helper suite.
+- `npm run self-test:source`: full source suite plus the frozen v3.3.0 capability-superset gate.
+- `npm run self-test:runtime`: extracted runtime-profile syntax and functional checks without release/eval payloads.
+- `npm run artifact:self-test`: deterministic build-twice, extraction, manifest, route-closure, and profile verification.
 - `npm run acceptance`: adversarial acceptance matrix; its normal local run includes the browser case.
 - `npm run browser:smoke`: one real Chromium run against local fixtures.
 

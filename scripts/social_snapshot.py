@@ -33,11 +33,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from package_metadata import package_user_agent
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-USER_AGENT = "d-research-skill/3.3.0 (https://github.com/d-init-d/d-research-skill)"
+USER_AGENT = package_user_agent(component="social-snapshot")
 SCHEMA_VERSION = "1.1"
 
 VALID_VERIFICATION_STATUS = {

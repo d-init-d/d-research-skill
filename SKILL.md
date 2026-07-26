@@ -150,6 +150,11 @@ fast-path branch says otherwise. Do not claim completeness unless gates pass.
 
 Narrative branch detail: `references/workflow-routes.md`.
 Machine-readable routes: `templates/route-manifest.json`.
+Supporting operations: `references/wayback-archive.md`, `references/pdf-extraction.md`,
+`references/ocr.md`, `references/multi-format-extraction.md`,
+`references/extraction-methods.md`, `references/deduplication.md`,
+`references/http-cache.md`, `references/citation-graph.md`,
+`references/synthesis-patterns.md`, and `references/reproducibility-checklist.md`.
 
 ## Core deep research workflow
 
@@ -279,13 +284,13 @@ Tampered ledgers with stale HMAC sidecars must fail every release gate.
 
 Scripts under `scripts/` are optional. Key entry points:
 
-- Browser: `playwright_probe.mjs`, `playwright_extract.mjs`, `playwright_crawl.mjs`
-- Plan/report: `research_plan.py`, `report_render.py`, `evidence_ledger.py`
-- Investigation policy: `investigation_policy.py`
-- Network: `api_fetch.mjs`, `web_search.mjs`, `http_cache.py`
-- Academic: `citation_export.py`, `citation_render.py`, `citation_resolver.py`
-- Social/archive: `social_snapshot.py`, `wayback.py`
-- Quality: `score_source.py`, `run_dogfood.py`, `check_contract.py`
+- Browser: `scripts/playwright_probe.mjs`, `scripts/playwright_extract.mjs`, `scripts/playwright_crawl.mjs`
+- Plan/report: `scripts/research_plan.py`, `scripts/report_render.py`, `scripts/evidence_ledger.py`
+- Investigation policy: `scripts/investigation_policy.py`
+- Network: `scripts/api_fetch.mjs`, `scripts/web_search.mjs`, `scripts/http_cache.py`
+- Academic: `scripts/citation_export.py`, `scripts/citation_render.py`, `scripts/citation_resolver.py`
+- Social/archive: `scripts/social_snapshot.py`, `scripts/wayback.py`
+- Quality: `scripts/score_source.py`, `scripts/run_dogfood.py`, `scripts/check_contract.py`
 
 Full inventory: `references/script-inventory.md`.
 

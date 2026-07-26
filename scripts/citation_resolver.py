@@ -42,6 +42,7 @@ try:
     import http_cache as _http_cache
 except ImportError:  # pragma: no cover
     _http_cache = None
+from package_metadata import package_user_agent
 from resource_limits import (
     ResourceLimitError,
     emit_blocker_and_exit,
@@ -49,10 +50,7 @@ from resource_limits import (
     read_http_response_bounded,
 )
 
-USER_AGENT = (
-    "d-research-skill/0.3.0 "
-    "(https://github.com/d-init-d/d-research-skill; contact@example.com)"
-)
+USER_AGENT = package_user_agent(component="citation-resolver", contact="contact@example.com")
 DEFAULT_EMAIL = "contact@example.com"
 
 CROSSREF_API = "https://api.crossref.org/works"

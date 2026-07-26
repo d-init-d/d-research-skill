@@ -14,12 +14,23 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { redactSecretsInText } from './credentials.mjs';
 
 export const CONFIG_BASENAME = 'research.config.json';
 
 // Leaf keys whose values must never be printed by --print-effective-config.
-const SECRET_KEY_RE =
-  /(^|_|\.)(key|token|secret|password|passwd|authorization|auth|cookie|credential|api[_-]?key|access[_-]?token|bearer)($|_|\.)/i;
+const SECRET_KEY_PARTS = new Set([
+  'key',
+  'token',
+  'secret',
+  'password',
+  'passwd',
+  'authorization',
+  'auth',
+  'cookie',
+  'credential',
+  'bearer',
+]);
 
 const REDACTED = '***redacted***';
 
@@ -97,11 +108,20 @@ export function redactConfig(value) {
   if (value && typeof value === 'object') {
     const out = {};
     for (const [k, v] of Object.entries(value)) {
-      out[k] = SECRET_KEY_RE.test(k) ? REDACTED : redactConfig(v);
+      const normalizedKey = String(k)
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/[^A-Za-z0-9]+/g, '_')
+        .toLowerCase();
+      const secretKey = normalizedKey.split('_').some((part) => SECRET_KEY_PARTS.has(part));
+      out[k] = secretKey
+        ? REDACTED
+        : typeof v === 'string'
+          ? redactSecretsInText(v)
+          : redactConfig(v);
     }
     return out;
   }
-  return value;
+  return typeof value === 'string' ? redactSecretsInText(value) : value;
 }
 
 async function selfTest() {
@@ -119,7 +139,13 @@ async function selfTest() {
     // Discovered config.
     writeFileSync(
       path.join(dir, CONFIG_BASENAME),
-      JSON.stringify({ api: { maxPagesPerEndpoint: 50 }, headers: { Authorization: 'Bearer x' } }),
+      JSON.stringify({
+        api: { maxPagesPerEndpoint: 50 },
+        headers: { Authorization: 'Bearer x' },
+        clientSecret: 'client-secret-value',
+        refreshToken: 'refresh-token-value',
+        endpoint: 'https://example.test/?token=query-secret',
+      }),
       'utf8',
     );
     r = loadConfig({ startDir: dir });
@@ -139,8 +165,11 @@ async function selfTest() {
 
     // Redaction never leaks secret-like values.
     const redacted = redactConfig(r.config);
-    if (JSON.stringify(redacted).includes('Bearer x')) {
-      errors.push('redactConfig must hide Authorization values');
+    const redactedText = JSON.stringify(redacted);
+    for (const secret of ['Bearer x', 'client-secret-value', 'refresh-token-value', 'query-secret']) {
+      if (redactedText.includes(secret)) {
+        errors.push(`redactConfig must hide ${secret}`);
+      }
     }
 
     // Explicit missing path errors.

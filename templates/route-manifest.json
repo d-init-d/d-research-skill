@@ -3,15 +3,17 @@
   "skill_name": "d-research",
   "repository_contract": {
     "version": "3.4.0-rc.1",
+    "contract_role": "frozen_candidate",
+    "promotes_to": "3.4.0",
     "counts": {
       "references_markdown": 52,
       "adapters_markdown": 9,
       "examples_markdown": 9,
-      "scripts_python": 36,
-      "scripts_node_top_level": 8,
-      "scripts_node_lib": 6,
-      "scripts_total": 50,
-      "templates_files": 16,
+      "scripts_python": 39,
+      "scripts_node_top_level": 9,
+      "scripts_node_lib": 7,
+      "scripts_total": 55,
+      "templates_files": 17,
       "evidence_ledger_columns": 37
     },
     "core_paths": [
@@ -21,8 +23,13 @@
       "README.vi.md",
       "docs/upgrade-v3.1.1-to-v3.2.0.md",
       "scripts/check_contract.py",
+      "scripts/check_doc_examples.py",
+      "scripts/build_release_artifacts.py",
       "scripts/package_manifest_check.mjs",
       "scripts/release_verify.py",
+      "scripts/runtime_self_test.mjs",
+      "scripts/package_metadata.py",
+      "scripts/lib/package_metadata.mjs",
       "scripts/lib/browser_limits.mjs",
       "scripts/lib/browser_ssrf.mjs",
       "scripts/content_sanitize.py",
@@ -32,6 +39,8 @@
       "templates/research-plan.json",
       "templates/evidence-ledger.csv",
       "templates/investigation-scope.json",
+      "templates/artifact-profiles.json",
+      "templates/interop-contract.json",
       "templates/route-manifest.json",
       "references/workflow-routes.md",
       "references/investigative-research.md",
@@ -45,7 +54,7 @@
       "`references/` — 52 deep-dive guides",
       "# 52 deep-dive guides",
       "37 columns",
-      "49 small, self-contained files"
+      "55 small, self-contained files"
     ],
     "installation_contract": {
       "final_directory": "d-research",
@@ -73,7 +82,25 @@
           "--allow-partial",
           "--cursor-key",
           "--config",
-          "--print-effective-config"
+          "--print-effective-config",
+          "--method",
+          "--intent",
+          "--body-json",
+          "--body-file",
+          "--content-type",
+          "--max-attempts",
+          "--allow-redirect-origin"
+        ]
+      },
+      {
+        "path": "scripts/build_release_artifacts.py",
+        "canonical_flags": [
+          "--profile",
+          "--output-dir",
+          "--expected-profile",
+          "--expected-sha256",
+          "--expected-version",
+          "--run-profile-self-test"
         ]
       },
       {
@@ -175,8 +202,8 @@
   "stable_release_gate": {
     "promotion_mode": "maintainer_override",
     "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
-    "required_baseline_version": "3.2.1",
-    "required_candidate_version": "3.3.0-rc.1",
+    "required_baseline_version": "3.3.0",
+    "required_candidate_version": "3.4.0-rc.1",
     "full_ci": {
       "workflow_path": ".github/workflows/lint-and-self-test.yml",
       "exact_candidate_sha": true,
@@ -187,7 +214,7 @@
       "annotated": true,
       "github_verified": true,
       "bind_tag_object_sha": true,
-      "expected_tag_object_sha": "4f797f0cb0f75539edfc9bc9332ca4dd041e881c",
+      "expected_tag_object_sha": "050d4060182a38c9383365896941b9cbeffee5f4",
       "verification_mode": "github_verified_tag_object_sha"
     },
     "candidate_tag": {
@@ -205,12 +232,9 @@
     "maintainer_override": {
       "schema_version": "1.1",
       "authorization_timing": "post_candidate_owner_direction",
-      "policy_deviation_paths": [
-        "scripts/check_contract.py",
-        "templates/route-manifest.json"
-      ],
+      "policy_deviation_paths": [],
       "manifest_path": "release-evidence/v{version}/maintainer-override.json",
-      "allowed_release_version": "3.3.0",
+      "allowed_release_version": "3.4.0",
       "required_decision": "approved_with_waivers",
       "required_repository": "d-init-d/d-research-skill",
       "required_maintainer_login": "d-init-d",
@@ -222,8 +246,9 @@
         "npm_ci",
         "node_self_test",
         "python_self_test",
-        "acceptance",
-        "browser_smoke",
+        "runtime_self_test",
+        "artifact_self_test",
+        "artifact_build",
         "package_check_after_bytecode",
         "npm_pack_dry_run",
         "ruff",
@@ -231,6 +256,7 @@
         "node_syntax",
         "internal_refs",
         "decision_tree",
+        "docs_examples",
         "contract",
         "contract_self_test",
         "bench_strict",
@@ -238,9 +264,9 @@
         "promotion_anti_spoof",
         "actionlint",
         "git_diff_check",
-        "archive_replay",
         "npm_audit",
-        "quick_validate"
+        "quick_validate",
+        "capability_superset"
       ],
       "bind_candidate_commit": true,
       "bind_candidate_tag_object_sha": true,

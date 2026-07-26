@@ -24,8 +24,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -71,6 +74,64 @@ def _api_fetch_default_max_pages(root: Path) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _default_from_source(root: Path, relative: str, pattern: str) -> int | None:
+    """Read a simple numeric public default without importing optional runtimes."""
+    text = (root / relative).read_text(encoding="utf-8")
+    match = re.search(pattern, text)
+    return int(match.group(1)) if match else None
+
+
+def _cli_options(root: Path) -> dict[str, list[str]]:
+    """Capture option names exposed by bundled Python/Node entrypoints.
+
+    This is intentionally lexical: invoking every command's help can perform
+    imports, discover credentials, or require optional binaries.  It still
+    catches removal of an advertised flag and permits additive new flags.
+    """
+    result: dict[str, list[str]] = {}
+    paths = sorted(
+        list((root / "scripts").glob("*.py"))
+        + list((root / "scripts").glob("*.mjs"))
+        + list((root / "scripts" / "lib").glob("*.mjs"))
+    )
+    option_re = re.compile(r"(?<![A-Za-z0-9_])--[A-Za-z][A-Za-z0-9-]*")
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        options = sorted(set(option_re.findall(text)))
+        if options:
+            result[path.relative_to(root).as_posix()] = options
+    return result
+
+
+def _package_surface(root: Path) -> dict:
+    """Capture the published path list and its deterministic digest."""
+    try:
+        proc = subprocess.run(
+            ["npm.cmd" if os.name == "nt" else "npm", "pack", "--dry-run", "--json", "--ignore-scripts"],
+            cwd=root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=120,
+        )
+        payload = json.loads(proc.stdout)
+        manifest = payload[0] if isinstance(payload, list) else payload
+        paths = sorted(
+            str(entry.get("path", "")).replace("\\", "/")
+            for entry in manifest.get("files", [])
+            if isinstance(entry, dict) and entry.get("path")
+        )
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        paths = []
+    canonical = json.dumps(paths, ensure_ascii=False, separators=(",", ":"))
+    return {
+        "file_count": len(paths),
+        "paths_sha256": "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "paths": paths,
+    }
+
+
 def _rel_sorted(paths: list[Path], root: Path) -> list[str]:
     return sorted(p.relative_to(root).as_posix() for p in paths)
 
@@ -97,7 +158,16 @@ def capture(root: Path) -> dict:
         "routes": routes,
         "defaults": {
             "api_fetch.maxPages": _api_fetch_default_max_pages(root),
+            "api_fetch.delay": _default_from_source(root, "scripts/api_fetch.mjs", r"delay:\s*(\d+)"),
+            "api_fetch.timeout": _default_from_source(root, "scripts/api_fetch.mjs", r"timeout:\s*(\d+)"),
+            "crawl.maxDepth": _default_from_source(root, "scripts/playwright_crawl.mjs", r"maxDepth\s*:\s*(\d+)"),
+            "crawl.maxPages": _default_from_source(root, "scripts/playwright_crawl.mjs", r"maxPages\s*:\s*(\d+)"),
+            "crawl.maxPagesPerDomain": _default_from_source(root, "scripts/playwright_crawl.mjs", r"maxPagesPerDomain\s*:\s*(\d+)"),
+            "crawl.delayMs": _default_from_source(root, "scripts/playwright_crawl.mjs", r"delayMs\s*:\s*(\d+)"),
+            "crawl.timeout": _default_from_source(root, "scripts/playwright_crawl.mjs", r"timeout\s*:\s*(\d+)"),
         },
+        "cli_options": _cli_options(root),
+        "package_surface": _package_surface(root),
         "references": references,
         "scripts": scripts,
         "templates": templates,
@@ -116,6 +186,26 @@ def check(baseline: dict, current: dict) -> list[str]:
         errors.extend(
             _superset_errors(name, baseline.get(name, []), current.get(name, []))
         )
+
+    # CLI options are a per-entrypoint superset: new flags are allowed, but an
+    # existing advertised flag may not disappear.
+    baseline_options = baseline.get("cli_options", {})
+    current_options = current.get("cli_options", {})
+    for path, required in baseline_options.items():
+        errors.extend(_superset_errors(f"cli_options[{path}]", required, current_options.get(path, [])))
+
+    # Full/source package paths are also monotonic.  The digest is retained as
+    # evidence, while the check compares the path set so additive files remain
+    # valid in a candidate.
+    baseline_surface = baseline.get("package_surface", {})
+    current_surface = current.get("package_surface", {})
+    errors.extend(
+        _superset_errors(
+            "package_surface.paths",
+            baseline_surface.get("paths", []),
+            current_surface.get("paths", []),
+        )
+    )
 
     b_ledger = baseline.get("ledger", {})
     c_ledger = current.get("ledger", {})

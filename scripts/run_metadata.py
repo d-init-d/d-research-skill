@@ -10,8 +10,11 @@ Captures a single record per invocation:
   - ``command``         optional free-form description / shell line
   - ``label``           optional one-word run label
 
-Strictly local. Never uploaded. Never reads secrets. The JSONL file
-chosen by ``--out`` is created if missing and appended to otherwise.
+Strictly local and never uploaded by this helper. It does not inspect secret
+stores or environment values, but a caller-supplied free-form ``--command`` can
+itself contain sensitive text. Use ``--redact-secrets`` before persistence when
+recording a real shell line. The JSONL file chosen by ``--out`` is created if
+missing and appended to otherwise.
 
 Subcommands
 -----------
@@ -23,8 +26,8 @@ Privacy
 This is process-level metadata. It does **not** capture environment
 variables, command-line arguments of other processes, file contents, or
 user identity beyond ``socket.gethostname()``. If your hostname is
-sensitive, set ``--hostname`` or ``D_RESEARCH_RUN_HOSTNAME`` to a label
-of your choice.
+sensitive, set ``--hostname`` / ``D_RESEARCH_RUN_HOSTNAME`` to a label or use
+``--omit-hostname``.
 """
 from __future__ import annotations
 
@@ -46,14 +49,28 @@ from typing import Any
 _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Authorization headers (with optional "Bearer ").
     (re.compile(r"(?i)(authorization\s*[:=]\s*)(bearer\s+)?\S+"), r"\1\2***"),
-    # key=value / key: value for common secret-bearing keys.
+    # key=value / key: value for common secret-bearing keys, including the
+    # camelCase names commonly used in JSON config and OAuth clients.
     (
         re.compile(
-            r"(?i)\b(api[_-]?key|access[_-]?token|token|secret|password|passwd|bearer|cookie)"
+            r"(?i)\b(api[_-]?key|access[_-]?token|client[_-]?secret|refresh[_-]?token|"
+            r"token|secret|password|passwd|bearer|cookie)"
             r"(\"?\s*[:=]\s*\"?)([^\s\"'&]+)"
         ),
         r"\1\2***",
     ),
+    # Common command-line forms: --client-secret VALUE, --api-key=VALUE,
+    # including quoted values.
+    (
+        re.compile(
+            r"(?i)(--(?:api[-_]?key|access[-_]?token|client[-_]?secret|"
+            r"refresh[-_]?token|token|secret|password|passwd|bearer|cookie)"
+            r"(?:=|\s+))(\"[^\"]*\"|'[^']*'|[^\s]+)"
+        ),
+        r"\1***",
+    ),
+    # Standalone bearer/basic authorization material in a shell line.
+    (re.compile(r"(?i)\b(Bearer|Basic)\s+[^\s\"']+"), r"\1 ***"),
     # Credentials embedded in a URL: scheme://user:pass@host
     (re.compile(r"(https?://)([^/\s:@]+):([^/\s@]+)@"), r"\1\2:***@"),
 ]
@@ -295,6 +312,20 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             errors.append(f"--redact-secrets left a secret in: {red['command']!r}")
         if red.get("command_redacted") is not True:
             errors.append("--redact-secrets must set command_redacted=true")
+
+        # Common camelCase/CLI/quoted forms must also be hidden.
+        common = build_record(
+            command=(
+                "tool --client-secret C --refresh-token R --password 'quoted secret' "
+                "--headers '{\"clientSecret\":\"JSONSECRET\"}'"
+            ),
+            redact_secrets=True,
+        )
+        common_text = common["command"]
+        for leaked in (" C", " R", "quoted secret", "JSONSECRET"):
+            if leaked in common_text:
+                errors.append(f"--redact-secrets left common secret form: {common_text!r}")
+                break
 
         # --- D4: --command-hash records the hash of the RAW command ---
         raw_cmd = "curl -H 'Authorization: Bearer SECRET'"

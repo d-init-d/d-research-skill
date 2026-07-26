@@ -60,7 +60,7 @@ Concretely, the repo contains:
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: the v3.3 evidence ledger with 37 columns, investigation scope, screening/search logs, data dictionary, API request log, citation library, PRISMA flow, Frictionless Data Package, research-plan schema, frontier ledger, coverage map, and register vocab log.
-- `scripts/` — 49 small, self-contained files (36 Python + 8 top-level Node + 5 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_contract.py`, `package_manifest_check.mjs`, `release_verify.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`) run as CI gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version; `npm run package:check` rejects untracked, sensitive, or omitted runtime files before packaging.
+- `scripts/` — 55 small, self-contained files (39 Python + 9 top-level Node + 7 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_doc_examples.py`, `check_contract.py`, `build_release_artifacts.py`, `package_manifest_check.mjs`, `release_verify.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`, `runtime_self_test.mjs`) run as CI/release gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version; `npm run package:check` rejects untracked, sensitive, or omitted runtime files before packaging.
 - `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, `examples/evals/quality-suite.json`, and `docs/eval.md` — offline eval: 12-task regression, 52-task frontier (bench 3.0), and a 42-case held-out quality suite (development / held-out / adversarial) with multi-dimension scoring, hostile fixtures, fuzz/mutation gates (`scripts/quality_eval.py`, `npm run eval:quality`).
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
@@ -415,7 +415,11 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 Paste this into any LLM agent or IDE assistant (Claude Code, OpenCode, Cursor, Windsurf, etc.):
 
 ```text
-Install the D Research skill from https://github.com/d-init-d/d-research-skill.git into this project so you can use it for deep research. Prefer vendoring it at .agents/skills/d-research, keep it read-only by default, copy research.config.example.json to research.config.json only if I want project-specific settings, and run the optional self-tests if Node/Python are available.
+Install D Research v3.4.0 from the GitHub Release runtime artifact into
+.agents/skills/d-research. Do not clone the repository. Download both the
+runtime .tar.gz and its .sha256 file, verify SHA-256 before extraction, keep
+the skill read-only by default, and run npm run self-test:runtime when
+Node/Python are available.
 ```
 
 #### Option B: Manual setup
@@ -437,19 +441,45 @@ Install the D Research skill from https://github.com/d-init-d/d-research-skill.g
    The commands below use the portable project-local destination. Substitute
    another destination from the matrix when installing for one runtime only.
 
-   Bash:
+   The runtime artifact is an allowlisted end-user payload. It excludes CI,
+   release evidence, hostile eval fixtures, and the developer-only testing
+   sub-skill. Its projected package metadata advertises only commands that are
+   closed inside the artifact. Bash:
 
 ```bash
+version=3.4.0
+base="https://github.com/d-init-d/d-research-skill/releases/download/v${version}"
 mkdir -p .agents/skills
-git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
+test ! -e .agents/skills/d-research || { echo 'destination already exists' >&2; exit 1; }
+curl --fail --location --remote-name "${base}/d-research-${version}-runtime.tar.gz"
+curl --fail --location --remote-name "${base}/d-research-${version}-runtime.tar.gz.sha256"
+sha256sum --check "d-research-${version}-runtime.tar.gz.sha256"
+tar -xzf "d-research-${version}-runtime.tar.gz" -C .agents/skills
+test -f .agents/skills/d-research/SKILL.md
 ```
 
    PowerShell:
 
 ```powershell
+$Version = '3.4.0'
+$Base = "https://github.com/d-init-d/d-research-skill/releases/download/v$Version"
+$Archive = "d-research-$Version-runtime.tar.gz"
 New-Item -ItemType Directory -Force .agents/skills | Out-Null
-git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
+if (Test-Path .agents/skills/d-research) { throw 'destination already exists' }
+Invoke-WebRequest "$Base/$Archive" -OutFile $Archive
+Invoke-WebRequest "$Base/$Archive.sha256" -OutFile "$Archive.sha256"
+$Expected = ((Get-Content "$Archive.sha256" -Raw) -split '\s+')[0].ToLowerInvariant()
+$Actual = (Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($Actual -ne $Expected) { throw "SHA-256 mismatch for $Archive" }
+tar -xzf $Archive -C .agents/skills
+if (-not (Test-Path .agents/skills/d-research/SKILL.md)) { throw 'Skill entry point missing' }
 ```
+
+   Use `d-research-3.4.0-full.tar.gz` instead when you explicitly need the
+   complete contributor/auditor surface, including CI, evaluations, hostile
+   fixtures, and release evidence. `full` (alias `source`) remains the
+   capability-complete profile; `runtime` is an additional clean install
+   profile, not a replacement.
 
 2. Point your agent/IDE at the skill entry point:
 
@@ -473,7 +503,7 @@ Copy-Item .agents/skills/d-research/research.config.example.json research.config
 cd .agents/skills/d-research
 npm ci
 npx --no-install playwright install chromium
-npm run self-test
+npm run self-test:runtime
 ```
 
 5. Use it by asking your agent for research work, for example:
@@ -492,24 +522,12 @@ D Research does not store API keys, model routing, or provider credentials. Conf
 
 ### As an agent skill
 
-Most agentic frameworks ingest skills by reading `SKILL.md` (and any sub-skill `.agents/skills/*/SKILL.md`). Two common setups:
-
-**Drop-in for an existing project**
-
-```bash
-# Clone the skill alongside your project
-git clone https://github.com/d-init-d/d-research-skill.git d-research
-# Point your agent at d-research/SKILL.md
-```
-
-**Vendor it into your project's `.agents/skills/`**
-
-```bash
-# From your project root
-mkdir -p .agents/skills
-git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
-# Most agents will auto-discover the new SKILL.md
-```
+Most agentic frameworks ingest skills by reading `SKILL.md`. Install the
+checksummed `runtime` release artifact with the commands above, either beside
+your project or under its `.agents/skills/` discovery root. Repository cloning
+is not an end-user installation path. Maintainers who need the complete source,
+evaluation, and release-verification surface can install the separately
+published `source` profile.
 
 The agent then reads `SKILL.md` and follows the workflow. No installation, no environment variables, no API keys are required to use the skill itself — only specific scripts (below) need a runtime.
 
@@ -530,10 +548,11 @@ python3 --version                    # 3.10+ required
 python3 -m pip install -e ".[embeddings,language-detection]"
 ```
 
-Run the bundled offline self-tests to confirm everything is wired correctly:
+Run the bundled offline self-test for the profile you installed:
 
 ```bash
-npm run self-test
+npm run self-test:runtime  # runtime artifact
+npm run self-test:source   # complete source artifact
 ```
 
 If Python is installed outside `PATH`, set `D_RESEARCH_PYTHON` to the full

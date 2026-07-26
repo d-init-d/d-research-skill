@@ -35,6 +35,7 @@ try:
     import http_cache as _http_cache
 except ImportError:  # pragma: no cover
     _http_cache = None
+from package_metadata import package_user_agent
 from resource_limits import (
     ResourceLimitError,
     emit_blocker_and_exit,
@@ -43,10 +44,7 @@ from resource_limits import (
 )
 
 OPENALEX_API = "https://api.openalex.org"
-USER_AGENT = (
-    "d-research-skill/0.3.0 "
-    "(https://github.com/d-init-d/d-research-skill; contact@example.com)"
-)
+USER_AGENT = package_user_agent(component="citation-graph", contact="contact@example.com")
 DEFAULT_DELAY = 1.0
 DEFAULT_MAX_EXPAND = 500
 DEFAULT_MAX_CITED_BY = 200

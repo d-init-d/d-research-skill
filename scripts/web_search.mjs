@@ -6,8 +6,9 @@ import {
   publicHeadersOnly,
   urlHasCredentials,
 } from './lib/credentials.mjs';
+import { packageUserAgent } from './lib/package_metadata.mjs';
 
-const USER_AGENT = 'd-research-skill/0.3.0 (https://github.com/d-init-d/d-research-skill)';
+const USER_AGENT = packageUserAgent('web-search');
 const DEFAULT_MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;

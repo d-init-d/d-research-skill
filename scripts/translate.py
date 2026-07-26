@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from _ssrf_helpers import public_urlopen_with_redirects
+from package_metadata import package_user_agent
 from resource_limits import (
     ResourceLimitError,
     emit_blocker_and_exit,
@@ -43,10 +44,7 @@ from resource_limits import (
     read_http_response_bounded,
 )
 
-USER_AGENT = (
-    "d-research-skill/0.3.0 "
-    "(https://github.com/d-init-d/d-research-skill; contact@example.com)"
-)
+USER_AGENT = package_user_agent(component="translate", contact="contact@example.com")
 
 # Known LibreTranslate public instances (best-effort, may go offline)
 LIBRETRANSLATE_INSTANCES = [

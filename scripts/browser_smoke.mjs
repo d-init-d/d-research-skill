@@ -19,11 +19,12 @@ import { spawn } from 'node:child_process';
 import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { chromium } from 'playwright';
 import { installBrowserSsrfGuard } from './lib/browser_ssrf.mjs';
+import { browserUserAgent } from './lib/package_metadata.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-const UA = 'DResearchBot/3.2 (+https://github.com/d-init-d/d-research-skill)';
+const UA = browserUserAgent();
 
 // Minimal DER builder used only to create an ephemeral self-signed localhost
 // certificate. No private key is committed and no external network/tool is used.

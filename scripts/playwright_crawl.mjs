@@ -13,6 +13,7 @@ import {
   assertBrowserPublicUrl,
   installBrowserSsrfGuard,
 } from './lib/browser_ssrf.mjs';
+import { browserUserAgent } from './lib/package_metadata.mjs';
 import { fetchPublicHttp } from './lib/ssrf_guards.mjs';
 
 function parseArgs(argv) {
@@ -111,8 +112,7 @@ async function loadSeeds(args) {
 // Product token used for browser context, robots.txt fetch, and rule selection.
 const ROBOTS_UA_TOKEN = 'DResearchBot';
 const ROBOTS_UA = 'dresearchbot';
-const BROWSER_USER_AGENT =
-  'Mozilla/5.0 (compatible; DResearchBot/3.2; +https://github.com/d-init-d/d-research-skill)';
+const BROWSER_USER_AGENT = browserUserAgent();
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const MAX_ROBOTS_BYTES = 1024 * 1024;
 

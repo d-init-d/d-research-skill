@@ -130,25 +130,33 @@ Other scripts can opt in by importing the helper:
 ```python
 # Python
 import http_cache
-request_headers = {"User-Agent": "my-tool/1.0", "Authorization": "Bearer abc"}
-if http_cache.get_cache_path():
-    cached = http_cache.get("GET", url, request_headers=request_headers)
-    if cached:
-        return cached["body"]
-    # ... fetch ...
-    http_cache.put("GET", url, status, response_headers, body,
-                   request_headers=request_headers)
+
+
+def cache_result(url, status, response_headers, body):
+    request_headers = {"User-Agent": "my-tool/1.0", "Authorization": "Bearer abc"}
+    if http_cache.get_cache_path():
+        cached = http_cache.get("GET", url, request_headers=request_headers)
+        if cached:
+            return cached["body"]
+        http_cache.put(
+            "GET", url, status, response_headers, body,
+            request_headers=request_headers,
+        )
+    return body
 ```
 
 ```javascript
 // Node
-import { getCachePath, getCached, putCache } from './lib/http_cache.mjs';
-if (getCachePath()) {
+import { getCachePath, getCached, putCache } from './scripts/lib/http_cache.mjs';
+
+function cacheResult(url, status, responseHeaders, body) {
   const requestHeaders = { Authorization: 'Bearer abc' };
-  const hit = getCached('GET', url, { requestHeaders });
-  if (hit) return hit.body;
-  // ... fetch ...
-  putCache('GET', url, status, responseHeaders, body, { requestHeaders });
+  if (getCachePath()) {
+    const hit = getCached('GET', url, { requestHeaders });
+    if (hit) return hit.body;
+    putCache('GET', url, status, responseHeaders, body, { requestHeaders });
+  }
+  return body;
 }
 ```
 

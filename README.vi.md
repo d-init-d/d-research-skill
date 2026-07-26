@@ -178,7 +178,11 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 Paste đoạn này vào Claude Code, OpenCode, Cursor, Windsurf hoặc agent bạn dùng:
 
 ```text
-Install the D Research skill from https://github.com/d-init-d/d-research-skill.git into this project so you can use it for deep research. Prefer vendoring it at .agents/skills/d-research, keep it read-only by default, copy research.config.example.json to research.config.json only if I want project-specific settings, and run the optional self-tests if Node/Python are available.
+Install D Research v3.4.0 from the GitHub Release runtime artifact into
+.agents/skills/d-research. Do not clone the repository. Download both the
+runtime .tar.gz and its .sha256 file, verify SHA-256 before extraction, keep
+the skill read-only by default, and run npm run self-test:runtime when
+Node/Python are available.
 ```
 
 ### Cách B: Cài thủ công
@@ -200,16 +204,41 @@ runtime, thay destination bằng đường dẫn tương ứng trong bảng.
 Với Bash:
 
 ```bash
+version=3.4.0
+base="https://github.com/d-init-d/d-research-skill/releases/download/v${version}"
 mkdir -p .agents/skills
-git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
+test ! -e .agents/skills/d-research || { echo 'destination already exists' >&2; exit 1; }
+curl --fail --location --remote-name "${base}/d-research-${version}-runtime.tar.gz"
+curl --fail --location --remote-name "${base}/d-research-${version}-runtime.tar.gz.sha256"
+sha256sum --check "d-research-${version}-runtime.tar.gz.sha256"
+tar -xzf "d-research-${version}-runtime.tar.gz" -C .agents/skills
+test -f .agents/skills/d-research/SKILL.md
 ```
 
 Với PowerShell:
 
 ```powershell
+$Version = '3.4.0'
+$Base = "https://github.com/d-init-d/d-research-skill/releases/download/v$Version"
+$Archive = "d-research-$Version-runtime.tar.gz"
 New-Item -ItemType Directory -Force .agents/skills | Out-Null
-git clone https://github.com/d-init-d/d-research-skill.git .agents/skills/d-research
+if (Test-Path .agents/skills/d-research) { throw 'destination already exists' }
+Invoke-WebRequest "$Base/$Archive" -OutFile $Archive
+Invoke-WebRequest "$Base/$Archive.sha256" -OutFile "$Archive.sha256"
+$Expected = ((Get-Content "$Archive.sha256" -Raw) -split '\s+')[0].ToLowerInvariant()
+$Actual = (Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($Actual -ne $Expected) { throw "SHA-256 mismatch for $Archive" }
+tar -xzf $Archive -C .agents/skills
+if (-not (Test-Path .agents/skills/d-research/SKILL.md)) { throw 'Skill entry point missing' }
 ```
+
+Artifact `runtime` là payload cài đặt theo allowlist: không mang CI, release
+evidence, hostile eval fixture hay sub-skill testing chỉ dành cho developer.
+Package metadata đã project chỉ quảng bá command đóng kín trong artifact. Nếu
+cần toàn bộ bề mặt dành
+cho contributor/auditor, dùng `d-research-3.4.0-full.tar.gz`. Profile
+`full` (alias `source`) vẫn là bản đầy đủ capability; `runtime` chỉ là lựa chọn
+cài đặt sạch bổ sung, không thay thế bản source.
 
 Thư mục cuối phải là `d-research` để khớp với `name` trong frontmatter.
 
@@ -237,11 +266,12 @@ npm ci
 npx --no-install playwright install chromium
 # Tùy chọn: backend semantic và language detection chất lượng production
 python -m pip install -e ".[embeddings,language-detection]"
-npm run self-test
+npm run self-test:runtime
 ```
 
-`npm run self-test` là chuỗi helper test offline. Release CI chạy thêm adversarial
-matrix và đúng một lần Chromium smoke dùng fixture local trên mỗi hệ điều hành.
+`npm run self-test:runtime` kiểm tra payload cài đặt sạch. Với artifact
+`source`, dùng `npm run self-test:source`; release CI còn chạy adversarial
+matrix và Chromium smoke bằng fixture local trên mỗi hệ điều hành.
 
 ## Config quan trọng
 

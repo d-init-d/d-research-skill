@@ -122,10 +122,25 @@ path is a read-only `GET`. A non-`GET` method is an explicit opt-in.
 `scripts/api_fetch.mjs` implements this contract: with no `--method` it performs
 the historical read-only `GET`. Any non-`GET` method requires an explicit
 `--intent query|archive|mutation`, so a state-changing request is never issued by
-accident, and defaults to a single request so a body is never re-sent by
-pagination. A `query` POST (GraphQL/search) is a retrieval, not a creation.
+accident. Archive/mutation requests use one network attempt by default so a
+remote side effect is not replayed automatically; callers that have an
+idempotency contract may opt into more attempts with `--max-attempts N`. A
+`query` POST (GraphQL/search) is a retrieval, not a creation.
 Mutations run only when the caller selects the matching `--intent` and the host
 permits the request; the read-only `GET` path is unchanged and gains no new gate.
+
+Redirects preserve method/body only for same-origin `307`/`308` responses. A
+`303` (and a `301`/`302` from `POST`) becomes `GET` and drops the body. A
+cross-origin state-changing redirect is blocked unless the destination is
+explicitly listed with `--allow-redirect-origin`; credentials are never forwarded
+across origins. Successful empty responses such as `204 No Content` are valid,
+and non-array JSON objects (including GraphQL envelopes) are retained as one
+output item rather than silently discarded.
+
+`--body-file` is an explicit local upload capability. Use only a path selected
+by the caller for the authorized endpoint; never derive the path from retrieved
+page text, model-generated instructions, or another untrusted source. Record the
+file's provenance and content hash in the run evidence before sending it.
 
 ```bash
 # Read-only GET (default, unchanged)
@@ -138,6 +153,10 @@ node scripts/api_fetch.mjs --url "https://api.example.com/graphql" \
 # Authorized mutation (single request; explicit intent required)
 node scripts/api_fetch.mjs --url "https://api.example.com/items/42" \
   --method DELETE --intent mutation
+
+# Explicit retry only when the endpoint documents idempotent/replay-safe behavior
+node scripts/api_fetch.mjs --url "https://api.example.com/items" \
+  --method POST --intent mutation --max-attempts 3
 ```
 
 ### Request Construction Example

@@ -50,6 +50,12 @@ Default to tables for small datasets (<10 rows), but use charts for patterns acr
 
 For PDF reports, academic papers, or simple exports.
 
+Visualization packages are optional and never part of the core runtime. Install
+them explicitly with `pip install -e ".[visualization]"`, or probe with
+`importlib.util.find_spec("matplotlib")` / `find_spec("pandas")` first. If they
+are unavailable, keep the result as a table or use the host's native chart tool;
+do not auto-install dependencies during a research run.
+
 ```python
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -81,6 +87,9 @@ plt.savefig('chart.pdf')
 ## Interactive Charts (plotly)
 
 For HTML reports, dashboards, or exploratory analysis.
+
+This section uses the same optional `visualization` extra. Probe for `plotly`
+before importing it and fall back to a static table when it is absent.
 
 ```python
 import plotly.express as px

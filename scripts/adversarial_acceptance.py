@@ -276,8 +276,11 @@ def case_05_matching_ua() -> None:
     texts: list[str] = []
     for name in ("playwright_probe.mjs", "playwright_extract.mjs", "playwright_crawl.mjs"):
         texts.append((SCRIPTS / name).read_text(encoding="utf-8"))
-    expected = "DResearchBot/3.2"
-    ok = all(expected in t for t in texts)
+    ok = all(
+        "browserUserAgent" in text
+        and "const BROWSER_USER_AGENT = browserUserAgent();" in text
+        for text in texts
+    )
     record("05_matching_dresearchbot_ua", ok)
 
 

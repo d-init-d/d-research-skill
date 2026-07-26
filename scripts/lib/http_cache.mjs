@@ -28,7 +28,7 @@ import {
   realpathSync,
 } from 'node:fs';
 import { join, resolve, basename, isAbsolute, sep, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isSensitiveHeaderName, urlHasCredentials } from './credentials.mjs';
 
 const CACHE_ENV = 'D_RESEARCH_HTTP_CACHE_PATH';
@@ -893,6 +893,8 @@ async function selfTest() {
   console.log('http_cache.mjs self-test ok');
 }
 
-if (process.argv.includes('--self-test')) {
+const _isMain =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (_isMain && process.argv.includes('--self-test')) {
   selfTest();
 }

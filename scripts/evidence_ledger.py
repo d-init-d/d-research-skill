@@ -869,7 +869,7 @@ INTEROP_CONTRACT_VERSION = "1.0.0"
 # Artifact profiles this skill publishes. `full` is the historical source/dev
 # tree; additional profiles (e.g. `runtime`) are appended as they are added,
 # never by removing an existing one.
-ARTIFACT_PROFILES = ["full"]
+ARTIFACT_PROFILES = ["full", "runtime"]
 
 
 def _skill_root() -> Path:
@@ -1965,9 +1965,10 @@ def self_test() -> int:
     if contract["ledger"]["canonicalization"] != CANON_VERSION:
         print("interop contract canonicalization drift", file=sys.stderr)
         return 1
-    if "full" not in contract["artifact_profiles"]:
-        print("interop contract missing full artifact profile", file=sys.stderr)
-        return 1
+    for profile in ("full", "runtime"):
+        if profile not in contract["artifact_profiles"]:
+            print(f"interop contract missing {profile} artifact profile", file=sys.stderr)
+            return 1
     # Determinism: two independent builds must be byte-identical.
     if json.dumps(build_interop_contract(), sort_keys=True) != json.dumps(
         contract, sort_keys=True

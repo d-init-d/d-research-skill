@@ -16,11 +16,16 @@ import urllib.request
 import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
+from package_metadata import package_user_agent
 from resource_limits import (
     ResourceLimitError,
     emit_blocker_and_exit,
     load_limits,
     read_http_response_bounded,
+)
+
+CITATION_USER_AGENT = package_user_agent(
+    component="citation-export", contact="research@example.com"
 )
 
 
@@ -708,7 +713,7 @@ def _enrich_doi_crossref(doi: str) -> Optional[Dict[str, Any]]:
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "d-research-skill/3.2 (citation_export; mailto:research@example.com)"
+                "User-Agent": CITATION_USER_AGENT
             },
         )
         limits = load_limits()
@@ -780,7 +785,7 @@ def _enrich_doi_datacite(doi: str) -> Optional[Dict[str, Any]]:
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "d-research-skill/3.2 (citation_export; mailto:research@example.com)"
+                "User-Agent": CITATION_USER_AGENT
             },
         )
         limits = load_limits()

@@ -50,6 +50,7 @@
   ],
   "entrypoints": [
     "scripts/api_fetch.mjs",
+    "scripts/build_release_artifacts.py",
     "scripts/check_contract.py",
     "scripts/evidence_ledger.py",
     "scripts/investigation_policy.py",
@@ -64,6 +65,7 @@
     "scripts/web_search.mjs"
   ],
   "artifact_profiles": [
-    "full"
+    "full",
+    "runtime"
   ]
 }

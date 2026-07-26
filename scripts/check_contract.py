@@ -89,13 +89,7 @@ _MAINTAINER_OVERRIDE_WAIVERS = (
     "independent_reviewer",
     "live_dogfood",
 )
-_DIRECT_STABLE_OVERRIDE_CANDIDATE = "3.3.0-rc.1"
-_DIRECT_STABLE_OVERRIDE_VERSION = "3.3.0"
-_DIRECT_STABLE_POLICY_DEVIATION_PATHS = (
-    "scripts/check_contract.py",
-    "templates/route-manifest.json",
-)
-_DIRECT_STABLE_REQUIRED_CHECKS = (
+_V330_REQUIRED_CHECKS = (
     "npm_ci",
     "node_self_test",
     "python_self_test",
@@ -119,6 +113,59 @@ _DIRECT_STABLE_REQUIRED_CHECKS = (
     "npm_audit",
     "quick_validate",
 )
+_V340_REQUIRED_CHECKS = (
+    "npm_ci",
+    "node_self_test",
+    "python_self_test",
+    "runtime_self_test",
+    "artifact_self_test",
+    "artifact_build",
+    "package_check_after_bytecode",
+    "npm_pack_dry_run",
+    "ruff",
+    "compileall",
+    "node_syntax",
+    "internal_refs",
+    "decision_tree",
+    "docs_examples",
+    "contract",
+    "contract_self_test",
+    "bench_strict",
+    "quality_triple",
+    "promotion_anti_spoof",
+    "actionlint",
+    "git_diff_check",
+    "npm_audit",
+    "quick_validate",
+    "capability_superset",
+)
+_MAINTAINER_OVERRIDE_RELEASES = {
+    "3.3.0": {
+        "candidate": "3.3.0-rc.1",
+        "policy_deviation_paths": (
+            "scripts/check_contract.py",
+            "templates/route-manifest.json",
+        ),
+        "required_checks": _V330_REQUIRED_CHECKS,
+    },
+    "3.4.0": {
+        "candidate": "3.4.0-rc.1",
+        "policy_deviation_paths": (),
+        "required_checks": _V340_REQUIRED_CHECKS,
+    },
+}
+
+# The active release line drives route-manifest fixtures and negative self-tests.
+_DIRECT_STABLE_OVERRIDE_VERSION = "3.4.0"
+_DIRECT_STABLE_OVERRIDE_CANDIDATE = "3.4.0-rc.1"
+_DIRECT_STABLE_POLICY_DEVIATION_PATHS = ()
+_DIRECT_STABLE_REQUIRED_CHECKS = _V340_REQUIRED_CHECKS
+
+
+def _maintainer_override_policy(release_version: object) -> dict | None:
+    if not isinstance(release_version, str):
+        return None
+    return _MAINTAINER_OVERRIDE_RELEASES.get(release_version)
 
 _WINDOWS_DEVICE_NAMES = {
     "CON",
@@ -163,6 +210,7 @@ _STABLE_PROMOTION_EXACT_FILES = frozenset(
         "CHANGELOG.md",
         "README.md",
         "README.vi.md",
+        "templates/interop-contract.json",
     }
 )
 
@@ -180,10 +228,8 @@ def is_allowed_post_rc_change(path: str, release_version: str) -> bool:
         return False
     if norm in _STABLE_PROMOTION_EXACT_FILES:
         return True
-    if (
-        release_version == _DIRECT_STABLE_OVERRIDE_VERSION
-        and norm in _DIRECT_STABLE_POLICY_DEVIATION_PATHS
-    ):
+    override_policy = _maintainer_override_policy(release_version)
+    if override_policy is not None and norm in override_policy["policy_deviation_paths"]:
         return True
     if norm == f"docs/release-v{release_version}.md":
         return True
@@ -296,7 +342,12 @@ def validate_post_rc_metadata(
     """
     if not _PACKAGE_VERSION_RE.fullmatch(release_version) or "-rc." in release_version:
         return [f"post-RC metadata check requires a stable X.Y.Z version, got {release_version!r}"]
-    required = ("package.json", "package-lock.json", "pyproject.toml")
+    required = (
+        "package.json",
+        "package-lock.json",
+        "pyproject.toml",
+        "templates/interop-contract.json",
+    )
     errors: list[str] = []
     missing = [name for name in required if name not in candidate_contents]
     if missing:
@@ -311,6 +362,13 @@ def validate_post_rc_metadata(
         )
         release_lock = _strict_json_bytes(
             (release_root / "package-lock.json").read_bytes(), "stable package-lock.json"
+        )
+        candidate_interop = _strict_json_bytes(
+            candidate_contents["templates/interop-contract.json"], "RC interop contract"
+        )
+        release_interop = _strict_json_bytes(
+            (release_root / "templates" / "interop-contract.json").read_bytes(),
+            "stable interop contract",
         )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         return [f"post-RC metadata is unreadable: {exc}"]
@@ -329,6 +387,18 @@ def validate_post_rc_metadata(
     if candidate_package != release_package:
         errors.append(
             "package.json changed beyond version; scripts, dependencies, engines, and metadata are frozen"
+        )
+
+    if candidate_interop.get("package_version") != candidate_version:
+        errors.append("RC interop contract package_version does not match RC package.json")
+    if release_interop.get("package_version") != release_version:
+        errors.append("stable interop contract package_version does not match stable package.json")
+    candidate_interop["package_version"] = "__PROMOTION_VERSION__"
+    release_interop["package_version"] = "__PROMOTION_VERSION__"
+    if candidate_interop != release_interop:
+        errors.append(
+            "interop contract changed beyond package_version; ledger, routes, entrypoints, "
+            "and artifact profiles are frozen"
         )
 
     def normalize_lock(lock: dict, expected: str, label: str) -> None:
@@ -378,7 +448,12 @@ def _git_candidate_metadata(root: Path, candidate_ref: str) -> dict[str, bytes]:
     if not candidate_ref or candidate_ref.startswith("-"):
         raise ValueError("candidate ref must be non-empty and must not start with '-'")
     result: dict[str, bytes] = {}
-    for path in ("package.json", "package-lock.json", "pyproject.toml"):
+    for path in (
+        "package.json",
+        "package-lock.json",
+        "pyproject.toml",
+        "templates/interop-contract.json",
+    ):
         completed = subprocess.run(
             ["git", "show", f"{candidate_ref}:{path}"],
             cwd=root,
@@ -1224,18 +1299,19 @@ def check_release_waiver(
         errors.append(f"release waiver is not authorized: {waiver}")
     candidate_version = gate.get("required_candidate_version")
     stable_version = contract.get("allowed_release_version")
-    if (
-        candidate_version != _DIRECT_STABLE_OVERRIDE_CANDIDATE
-        or stable_version != _DIRECT_STABLE_OVERRIDE_VERSION
-    ):
-        errors.append("release waiver is not scoped to the approved v3.3.0-rc.1/v3.3.0 pair")
+    override_policy = _maintainer_override_policy(stable_version)
+    if override_policy is None or candidate_version != override_policy["candidate"]:
+        errors.append("release waiver is not scoped to an approved RC/stable release pair")
     if contract.get("schema_version") != "1.1":
         errors.append("release waiver contract schema_version must be '1.1'")
     if contract.get("authorization_timing") != "post_candidate_owner_direction":
         errors.append("release waiver authorization timing is invalid")
-    if contract.get("policy_deviation_paths") != list(
-        _DIRECT_STABLE_POLICY_DEVIATION_PATHS
-    ):
+    expected_policy_paths = (
+        list(override_policy["policy_deviation_paths"])
+        if override_policy is not None
+        else []
+    )
+    if contract.get("policy_deviation_paths") != expected_policy_paths:
         errors.append("release waiver policy-deviation path set is invalid")
     if contract.get("required_repository") != "d-init-d/d-research-skill":
         errors.append("release waiver repository scope is invalid")
@@ -1308,16 +1384,17 @@ def _check_maintainer_override(
     if contract.get("allowed_release_version") != package_version:
         errors.append("maintainer override is not authorized for this stable version")
     candidate_version = gate.get("required_candidate_version")
-    if (
-        candidate_version != _DIRECT_STABLE_OVERRIDE_CANDIDATE
-        or package_version != _DIRECT_STABLE_OVERRIDE_VERSION
-    ):
+    override_policy = _maintainer_override_policy(package_version)
+    if override_policy is None or candidate_version != override_policy["candidate"]:
         errors.append("maintainer override is outside the approved direct-stable release pair")
     if contract.get("authorization_timing") != "post_candidate_owner_direction":
         errors.append("maintainer override authorization_timing is invalid")
-    if contract.get("policy_deviation_paths") != list(
-        _DIRECT_STABLE_POLICY_DEVIATION_PATHS
-    ):
+    expected_policy_paths = (
+        list(override_policy["policy_deviation_paths"])
+        if override_policy is not None
+        else []
+    )
+    if contract.get("policy_deviation_paths") != expected_policy_paths:
         errors.append("maintainer override policy_deviation_paths is invalid")
     if contract.get("required_decision") != "approved_with_waivers":
         errors.append("maintainer override required_decision is invalid")
@@ -1363,9 +1440,14 @@ def _check_maintainer_override(
         )
         required_waivers = list(_MAINTAINER_OVERRIDE_WAIVERS)
     required_checks = contract.get("required_checks")
-    if required_checks != list(_DIRECT_STABLE_REQUIRED_CHECKS):
-        errors.append("maintainer override required_checks must match the canonical v3.3.0 set")
-        required_checks = list(_DIRECT_STABLE_REQUIRED_CHECKS)
+    expected_required_checks = (
+        list(override_policy["required_checks"])
+        if override_policy is not None
+        else []
+    )
+    if required_checks != expected_required_checks:
+        errors.append("maintainer override required_checks must match the release-line contract")
+        required_checks = expected_required_checks
     if (
         not isinstance(required_checks, list)
         or not required_checks
@@ -1429,7 +1511,7 @@ def _check_maintainer_override(
     if override.get("policy_deviation_paths") != contract.get("policy_deviation_paths"):
         errors.append("maintainer override manifest policy_deviation_paths mismatch")
     policy_hashes = override.get("policy_deviation_sha256")
-    policy_paths = list(_DIRECT_STABLE_POLICY_DEVIATION_PATHS)
+    policy_paths = expected_policy_paths
     if not isinstance(policy_hashes, dict) or set(policy_hashes) != set(policy_paths):
         errors.append("maintainer override policy_deviation_sha256 must bind every policy path")
     else:
@@ -2564,6 +2646,22 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
             "repository_contract.version mismatch: "
             f"manifest={contract.get('version')!r}, package={package_version!r}"
         )
+    stable_gate = manifest.get("stable_release_gate")
+    if contract.get("contract_role") != "frozen_candidate":
+        errors.append("repository_contract.contract_role must be 'frozen_candidate'")
+    if not isinstance(stable_gate, dict):
+        errors.append("route-manifest missing stable_release_gate")
+    else:
+        if contract.get("version") != stable_gate.get("required_candidate_version"):
+            errors.append("repository_contract.version must match the frozen candidate version")
+        override_contract = stable_gate.get("maintainer_override")
+        expected_stable = (
+            override_contract.get("allowed_release_version")
+            if isinstance(override_contract, dict)
+            else None
+        )
+        if contract.get("promotes_to") != expected_stable:
+            errors.append("repository_contract.promotes_to must match the stable release line")
 
     references_count = len(list((root / "references").glob("*.md")))
     adapters_count = len(list((root / "adapters").glob("*.md")))
@@ -2723,6 +2821,8 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                     "stable_release_gate.maintainer_override has an invalid contract shape"
                 )
             else:
+                allowed_release_version = override_contract.get("allowed_release_version")
+                override_policy = _maintainer_override_policy(allowed_release_version)
                 if override_contract.get("schema_version") != "1.1":
                     errors.append("maintainer_override schema_version must be '1.1'")
                 if (
@@ -2730,27 +2830,34 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                     != "post_candidate_owner_direction"
                 ):
                     errors.append("maintainer_override authorization_timing is invalid")
-                if override_contract.get("policy_deviation_paths") != list(
-                    _DIRECT_STABLE_POLICY_DEVIATION_PATHS
-                ):
+                expected_policy_paths = (
+                    list(override_policy["policy_deviation_paths"])
+                    if override_policy is not None
+                    else []
+                )
+                if override_contract.get("policy_deviation_paths") != expected_policy_paths:
                     errors.append("maintainer_override policy_deviation_paths is invalid")
                 override_path = override_contract.get("manifest_path")
                 if (
                     not isinstance(override_path, str)
                     or "{version}" not in override_path
                     or _canonical_repo_relative(
-                        override_path.replace("{version}", _DIRECT_STABLE_OVERRIDE_VERSION)
+                        override_path.replace(
+                            "{version}",
+                            allowed_release_version
+                            if isinstance(allowed_release_version, str)
+                            else _DIRECT_STABLE_OVERRIDE_VERSION,
+                        )
                     )
                     is None
                 ):
                     errors.append("maintainer_override manifest_path is invalid")
                 if (
-                    override_contract.get("allowed_release_version")
-                    != _DIRECT_STABLE_OVERRIDE_VERSION
+                    override_policy is None
                     or stable_gate.get("required_candidate_version")
-                    != _DIRECT_STABLE_OVERRIDE_CANDIDATE
+                    != override_policy["candidate"]
                 ):
-                    errors.append("maintainer_override must be scoped exactly to v3.3.0")
+                    errors.append("maintainer_override must be scoped to an approved release line")
                 if override_contract.get("required_decision") != "approved_with_waivers":
                     errors.append("maintainer_override required_decision is invalid")
                 if override_contract.get("required_repository") != "d-init-d/d-research-skill":
@@ -2762,8 +2869,15 @@ def check_repository_contract(root: Path = ROOT) -> list[str]:
                 ):
                     errors.append("maintainer_override waiver set is invalid")
                 checks = override_contract.get("required_checks")
-                if checks != list(_DIRECT_STABLE_REQUIRED_CHECKS):
-                    errors.append("maintainer_override required_checks must match the canonical v3.3.0 set")
+                expected_checks = (
+                    list(override_policy["required_checks"])
+                    if override_policy is not None
+                    else []
+                )
+                if checks != expected_checks:
+                    errors.append(
+                        "maintainer_override required_checks must match the release-line contract"
+                    )
                 if (
                     not isinstance(checks, list)
                     or not checks
@@ -3236,6 +3350,60 @@ def check_interop_contract(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def check_package_identity(root: Path = ROOT) -> list[str]:
+    """Keep every network User-Agent bound to canonical package metadata."""
+    errors: list[str] = []
+    package_version = str(_load_json(root / "package.json").get("version", ""))
+    helper_path = root / "scripts" / "package_metadata.py"
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "d_research_package_metadata", helper_path
+        )
+        if spec is None or spec.loader is None:
+            raise ValueError("cannot load package metadata module")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        resolved = module.package_version(root, strict=True)
+    except (OSError, ValueError, AttributeError) as exc:
+        errors.append(f"cannot resolve canonical package identity: {exc}")
+    else:
+        if resolved != package_version:
+            errors.append(
+                f"package identity helper resolved {resolved!r}, expected {package_version!r}"
+            )
+
+    stale_pattern = re.compile(r"(?:d-research-skill|DResearchBot)/(\d+\.\d+(?:\.\d+)?)")
+    for path in sorted((root / "scripts").rglob("*")):
+        if path.suffix not in {".py", ".mjs"} or not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if stale_pattern.search(text):
+            errors.append(
+                f"network identity must be derived from package metadata, not literal: "
+                f"{path.relative_to(root).as_posix()}"
+            )
+    required_markers = {
+        "scripts/citation_graph.py": "package_user_agent",
+        "scripts/citation_resolver.py": "package_user_agent",
+        "scripts/citation_export.py": "package_user_agent",
+        "scripts/citation_render.py": "package_user_agent",
+        "scripts/social_snapshot.py": "package_user_agent",
+        "scripts/translate.py": "package_user_agent",
+        "scripts/wayback.py": "package_user_agent",
+        "scripts/wikidata.py": "package_user_agent",
+        "scripts/web_search.mjs": "packageUserAgent",
+        "scripts/playwright_probe.mjs": "browserUserAgent",
+        "scripts/playwright_extract.mjs": "browserUserAgent",
+        "scripts/playwright_crawl.mjs": "browserUserAgent",
+        "scripts/browser_smoke.mjs": "browserUserAgent",
+    }
+    for relative, marker in required_markers.items():
+        path = root / relative
+        if not path.is_file() or marker not in path.read_text(encoding="utf-8"):
+            errors.append(f"network identity drift: {relative} must use {marker}")
+    return errors
+
+
 def collect_errors(
     release_tag: str | None = None,
     candidate_commit: str | None = None,
@@ -3252,6 +3420,7 @@ def collect_errors(
     errors.extend(check_skill_and_routes())
     errors.extend(check_repository_contract())
     errors.extend(check_interop_contract())
+    errors.extend(check_package_identity())
     errors.extend(check_example_metadata())
     errors.extend(check_canonical_examples())
     errors.extend(check_reference_structure())
@@ -4124,15 +4293,22 @@ def self_test() -> int:
             failures.append("post-RC allowlist must reject scripts/ code drift")
         if not any("SKILL.md" in e for e in code_drift):
             failures.append("post-RC allowlist must reject SKILL.md drift")
-        direct_stable_policy = validate_post_rc_changed_paths(
-            list(_DIRECT_STABLE_POLICY_DEVIATION_PATHS),
-            _DIRECT_STABLE_OVERRIDE_VERSION,
+        v330_policy_paths = list(
+            _MAINTAINER_OVERRIDE_RELEASES["3.3.0"]["policy_deviation_paths"]
         )
-        if direct_stable_policy:
+        historical_direct_stable_policy = validate_post_rc_changed_paths(
+            v330_policy_paths,
+            "3.3.0",
+        )
+        if historical_direct_stable_policy:
             failures.append(
-                "v3.3.0 direct-stable policy amendment paths were rejected: "
-                + "; ".join(direct_stable_policy)
+                "historical v3.3.0 direct-stable policy paths were rejected: "
+                + "; ".join(historical_direct_stable_policy)
             )
+        if not is_allowed_post_rc_change("scripts/check_contract.py", "3.3.0"):
+            failures.append("historical v3.3.0 direct-stable policy path was removed")
+        if is_allowed_post_rc_change("scripts/check_contract.py", "3.4.0"):
+            failures.append("v3.4.0 metadata-only promotion accepted a policy-code change")
         if is_allowed_post_rc_change("scripts/research_plan.py", "3.3.0"):
             failures.append("v3.3.0 direct-stable exception accepted unrelated code")
         if is_allowed_post_rc_change("scripts/check_contract.py", "3.3.1"):
@@ -4200,16 +4376,28 @@ def self_test() -> int:
             "Development Status :: 4 - Beta",
             "Development Status :: 5 - Production/Stable",
         )
+        rc_interop = {
+            "contract_version": "1.0.0",
+            "package_version": "3.2.0-rc.1",
+            "ledger": {"supported_column_counts": [14, 19, 22, 23, 37]},
+            "artifact_profiles": ["full"],
+        }
+        stable_interop = json.loads(json.dumps(rc_interop))
+        stable_interop["package_version"] = "3.2.0"
         candidate_metadata = {
             "package.json": (json.dumps(rc_package, sort_keys=True) + "\n").encode(),
             "package-lock.json": (json.dumps(rc_lock, sort_keys=True) + "\n").encode(),
             "pyproject.toml": rc_pyproject.encode(),
+            "templates/interop-contract.json": (
+                json.dumps(rc_interop, sort_keys=True) + "\n"
+            ).encode(),
         }
 
         def write_release_metadata(
             package: dict = stable_package,
             lock: dict = stable_lock,
             pyproject: str = stable_pyproject,
+            interop: dict = stable_interop,
         ) -> None:
             (metadata_root / "package.json").write_text(
                 json.dumps(package, sort_keys=True) + "\n", encoding="utf-8"
@@ -4218,6 +4406,10 @@ def self_test() -> int:
                 json.dumps(lock, sort_keys=True) + "\n", encoding="utf-8"
             )
             (metadata_root / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+            (metadata_root / "templates").mkdir(exist_ok=True)
+            (metadata_root / "templates" / "interop-contract.json").write_text(
+                json.dumps(interop, sort_keys=True) + "\n", encoding="utf-8"
+            )
 
         write_release_metadata()
         semantic_valid = validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
@@ -4284,6 +4476,15 @@ def self_test() -> int:
         ):
             failures.append("post-RC metadata gate accepted build requirement drift")
 
+        interop_drift = json.loads(json.dumps(stable_interop))
+        interop_drift["artifact_profiles"].append("forged")
+        write_release_metadata(interop=interop_drift)
+        if not any(
+            "interop contract changed beyond package_version" in error
+            for error in validate_post_rc_metadata(candidate_metadata, metadata_root, "3.2.0")
+        ):
+            failures.append("post-RC metadata gate accepted interop contract drift")
+
         mismatched = _load_json(score_paths[("tier2", "candidate")])
         for task in mismatched["tasks"]:
             task["runtime"]["model"] = "different-runtime"
@@ -4296,9 +4497,9 @@ def self_test() -> int:
         if not any("identical runtime/model/tool" in error for error in runtime_mismatch):
             failures.append("stable gate must reject mismatched runtime/model/tool metadata")
 
-        # Owner-directed v3.3.0 promotion: narrow waivers, explicit post-candidate
-        # policy paths, verified tags, immutable RC binding, strict JSON, and
-        # hash-bound local verification are all fail-closed.
+        # Owner-directed promotion: narrow waivers, version-scoped policy paths,
+        # verified tags, immutable RC binding, strict JSON, and hash-bound local
+        # verification are all fail-closed.
         (stable_root / "package.json").write_text(
             json.dumps({"version": _DIRECT_STABLE_OVERRIDE_VERSION}) + "\n",
             encoding="utf-8",
@@ -4477,16 +4678,23 @@ def self_test() -> int:
         override["policy_deviation_paths"] = list(_DIRECT_STABLE_POLICY_DEVIATION_PATHS)
         write_override()
 
-        override["policy_deviation_sha256"]["scripts/check_contract.py"] = (
-            "sha256:" + ("0" * 64)
+        stale_policy_path = (
+            _DIRECT_STABLE_POLICY_DEVIATION_PATHS[0]
+            if _DIRECT_STABLE_POLICY_DEVIATION_PATHS
+            else "scripts/check_contract.py"
         )
+        override["policy_deviation_sha256"][stale_policy_path] = "sha256:" + ("0" * 64)
         override_path.write_text(
             json.dumps(override, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        expected_policy_error = (
+            "policy hash mismatch"
+            if _DIRECT_STABLE_POLICY_DEVIATION_PATHS
+            else "must bind every policy path"
+        )
         if not any(
-            "policy hash mismatch" in error
-            for error in check_stable_release_evidence(stable_root)
+            expected_policy_error in error for error in check_stable_release_evidence(stable_root)
         ):
             failures.append("maintainer override accepted a stale policy hash")
         write_override()
@@ -4661,8 +4869,9 @@ def main(argv: list[str] | None = None) -> int:
         "--validate-post-rc-metadata",
         metavar="CANDIDATE_REF",
         help=(
-            "Semantically compare package.json, package-lock.json, and pyproject.toml "
-            "against a fetched dogfooded RC ref. Requires --release-version."
+            "Semantically compare package.json, package-lock.json, pyproject.toml, and "
+            "the interop contract against a fetched dogfooded RC ref. Requires "
+            "--release-version."
         ),
     )
     args = parser.parse_args(argv)

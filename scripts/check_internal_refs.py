@@ -4,14 +4,14 @@
 This is complementary to a Markdown-link checker (e.g. lychee `--offline`):
 
 * Lychee `--offline` validates standard Markdown link syntax `[text](path)`.
-* This script validates **backticked** internal references that are common in
-  this skill, e.g. `references/foo.md`, `adapters/playwright.md`,
-  `scripts/api_fetch.mjs`, `templates/evidence-ledger.csv`.
+* This script validates **backticked and executable-code** internal references
+  that are common in this skill, e.g. `references/foo.md`,
+  `adapters/playwright.md`, `scripts/api_fetch.mjs`, and bare `api_fetch.mjs`
+  command targets.
 
-The check is intentionally conservative: it only flags a backticked token as a
-"reference" when the token contains a `/` AND ends in a known repo file
-extension. Tokens without a `/` (bare filenames in prose) and tokens with
-shell-style glob characters or whitespace are ignored.
+The check is intentionally conservative: bare filenames are validated only
+when backticked or used as the immediate target of `python`/`node` in a fenced
+code block. Tokens with shell-style glob characters or placeholders are ignored.
 
 Exit status:
     0  no broken refs
@@ -46,6 +46,11 @@ TRACKED_EXTENSIONS = {
 # CONTRIBUTING.md is a docs template, not a real file). We grab the inside of
 # the backticks and later filter by shape.
 BACKTICK_RE = re.compile(r"`([^`\s\{\}\*<>]+)`")
+FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+EXECUTABLE_RE = re.compile(
+    r"(?:^|[;&|]\s*|\n\s*)(?:python(?:3)?|node)\s+"
+    r"((?:scripts/)?[A-Za-z0-9_.-]+\.(?:py|mjs))\b"
+)
 
 # Allowlist of path roots that DO live in the repo. Any reference must start
 # with one of these segments (after normalisation) for us to bother validating
@@ -73,6 +78,17 @@ def looks_like_internal_ref(token: str) -> bool:
     if first_segment not in REPO_ROOTS:
         return False
     return True
+
+
+def _resolve_token(repo: Path, token: str) -> tuple[Path, str] | None:
+    """Resolve a canonical repo path or a bare bundled script filename."""
+    cleaned = token.split("#", 1)[0].split("?", 1)[0]
+    if looks_like_internal_ref(cleaned):
+        return (repo / cleaned).resolve(), cleaned
+    if "/" not in cleaned and Path(cleaned).suffix.lower() in {".py", ".mjs"}:
+        canonical = f"scripts/{cleaned}"
+        return (repo / canonical).resolve(), canonical
+    return None
 
 
 # ----------------------------------------------------------------------
@@ -161,6 +177,24 @@ def decision_tree_audit(repo: Path) -> list[str]:
     )
 
 
+def direct_router_audit(repo: Path) -> list[str]:
+    """Return reference Markdown files not linked directly from SKILL.md."""
+    skill = repo / "SKILL.md"
+    refs_dir = repo / "references"
+    if not skill.is_file() or not refs_dir.is_dir():
+        return []
+    direct = {
+        token
+        for token in _collect_internal_links(skill.read_text(encoding="utf-8", errors="replace"))
+        if token.startswith("references/") and token.endswith(".md")
+    }
+    return sorted(
+        path.relative_to(repo).as_posix()
+        for path in refs_dir.rglob("*.md")
+        if path.relative_to(repo).as_posix() not in direct
+    )
+
+
 def scan(repo: Path) -> list[tuple[Path, str]]:
     broken: list[tuple[Path, str]] = []
     archive_mode = not (repo / ".git").is_dir()
@@ -175,24 +209,25 @@ def scan(repo: Path) -> list[tuple[Path, str]]:
         if md.name.startswith("PLAN-"):
             continue
         text = md.read_text(encoding="utf-8", errors="replace")
-        # Skip fenced code blocks so we don't validate references that only
-        # appear inside example code.
-        text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+        candidates: set[str] = set()
         for match in BACKTICK_RE.finditer(text):
-            token = match.group(1)
-            # Strip URL-style anchors/query strings if any sneak in.
-            token = token.split("#", 1)[0].split("?", 1)[0]
-            if not looks_like_internal_ref(token):
+            candidates.add(match.group(1))
+        for fence in FENCE_RE.finditer(text):
+            for match in EXECUTABLE_RE.finditer(fence.group(1)):
+                candidates.add(match.group(1))
+        for token in sorted(candidates):
+            resolved = _resolve_token(repo, token)
+            if resolved is None:
                 continue
-            target = (repo / token).resolve()
+            target, canonical = resolved
             if not target.exists():
                 # npm source archives intentionally omit repository-only
                 # automation trees such as .agents/ and .github/. Keep strict
                 # checking in Git worktrees, but do not make an extracted
                 # runtime archive fail on those non-published references.
-                if archive_mode and token.split("/", 1)[0] in {".agents", ".github"}:
+                if archive_mode and canonical.split("/", 1)[0] in {".agents", ".github"}:
                     continue
-                broken.append((md.relative_to(repo), token))
+                broken.append((md.relative_to(repo), canonical))
     return broken
 
 
@@ -236,6 +271,18 @@ def main() -> int:
             rc = 1
         else:
             print("OK: every references/*.md is reachable from the decision tree.")
+
+        direct_missing = direct_router_audit(repo)
+        if direct_missing:
+            print(
+                f"FAIL: {len(direct_missing)} reference(s) are not routed directly from SKILL.md:",
+                file=sys.stderr,
+            )
+            for ref in direct_missing:
+                print(f"  {ref}", file=sys.stderr)
+            rc = 1
+        else:
+            print("OK: every references/*.md is routed directly from SKILL.md.")
 
     return rc
 

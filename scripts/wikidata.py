@@ -32,6 +32,7 @@ try:
     import http_cache as _http_cache
 except ImportError:  # pragma: no cover
     _http_cache = None
+from package_metadata import package_user_agent
 from resource_limits import (
     ResourceLimitError,
     emit_blocker_and_exit,
@@ -49,10 +50,7 @@ class WikidataClient:
 
     BASE_URL = "https://www.wikidata.org/w/api.php"
     SPARQL_URL = "https://query.wikidata.org/sparql"
-    USER_AGENT = (
-        "d-research-skill/0.3.0 "
-        "(https://github.com/d-init-d/d-research-skill; contact@example.com)"
-    )
+    USER_AGENT = package_user_agent(component="wikidata", contact="contact@example.com")
 
     def _request(self, url: str, data: bytes | None = None) -> bytes:
         """Make an HTTP request with User-Agent header. Returns response bytes.

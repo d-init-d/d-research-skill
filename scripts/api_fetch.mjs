@@ -35,6 +35,8 @@ import { loadConfig, getPositiveIntConfig, redactConfig } from './lib/config.mjs
 
 const MAX_REDIRECTS = 10;
 const DEFAULT_MAX_BODY_BYTES = 20 * 1024 * 1024;
+const DEFAULT_GET_ATTEMPTS = 3;
+const DEFAULT_NON_IDEMPOTENT_ATTEMPTS = 1;
 
 // Production defaults: public HTTPS destinations only. Offline self-tests may
 // enable loopback HTTP fixtures via setSsrfOptionsForTest() or the hermetic
@@ -178,6 +180,8 @@ function parseArgs(argv) {
     pagination: 'auto',
     maxPages: 10,
     maxPagesFromCli: false,
+    maxAttempts: null,
+    maxAttemptsFromCli: false,
     configPath: null,
     printEffectiveConfig: false,
     method: 'GET',
@@ -193,6 +197,7 @@ function parseArgs(argv) {
     cursorKey: null,
     allowPartial: false,
     allowNextOrigin: [],
+    allowRedirectOrigin: [],
     selfTest: false,
     unknown: [],
     parseErrors: [],
@@ -283,6 +288,19 @@ function parseArgs(argv) {
           args.maxPagesFromCli = true;
         }
       }
+    } else if (arg === '--max-attempts') {
+      const raw = need('--max-attempts');
+      if (raw == null || !/^\d+$/.test(String(raw))) {
+        args.parseErrors.push(`invalid --max-attempts: ${raw}`);
+      } else {
+        const n = Number.parseInt(raw, 10);
+        if (!Number.isSafeInteger(n) || n < 1) {
+          args.parseErrors.push(`invalid --max-attempts: ${raw}`);
+        } else {
+          args.maxAttempts = n;
+          args.maxAttemptsFromCli = true;
+        }
+      }
     } else if (arg === '--config') {
       args.configPath = need('--config');
     } else if (arg === '--print-effective-config') {
@@ -340,6 +358,9 @@ function parseArgs(argv) {
     } else if (arg === '--allow-next-origin') {
       const v = need('--allow-next-origin');
       if (v) args.allowNextOrigin.push(v.toLowerCase());
+    } else if (arg === '--allow-redirect-origin') {
+      const v = need('--allow-redirect-origin');
+      if (v) args.allowRedirectOrigin.push(v.toLowerCase());
     } else if (arg === '--self-test') {
       args.selfTest = true;
     } else {
@@ -381,6 +402,30 @@ function parseRetryAfter(value) {
     return Math.min(Math.max(0, when - Date.now()), 120_000);
   }
   return null;
+}
+
+function isAllowedOrigin(url, allowlist) {
+  const parsed = new URL(url);
+  const allowed = new Set((allowlist || []).map((value) => String(value).toLowerCase()));
+  return allowed.has(parsed.origin.toLowerCase()) || allowed.has(parsed.host.toLowerCase());
+}
+
+function withoutEntityHeaders(headers) {
+  const out = {};
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (!['content-type', 'content-length', 'transfer-encoding'].includes(key.toLowerCase())) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function redirectedRequest(status, method, body) {
+  const upper = String(method || 'GET').toUpperCase();
+  if (status === 303 || ((status === 301 || status === 302) && upper === 'POST')) {
+    return { method: 'GET', body: undefined };
+  }
+  return { method: upper, body };
 }
 
 function resolveNextUrl(currentUrl, nextUrl, headers, allowNextOrigin) {
@@ -480,8 +525,9 @@ async function fetchWithTimeout(
   url,
   options,
   timeoutMs,
-  maxRetries = 3,
-  maxResponseBytes = DEFAULT_MAX_BODY_BYTES
+  maxAttempts = DEFAULT_GET_ATTEMPTS,
+  maxResponseBytes = DEFAULT_MAX_BODY_BYTES,
+  redirectOptions = {}
 ) {
   let lastError;
   const method = (options && options.method) || 'GET';
@@ -505,10 +551,12 @@ async function fetchWithTimeout(
     }
   }
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       let currentUrl = url;
       let headers = { ...requestHeaders };
+      let currentMethod = method;
+      let currentBody = options && options.body != null ? options.body : undefined;
       let hop = 0;
       while (hop <= MAX_REDIRECTS) {
         // Connection-bound SSRF: resolve + validate + connect to validated peer
@@ -520,9 +568,9 @@ async function fetchWithTimeout(
           response = await fetchPublicHttp(
             currentUrl,
             {
-              method,
+              method: currentMethod,
               headers,
-              body: options && options.body != null ? options.body : undefined,
+              body: currentBody,
               signal: controller.signal,
               maxResponseBytes,
               bodyTimeoutMs: timeoutMs,
@@ -551,6 +599,7 @@ async function fetchWithTimeout(
           await assertPublicHttpUrl(next, _ssrfOptions);
           const curOrigin = new URL(currentUrl).origin;
           const nextOrigin = new URL(next).origin;
+          const redirected = redirectedRequest(response.status, currentMethod, currentBody);
           if (curOrigin !== nextOrigin) {
             if (
               credentialed ||
@@ -561,15 +610,28 @@ async function fetchWithTimeout(
                 `cross-origin redirect blocked while credentials present: ${redactUrl(next)}`
               );
             }
+            if (
+              !['GET', 'HEAD'].includes(redirected.method) &&
+              !isAllowedOrigin(next, redirectOptions.allowRedirectOrigin)
+            ) {
+              throw new Error(
+                `cross-origin ${redirected.method} redirect blocked ` +
+                  `(use --allow-redirect-origin ${nextOrigin}): ${redactUrl(next)}`
+              );
+            }
             // Even without known secrets, only public headers may cross origin.
             headers = publicHeadersOnly(headers);
           }
+          if (redirected.body === undefined) headers = withoutEntityHeaders(headers);
+          currentMethod = redirected.method;
+          currentBody = redirected.body;
           currentUrl = next;
           hop += 1;
           continue;
         }
 
         if (response.status === 429) {
+          if (attempt + 1 >= maxAttempts) return response;
           const retryAfter = parseRetryAfter(response.headers.get('Retry-After'));
           const waitTime = retryAfter ?? 1000 * Math.pow(2, attempt);
           console.log(`Rate limited. Waiting ${waitTime}ms before retry...`);
@@ -577,6 +639,7 @@ async function fetchWithTimeout(
           break; // retry outer attempt
         }
         if (response.status >= 500) {
+          if (attempt + 1 >= maxAttempts) return response;
           const waitTime = 1000 * Math.pow(2, attempt);
           console.log(`Server error (${response.status}). Retrying in ${waitTime}ms...`);
           await sleep(waitTime);
@@ -600,6 +663,7 @@ async function fetchWithTimeout(
         throw error;
       }
       const waitTime = 1000 * Math.pow(2, attempt);
+      if (attempt + 1 >= maxAttempts) throw error;
       console.log(`Request failed: ${msg}. Retrying in ${waitTime}ms...`);
       await sleep(waitTime);
     }
@@ -698,7 +762,8 @@ function resolveRequestShape(args) {
     if (args.intent != null && args.intent !== 'query') {
       args.parseErrors.push(`--intent ${args.intent} is not valid for GET (GET is always a read-only query)`);
     }
-    return args; // GET path unchanged.
+    if (args.maxAttempts == null) args.maxAttempts = DEFAULT_GET_ATTEMPTS;
+    return args; // GET request behavior remains unchanged.
   }
 
   // Non-GET below.
@@ -709,6 +774,12 @@ function resolveRequestShape(args) {
   if (!REQUEST_INTENTS.includes(args.intent)) {
     args.parseErrors.push(`invalid --intent: ${args.intent} (allowed: ${REQUEST_INTENTS.join(', ')})`);
     return args;
+  }
+
+  if (args.maxAttempts == null) {
+    args.maxAttempts = args.intent === 'query'
+      ? DEFAULT_GET_ATTEMPTS
+      : DEFAULT_NON_IDEMPOTENT_ATTEMPTS;
   }
   if (!INTENT_METHODS[args.intent].includes(args.method)) {
     args.parseErrors.push(
@@ -779,7 +850,7 @@ function resolveRequestShape(args) {
 // clobbering a caller-supplied Content-Type.
 function buildRequestHeaders(args) {
   const headers = { ...args.headers };
-  if (args.body != null && args.bodyContentType) {
+  if (args.bodyContentType) {
     const hasContentType = Object.keys(headers).some(
       (k) => k.toLowerCase() === 'content-type',
     );
@@ -791,9 +862,14 @@ function buildRequestHeaders(args) {
 async function fetchAllPages(args) {
   const initialUrl = applyParams(args.url, args.params);
   const method = args.method || 'GET';
+  const maxAttempts = Number.isSafeInteger(args.maxAttempts) && args.maxAttempts > 0
+    ? args.maxAttempts
+    : method === 'GET'
+      ? DEFAULT_GET_ATTEMPTS
+      : DEFAULT_NON_IDEMPOTENT_ATTEMPTS;
   const requestHeaders = buildRequestHeaders(args);
   console.log(`Starting fetch from: ${redactUrl(initialUrl)}`);
-  console.log(`Request method: ${method}`);
+  if (method !== 'GET') console.log(`Request method: ${method}`);
   console.log(`Pagination mode: ${args.pagination}`);
   console.log(`Max pages: ${args.maxPages}`);
 
@@ -816,8 +892,9 @@ async function fetchAllPages(args) {
         currentUrl,
         fetchOptions,
         args.timeout,
-        3,
-        args.maxResponseBytes
+        maxAttempts,
+        args.maxResponseBytes,
+        { allowRedirectOrigin: args.allowRedirectOrigin }
       );
 
       if (!response.ok) {
@@ -831,7 +908,7 @@ async function fetchAllPages(args) {
           args.maxResponseBytes,
           args.timeout
         );
-        body = JSON.parse(text);
+        body = text.trim() === '' ? null : JSON.parse(text);
       } catch (e) {
         if (isResourceLimitError(e) || e instanceof RequestTimeoutError) {
           throw e;
@@ -864,9 +941,10 @@ async function fetchAllPages(args) {
 
       let items = [];
       if (Array.isArray(body)) items = body;
-      else if (body.data && Array.isArray(body.data)) items = body.data;
-      else if (body.results && Array.isArray(body.results)) items = body.results;
-      else if (body.items && Array.isArray(body.items)) items = body.items;
+      else if (body && body.data && Array.isArray(body.data)) items = body.data;
+      else if (body && body.results && Array.isArray(body.results)) items = body.results;
+      else if (body && body.items && Array.isArray(body.items)) items = body.items;
+      else if (body && typeof body === 'object') items = [body];
 
       allItems.push(...items);
 
@@ -962,6 +1040,11 @@ async function main() {
 
   applyConfigDefaults(args);
 
+  if (args.unknown.length) {
+    console.error(`Error: ${args.unknown.length} unrecognized command-line argument(s)`);
+    process.exit(1);
+  }
+
   if (args.printEffectiveConfig) {
     if (args.parseErrors.length) {
       for (const e of args.parseErrors) console.error(`Error: ${e}`);
@@ -973,10 +1056,6 @@ async function main() {
 
   resolveRequestShape(args);
 
-  if (args.unknown.length) {
-    console.error(`Error: ${args.unknown.length} unrecognized command-line argument(s)`);
-    process.exit(1);
-  }
   if (args.parseErrors.length) {
     for (const e of args.parseErrors) console.error(`Error: ${e}`);
     process.exit(1);
@@ -988,10 +1067,10 @@ async function main() {
         '[--method GET|POST|PUT|PATCH|DELETE] [--intent query|archive|mutation] ' +
         '[--body-json <json>] [--body-file <path>] [--content-type <mime>] ' +
         '[--pagination auto|offset|cursor|page|link-header] [--cursor-key <path>] ' +
-        '[--max-pages <n>] [--config <path>] [--print-effective-config] ' +
+        '[--max-pages <n>] [--max-attempts <n>] [--config <path>] [--print-effective-config] ' +
         '[--delay <ms>] [--out <file>] [--format json|jsonl] ' +
         '[--timeout <ms>] [--max-response-bytes <n>] [--allow-partial] ' +
-        '[--allow-next-origin <origin>]...'
+        '[--allow-next-origin <origin>]... [--allow-redirect-origin <origin>]...'
     );
     process.exit(1);
   }
@@ -1234,6 +1313,25 @@ async function runSelfTest() {
   const badNum = parseArgs(['node', 'api_fetch.mjs', '--max-pages', '1abc']);
   if (!badNum.parseErrors.length) errors.push('max-pages 1abc should fail parse');
 
+  const mutationAttempts = parseArgs([
+    'node', 'api_fetch.mjs', '--method', 'DELETE', '--intent', 'mutation',
+  ]);
+  resolveRequestShape(mutationAttempts);
+  if (mutationAttempts.maxAttempts !== DEFAULT_NON_IDEMPOTENT_ATTEMPTS) {
+    errors.push('mutation default must use one network attempt');
+  }
+  const explicitAttempts = parseArgs([
+    'node', 'api_fetch.mjs', '--method', 'POST', '--intent', 'mutation', '--max-attempts', '3',
+  ]);
+  resolveRequestShape(explicitAttempts);
+  if (explicitAttempts.parseErrors.length || explicitAttempts.maxAttempts !== 3) {
+    errors.push('explicit mutation max-attempts must be accepted');
+  }
+  const unknownPrint = parseArgs([
+    'node', 'api_fetch.mjs', '--print-effective-config', '--not-a-real-option',
+  ]);
+  if (unknownPrint.unknown.length !== 1) errors.push('unknown option must be retained for print-config validation');
+
   const maxBytesArgs = parseArgs([
     'node',
     'api_fetch.mjs',
@@ -1319,19 +1417,26 @@ async function runSelfTest() {
   await (async () => {
     const hitsB = [];
     const serverB = createServer((req, res) => {
-      hitsB.push({
+      const hit = {
         url: req.url,
+        method: req.method,
         headers: { ...req.headers },
+        body: '',
+      };
+      hitsB.push(hit);
+      req.on('data', (chunk) => { hit.body += chunk.toString(); });
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, items: [] }));
       });
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, items: [] }));
     });
     await new Promise((r) => serverB.listen(0, '127.0.0.1', r));
     const portB = serverB.address().port;
     const originB = `http://127.0.0.1:${portB}`;
 
     const serverA = createServer((req, res) => {
-      res.writeHead(302, { Location: `${originB}/stolen` });
+      const status = req.url === '/mutation-303' ? 303 : req.url === '/mutation-307' ? 307 : 302;
+      res.writeHead(status, { Location: `${originB}/stolen` });
       res.end();
     });
     await new Promise((r) => serverA.listen(0, '127.0.0.1', r));
@@ -1394,6 +1499,51 @@ async function runSelfTest() {
       if (!msg.toLowerCase().includes('credential') && !msg.toLowerCase().includes('cross-origin')) {
         errors.push(`unexpected redirect error: ${msg}`);
       }
+    }
+
+    // A credential-free 303 must become a GET and drop the mutation body.
+    hitsB.length = 0;
+    await fetchWithTimeout(
+      `${originA}/mutation-303`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"x":1}' },
+      5000,
+      1,
+      DEFAULT_MAX_BODY_BYTES,
+      { allowRedirectOrigin: [] },
+    );
+    if (hitsB.length !== 1 || hitsB[0].method !== 'GET' || hitsB[0].body) {
+      errors.push('303 redirect must rewrite mutation to GET without body');
+    }
+
+    // A 307 state-changing cross-origin redirect is blocked unless explicitly
+    // allowlisted, and the opt-in must preserve the method/body when allowed.
+    hitsB.length = 0;
+    let mutationRedirectBlocked = false;
+    try {
+      await fetchWithTimeout(
+        `${originA}/mutation-307`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"x":1}' },
+        5000,
+        1,
+        DEFAULT_MAX_BODY_BYTES,
+        { allowRedirectOrigin: [] },
+      );
+    } catch (err) {
+      mutationRedirectBlocked = /cross-origin.*redirect.*blocked/i.test(String(err.message || err));
+    }
+    if (!mutationRedirectBlocked || hitsB.length !== 0) {
+      errors.push('307 cross-origin mutation redirect must block before target');
+    }
+    await fetchWithTimeout(
+      `${originA}/mutation-307`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"x":1}' },
+      5000,
+      1,
+      DEFAULT_MAX_BODY_BYTES,
+      { allowRedirectOrigin: [originB] },
+    );
+    if (hitsB.length !== 1 || hitsB[0].method !== 'POST' || hitsB[0].body !== '{"x":1}') {
+      errors.push('allowlisted 307 redirect must preserve method/body');
     }
 
     // B must not receive X-Token
@@ -1682,6 +1832,7 @@ async function runSelfTest() {
   // --- D3: real method + body integration (echo server) ---
   await (async () => {
     const seen = [];
+    let retryHits = 0;
     const server = createServer((req, res) => {
       let body = '';
       req.on('data', (c) => {
@@ -1689,8 +1840,20 @@ async function runSelfTest() {
       });
       req.on('end', () => {
         seen.push({ method: req.method, contentType: req.headers['content-type'] || null, body });
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, items: [] }));
+        if (req.url === '/retry-mutation') {
+          retryHits += 1;
+          res.writeHead(retryHits < 3 ? 500 : 200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ items: [] }));
+        } else if (req.url === '/empty') {
+          res.writeHead(204);
+          res.end();
+        } else if (req.url === '/graphql') {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ data: { viewer: { id: 'viewer-1' } } }));
+        } else {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, items: [] }));
+        }
       });
     });
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -1698,17 +1861,17 @@ async function runSelfTest() {
     const savedCache = process.env.D_RESEARCH_HTTP_CACHE_PATH;
     delete process.env.D_RESEARCH_HTTP_CACHE_PATH;
     const bodyDir = mkdtempSync(join(tmpdir(), 'api_body_'));
-    const run = async (cli) => {
+    const run = async (cli, path = '/x') => {
       const a = parseArgs([
         'node', 'api_fetch.mjs',
-        '--url', `http://127.0.0.1:${port}/x`,
+        '--url', `http://127.0.0.1:${port}${path}`,
         '--delay', '0', '--timeout', '5000',
         ...cli,
       ]);
       resolveRequestShape(a);
       if (a.parseErrors.length) return { err: a.parseErrors };
-      await fetchAllPages(a);
-      return { last: seen[seen.length - 1] };
+      const result = await fetchAllPages(a);
+      return { last: seen[seen.length - 1], result };
     };
     try {
       // GraphQL-style POST query -> POST, JSON body, application/json.
@@ -1735,6 +1898,38 @@ async function runSelfTest() {
       r = await run(['--method', 'POST', '--intent', 'archive', '--body-file', bf, '--content-type', 'application/json']);
       if (r.err) errors.push(`POST archive body-file should be valid: ${r.err}`);
       else if (!r.last.body.includes('file') || r.last.contentType !== 'application/json') errors.push('body-file contents/content-type not sent');
+
+      // An explicitly supplied Content-Type is honored even without a body.
+      seen.length = 0;
+      r = await run(['--method', 'DELETE', '--intent', 'mutation', '--content-type', 'application/json']);
+      if (r.err || r.last.contentType !== 'application/json') errors.push('bodyless content-type must be sent');
+
+      // Empty successful mutation responses (204/205) are valid and do not
+      // trigger a misleading JSON parse failure.
+      seen.length = 0;
+      r = await run(['--method', 'DELETE', '--intent', 'mutation'], '/empty');
+      if (r.err || !r.result.complete || r.result.errors.length || r.result.allItems.length) {
+        errors.push('204 mutation response should complete with no items');
+      }
+
+      // Preserve a GraphQL/object response instead of silently converting it
+      // to an empty array.
+      seen.length = 0;
+      r = await run(['--method', 'POST', '--intent', 'query', '--body-json', '{"query":"{ viewer { id } }"}'], '/graphql');
+      if (r.err || !r.result.allItems[0]?.data?.viewer?.id) {
+        errors.push('GraphQL object response must be preserved');
+      }
+
+      // Non-idempotent requests are one attempt by default; a caller may opt
+      // into more attempts explicitly.
+      retryHits = 0;
+      seen.length = 0;
+      r = await run(['--method', 'POST', '--intent', 'mutation'], '/retry-mutation');
+      if (retryHits !== 1 || r.result.complete) errors.push('mutation default retry policy must be single-attempt');
+      retryHits = 0;
+      seen.length = 0;
+      r = await run(['--method', 'POST', '--intent', 'mutation', '--max-attempts', '3'], '/retry-mutation');
+      if (retryHits !== 3 || !r.result.complete) errors.push('explicit mutation retries must be honored');
     } finally {
       await new Promise((r) => server.close(r));
       if (savedCache === undefined) delete process.env.D_RESEARCH_HTTP_CACHE_PATH;
