@@ -100,34 +100,110 @@ Authorization: Basic base64(username:password)
 1. Build request URL with required parameters
 2. Attach authentication headers
 3. Set appropriate Content-Type headers
-4. Execute HTTP request (GET for retrieval, POST for creation)
+4. Execute the HTTP request with the method that matches your intent
+   (see the method/intent table below)
 5. Capture response status code
 6. Parse response body
 7. Handle errors appropriately
 8. Implement backoff on failures
 ```
 
+### Method and intent
+
+Pick the method by what the request *does*, not by habit. The default research
+path is a read-only `GET`. A non-`GET` method is an explicit opt-in.
+
+| Intent | Methods | Meaning | Side effects |
+|---|---|---|---|
+| `query` | `GET`, `POST` | Retrieve data. `POST` here is a read-only query body (e.g. GraphQL or a search API that takes a JSON query). | none |
+| `archive` | `POST`, `PUT` | Submit content to an archival endpoint the user has authorized. | creates an archive record |
+| `mutation` | `POST`, `PUT`, `PATCH`, `DELETE` | Create, update, or delete a resource. | modifies remote state |
+
+`scripts/api_fetch.mjs` implements this contract: with no `--method` it performs
+the historical read-only `GET`. Any non-`GET` method requires an explicit
+`--intent query|archive|mutation`, so a state-changing request is never issued by
+accident, and defaults to a single request so a body is never re-sent by
+pagination. A `query` POST (GraphQL/search) is a retrieval, not a creation.
+Mutations run only when the caller selects the matching `--intent` and the host
+permits the request; the read-only `GET` path is unchanged and gains no new gate.
+
+```bash
+# Read-only GET (default, unchanged)
+node scripts/api_fetch.mjs --url "https://api.example.com/items"
+
+# Read-only GraphQL/search query over POST
+node scripts/api_fetch.mjs --url "https://api.example.com/graphql" \
+  --method POST --intent query --body-json '{"query":"{ viewer { id } }"}'
+
+# Authorized mutation (single request; explicit intent required)
+node scripts/api_fetch.mjs --url "https://api.example.com/items/42" \
+  --method DELETE --intent mutation
+```
+
 ### Request Construction Example
 
+Prefer the bundled helper `scripts/api_fetch.mjs`, which already implements SSRF
+guards, credential redaction, pagination, and the method/intent contract above.
+
+If you write your own client, this standard-library version has no third-party
+dependency and runs anywhere Python does:
+
 ```python
-import requests
+import json
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
 
 def make_api_request(endpoint, params, headers, max_retries=3):
-    """Standardized API request with retry logic."""
-    
+    """Standard-library API GET with retry/backoff. No third-party deps."""
+    url = endpoint
+    if params:
+        url = f"{endpoint}?{urllib.parse.urlencode(params)}"
+
     for attempt in range(max_retries):
-        response = requests.get(
-            endpoint,
-            params=params,
-            headers=headers,
-            timeout=30
-        )
-        
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            if error.code == 429:
+                wait_time = int(error.headers.get("Retry-After", 60))
+                time.sleep(wait_time)
+            elif 400 <= error.code < 500:
+                raise ValueError(f"Client error {error.code}: {error.read().decode('utf-8')}")
+            elif error.code >= 500 and attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                raise
+    return None
+```
+
+The same logic using the optional `requests` library (install
+`pip install requests` first; it is **not** a bundled dependency, so probe for it
+before importing):
+
+```python
+import time
+
+try:
+    import requests
+except ImportError:
+    requests = None  # fall back to the urllib version above
+
+
+def make_api_request_requests(endpoint, params, headers, max_retries=3):
+    """Optional-dependency variant. Requires `pip install requests`."""
+    if requests is None:
+        raise RuntimeError("the 'requests' extra is not installed; use the urllib version")
+
+    for attempt in range(max_retries):
+        response = requests.get(endpoint, params=params, headers=headers, timeout=30)
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 429:
-            wait_time = int(response.headers.get('Retry-After', 60))
-            time.sleep(wait_time)
+            time.sleep(int(response.headers.get("Retry-After", 60)))
         elif 400 <= response.status_code < 500:
             raise ValueError(f"Client error {response.status_code}: {response.text}")
         elif response.status_code >= 500:
@@ -135,7 +211,6 @@ def make_api_request(endpoint, params, headers, max_retries=3):
                 time.sleep(2 ** attempt)
             else:
                 raise ConnectionError(f"Server error after {max_retries} attempts")
-    
     return None
 ```
 
@@ -717,7 +792,11 @@ outputs/
 
 ### Access Guidelines
 
-1. **GET Only**: Only use GET requests for data collection. POST/PUT/DELETE can modify data.
+1. **Read-only by default**: Data collection uses `GET`. A read-only query
+   `POST` (e.g. GraphQL/search) is retrieval, not modification. State-changing
+   methods (a creating `POST`, or `PUT`/`PATCH`/`DELETE`) run only as an
+   explicit, user-authorized opt-in via `--intent archive|mutation`; they are
+   never issued by default.
 
 2. **No Brute-Force Keys**: Never attempt to discover API keys through repeated guessing.
 
@@ -731,7 +810,7 @@ outputs/
 
 - Endpoints requiring password or credentials you must discover
 - APIs explicitly marked as internal/private
-- Requests that would modify, delete, or create data
+- Requests that would modify, delete, or create data without the user's explicit authorization
 - Endpoints with no documented terms of service (risk of legal issues)
 
 ### Prohibited Actions

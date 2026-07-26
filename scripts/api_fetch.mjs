@@ -180,6 +180,11 @@ function parseArgs(argv) {
     maxPagesFromCli: false,
     configPath: null,
     printEffectiveConfig: false,
+    method: 'GET',
+    bodyJson: null,
+    bodyFile: null,
+    contentType: null,
+    intent: null,
     delay: 500,
     out: null,
     format: 'json',
@@ -282,6 +287,18 @@ function parseArgs(argv) {
       args.configPath = need('--config');
     } else if (arg === '--print-effective-config') {
       args.printEffectiveConfig = true;
+    } else if (arg === '--method') {
+      const raw = need('--method');
+      if (raw != null) args.method = String(raw).toUpperCase();
+    } else if (arg === '--body-json') {
+      args.bodyJson = need('--body-json');
+    } else if (arg === '--body-file') {
+      args.bodyFile = need('--body-file');
+    } else if (arg === '--content-type') {
+      args.contentType = need('--content-type');
+    } else if (arg === '--intent') {
+      const raw = need('--intent');
+      if (raw != null) args.intent = String(raw).toLowerCase();
     } else if (arg === '--delay') {
       const raw = need('--delay');
       if (raw == null || !/^\d+$/.test(String(raw))) {
@@ -505,6 +522,7 @@ async function fetchWithTimeout(
             {
               method,
               headers,
+              body: options && options.body != null ? options.body : undefined,
               signal: controller.signal,
               maxResponseBytes,
               bodyTimeoutMs: timeoutMs,
@@ -648,9 +666,134 @@ function effectiveConfigReport(args) {
   };
 }
 
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+const REQUEST_INTENTS = ['query', 'archive', 'mutation'];
+// Which methods each intent may use. GET stays read-only and never needs intent.
+const INTENT_METHODS = {
+  query: ['GET', 'POST'], // e.g. GraphQL / search POST that does not mutate
+  archive: ['POST', 'PUT'], // archival submission
+  mutation: ['POST', 'PUT', 'PATCH', 'DELETE'],
+};
+
+// Validate method/body/intent and materialize the request body.
+// GET is fully preserved: no intent required, no body allowed. Any non-GET
+// method must declare --intent explicitly so a side-effecting request is never
+// issued by accident, and defaults to a single request so a body is never
+// re-sent by pagination.
+function resolveRequestShape(args) {
+  args.body = null;
+  args.bodyContentType = null;
+
+  if (!HTTP_METHODS.includes(args.method)) {
+    args.parseErrors.push(`invalid --method: ${args.method} (allowed: ${HTTP_METHODS.join(', ')})`);
+    return args;
+  }
+
+  const hasBodyFlag = args.bodyJson != null || args.bodyFile != null;
+
+  if (args.method === 'GET') {
+    if (hasBodyFlag) {
+      args.parseErrors.push('--body-json/--body-file are not allowed with GET; choose --method POST|PUT|PATCH|DELETE');
+    }
+    if (args.intent != null && args.intent !== 'query') {
+      args.parseErrors.push(`--intent ${args.intent} is not valid for GET (GET is always a read-only query)`);
+    }
+    return args; // GET path unchanged.
+  }
+
+  // Non-GET below.
+  if (args.intent == null) {
+    args.parseErrors.push(`--method ${args.method} requires an explicit --intent (${REQUEST_INTENTS.join('|')})`);
+    return args;
+  }
+  if (!REQUEST_INTENTS.includes(args.intent)) {
+    args.parseErrors.push(`invalid --intent: ${args.intent} (allowed: ${REQUEST_INTENTS.join(', ')})`);
+    return args;
+  }
+  if (!INTENT_METHODS[args.intent].includes(args.method)) {
+    args.parseErrors.push(
+      `--method ${args.method} is not allowed for --intent ${args.intent} ` +
+        `(allowed: ${INTENT_METHODS[args.intent].join(', ')})`,
+    );
+    return args;
+  }
+
+  if (args.bodyJson != null && args.bodyFile != null) {
+    args.parseErrors.push('--body-json and --body-file are mutually exclusive');
+    return args;
+  }
+
+  if (args.bodyJson != null) {
+    try {
+      JSON.parse(args.bodyJson);
+    } catch (e) {
+      args.parseErrors.push(`--body-json is not valid JSON: ${e.message}`);
+      return args;
+    }
+    args.body = args.bodyJson;
+    args.bodyContentType = args.contentType || 'application/json';
+  } else if (args.bodyFile != null) {
+    let contents;
+    try {
+      contents = readFileSync(args.bodyFile);
+    } catch (e) {
+      args.parseErrors.push(`cannot read --body-file ${args.bodyFile}: ${e.message}`);
+      return args;
+    }
+    if (contents.length > args.maxResponseBytes) {
+      args.parseErrors.push(
+        `request body (${contents.length} bytes) exceeds the ${args.maxResponseBytes}-byte cap`,
+      );
+      return args;
+    }
+    args.body = contents;
+    args.bodyContentType = args.contentType || 'application/octet-stream';
+  } else if (args.contentType != null) {
+    args.bodyContentType = args.contentType; // header without a body is allowed
+  }
+
+  if (args.body != null && Buffer.byteLength(args.body) > args.maxResponseBytes) {
+    args.parseErrors.push(
+      `request body exceeds the ${args.maxResponseBytes}-byte cap`,
+    );
+    return args;
+  }
+
+  // A mutation must be a single request; pagination must never re-send a body.
+  if (args.intent === 'mutation') {
+    if (args.maxPagesFromCli && args.maxPages > 1) {
+      args.parseErrors.push('mutations must be a single request; --max-pages must be 1');
+      return args;
+    }
+    args.maxPages = 1;
+  } else if (!args.maxPagesFromCli) {
+    // Non-GET query/archive default to a single request unless the caller
+    // explicitly opts into pagination with --max-pages.
+    args.maxPages = 1;
+  }
+
+  return args;
+}
+
+// Build the request headers, injecting the resolved body content-type without
+// clobbering a caller-supplied Content-Type.
+function buildRequestHeaders(args) {
+  const headers = { ...args.headers };
+  if (args.body != null && args.bodyContentType) {
+    const hasContentType = Object.keys(headers).some(
+      (k) => k.toLowerCase() === 'content-type',
+    );
+    if (!hasContentType) headers['Content-Type'] = args.bodyContentType;
+  }
+  return headers;
+}
+
 async function fetchAllPages(args) {
   const initialUrl = applyParams(args.url, args.params);
+  const method = args.method || 'GET';
+  const requestHeaders = buildRequestHeaders(args);
   console.log(`Starting fetch from: ${redactUrl(initialUrl)}`);
+  console.log(`Request method: ${method}`);
   console.log(`Pagination mode: ${args.pagination}`);
   console.log(`Max pages: ${args.maxPages}`);
 
@@ -665,7 +808,8 @@ async function fetchAllPages(args) {
 
   while (hasMorePages && page <= args.maxPages) {
     console.log(`Fetching page ${page}...`);
-    const fetchOptions = { method: 'GET', headers: args.headers };
+    const fetchOptions = { method, headers: requestHeaders };
+    if (args.body != null) fetchOptions.body = args.body;
 
     try {
       const response = await fetchWithTimeout(
@@ -695,7 +839,7 @@ async function fetchAllPages(args) {
         throw new Error(`JSON parse failed: ${e.message}`);
       }
 
-      if (getCachePath() !== null && !hasCredentialHeaders(fetchOptions.headers)) {
+      if (method === 'GET' && getCachePath() !== null && !hasCredentialHeaders(fetchOptions.headers)) {
         try {
           const headersObj = {};
           response.headers.forEach((v, k) => {
@@ -827,6 +971,8 @@ async function main() {
     return;
   }
 
+  resolveRequestShape(args);
+
   if (args.unknown.length) {
     console.error(`Error: ${args.unknown.length} unrecognized command-line argument(s)`);
     process.exit(1);
@@ -839,6 +985,8 @@ async function main() {
     console.error('Error: --url is required');
     console.error(
       'Usage: node api_fetch.mjs --url <url> [--headers <json>] [--params <json>] ' +
+        '[--method GET|POST|PUT|PATCH|DELETE] [--intent query|archive|mutation] ' +
+        '[--body-json <json>] [--body-file <path>] [--content-type <mime>] ' +
         '[--pagination auto|offset|cursor|page|link-header] [--cursor-key <path>] ' +
         '[--max-pages <n>] [--config <path>] [--print-effective-config] ' +
         '[--delay <ms>] [--out <file>] [--format json|jsonl] ' +
@@ -1471,6 +1619,127 @@ async function runSelfTest() {
       for (const d of cacheDirs) rmSync(d, { recursive: true, force: true });
       rmSync(cfgDir, { recursive: true, force: true });
       rmSync(emptyDir, { recursive: true, force: true });
+    }
+  })();
+
+  // --- D3: additive HTTP method / body / intent validation ---
+  {
+    const shape = (cli) => {
+      const a = parseArgs(['node', 'api_fetch.mjs', '--url', 'https://api.example.com/x', ...cli]);
+      resolveRequestShape(a);
+      return a;
+    };
+    let a = shape([]);
+    if (a.method !== 'GET' || a.body !== null || a.parseErrors.length) {
+      errors.push('GET default must stay a read-only no-body request');
+    }
+    a = shape(['--body-json', '{"x":1}']);
+    if (!a.parseErrors.some((e) => e.includes('not allowed with GET'))) {
+      errors.push('GET with a body must error');
+    }
+    a = shape(['--method', 'POST']);
+    if (!a.parseErrors.some((e) => e.includes('requires an explicit --intent'))) {
+      errors.push('POST without --intent must error');
+    }
+    a = shape(['--method', 'BOGUS', '--intent', 'query']);
+    if (!a.parseErrors.some((e) => e.includes('invalid --method'))) {
+      errors.push('invalid --method must error');
+    }
+    a = shape(['--method', 'PUT', '--intent', 'query']);
+    if (!a.parseErrors.some((e) => e.includes('not allowed for --intent query'))) {
+      errors.push('query intent must forbid PUT');
+    }
+    a = shape(['--method', 'DELETE', '--intent', 'mutation']);
+    if (a.parseErrors.length || a.method !== 'DELETE' || a.maxPages !== 1) {
+      errors.push('DELETE mutation should be a valid single request');
+    }
+    a = shape(['--method', 'POST', '--intent', 'mutation', '--max-pages', '3']);
+    if (!a.parseErrors.some((e) => e.includes('single request'))) {
+      errors.push('mutation with --max-pages>1 must error');
+    }
+    a = shape(['--method', 'POST', '--intent', 'query', '--body-json', '{}', '--body-file', 'x']);
+    if (!a.parseErrors.some((e) => e.includes('mutually exclusive'))) {
+      errors.push('body-json + body-file must error');
+    }
+    a = shape(['--method', 'POST', '--intent', 'query', '--body-json', '{bad']);
+    if (!a.parseErrors.some((e) => e.includes('not valid JSON'))) {
+      errors.push('invalid --body-json must error');
+    }
+    a = shape(['--method', 'POST', '--intent', 'query', '--body-json', '{"q":"x"}']);
+    if (a.parseErrors.length || a.bodyContentType !== 'application/json' || a.maxPages !== 1) {
+      errors.push('POST query body should default content-type and be a single request');
+    }
+    a = shape(['--method', 'POST', '--intent', 'query', '--max-response-bytes', '4', '--body-json', '{"q":"toolong"}']);
+    if (!a.parseErrors.some((e) => e.includes('cap'))) {
+      errors.push('oversize request body must be blocked');
+    }
+    a = shape(['--method', 'POST', '--intent', 'query', '--body-json', '{}', '--max-pages', '4']);
+    if (a.parseErrors.length || a.maxPages !== 4) {
+      errors.push('POST query with explicit --max-pages should keep pagination');
+    }
+  }
+
+  // --- D3: real method + body integration (echo server) ---
+  await (async () => {
+    const seen = [];
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => {
+        body += c;
+      });
+      req.on('end', () => {
+        seen.push({ method: req.method, contentType: req.headers['content-type'] || null, body });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, items: [] }));
+      });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const port = server.address().port;
+    const savedCache = process.env.D_RESEARCH_HTTP_CACHE_PATH;
+    delete process.env.D_RESEARCH_HTTP_CACHE_PATH;
+    const bodyDir = mkdtempSync(join(tmpdir(), 'api_body_'));
+    const run = async (cli) => {
+      const a = parseArgs([
+        'node', 'api_fetch.mjs',
+        '--url', `http://127.0.0.1:${port}/x`,
+        '--delay', '0', '--timeout', '5000',
+        ...cli,
+      ]);
+      resolveRequestShape(a);
+      if (a.parseErrors.length) return { err: a.parseErrors };
+      await fetchAllPages(a);
+      return { last: seen[seen.length - 1] };
+    };
+    try {
+      // GraphQL-style POST query -> POST, JSON body, application/json.
+      seen.length = 0;
+      let r = await run(['--method', 'POST', '--intent', 'query', '--body-json', '{"query":"{ me }"}']);
+      if (r.err) errors.push(`POST query should be valid: ${r.err}`);
+      else if (r.last.method !== 'POST' || !r.last.body.includes('me') || r.last.contentType !== 'application/json') {
+        errors.push(`POST query method/body/content-type mismatch: ${JSON.stringify(r.last)}`);
+      }
+      // PUT mutation.
+      seen.length = 0;
+      r = await run(['--method', 'PUT', '--intent', 'mutation', '--body-json', '{"v":1}']);
+      if (r.err) errors.push(`PUT mutation should be valid: ${r.err}`);
+      else if (r.last.method !== 'PUT' || !r.last.body.includes('"v"')) errors.push('PUT mutation method/body mismatch');
+      // DELETE mutation is exactly one request.
+      seen.length = 0;
+      r = await run(['--method', 'DELETE', '--intent', 'mutation']);
+      if (r.err) errors.push(`DELETE mutation should be valid: ${r.err}`);
+      else if (r.last.method !== 'DELETE' || seen.length !== 1) errors.push('DELETE mutation must be a single request');
+      // body-file with explicit content-type.
+      const bf = join(bodyDir, 'b.json');
+      writeFileSync(bf, '{"file":true}', 'utf8');
+      seen.length = 0;
+      r = await run(['--method', 'POST', '--intent', 'archive', '--body-file', bf, '--content-type', 'application/json']);
+      if (r.err) errors.push(`POST archive body-file should be valid: ${r.err}`);
+      else if (!r.last.body.includes('file') || r.last.contentType !== 'application/json') errors.push('body-file contents/content-type not sent');
+    } finally {
+      await new Promise((r) => server.close(r));
+      if (savedCache === undefined) delete process.env.D_RESEARCH_HTTP_CACHE_PATH;
+      else process.env.D_RESEARCH_HTTP_CACHE_PATH = savedCache;
+      rmSync(bodyDir, { recursive: true, force: true });
     }
   })();
 
