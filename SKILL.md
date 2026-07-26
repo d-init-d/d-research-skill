@@ -45,8 +45,8 @@ rate limits, robots restrictions, or explicit access restrictions.
   unauthorized pseudonym re-identification, malware, exploitation, or exfiltration.
 - Private/personal/sensitive data without a validated scope and authorization.
 - Ignore robots when acting as a crawler (`--no-respect-robots` hard-fails).
-- External mutation without explicit opt-in (Wayback Save Page Now requires
-  `--submit-archive`).
+- External mutation is never implicit: `social_snapshot.py snapshot` archives
+  only with `--submit-archive`, and `wayback.py save` is an explicit command.
 
 Lawful authenticated access with user-provided credentials is distinct from
 bypass/evasion and remains read-only by default.

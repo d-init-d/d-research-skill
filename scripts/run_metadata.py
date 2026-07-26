@@ -30,13 +30,40 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+
+# Patterns for optional --redact-secrets. Applied only when the caller opts in;
+# the default keeps the raw command string exactly as provided.
+_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # Authorization headers (with optional "Bearer ").
+    (re.compile(r"(?i)(authorization\s*[:=]\s*)(bearer\s+)?\S+"), r"\1\2***"),
+    # key=value / key: value for common secret-bearing keys.
+    (
+        re.compile(
+            r"(?i)\b(api[_-]?key|access[_-]?token|token|secret|password|passwd|bearer|cookie)"
+            r"(\"?\s*[:=]\s*\"?)([^\s\"'&]+)"
+        ),
+        r"\1\2***",
+    ),
+    # Credentials embedded in a URL: scheme://user:pass@host
+    (re.compile(r"(https?://)([^/\s:@]+):([^/\s@]+)@"), r"\1\2:***@"),
+]
+
+
+def _redact_command_secrets(text: str) -> str:
+    """Redact secret-looking substrings from a free-form command string."""
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 def _git_short_sha(repo: Path | None = None) -> str:
@@ -95,14 +122,29 @@ def build_record(
     hostname: str | None = None,
     repo: Path | None = None,
     now: str | None = None,
+    redact_secrets: bool = False,
+    command_hash: bool = False,
+    omit_hostname: bool = False,
 ) -> dict[str, Any]:
-    """Return the record dict that ``record`` would write."""
+    """Return the record dict that ``record`` would write.
+
+    With no opt-in flags the record is exactly the historical shape (raw
+    command, resolved hostname, no extra keys). Optional privacy modes only add
+    fields or transform the value the caller asked to transform.
+    """
     if hostname is None:
         hostname = (
             os.environ.get("D_RESEARCH_RUN_HOSTNAME", "").strip()
             or socket.gethostname()
         )
-    return {
+
+    raw_command = command
+    if redact_secrets:
+        command = _redact_command_secrets(command)
+    if omit_hostname:
+        hostname = ""
+
+    record: dict[str, Any] = {
         "timestamp": now or _now_utc_iso(),
         "git_sha": _git_short_sha(repo),
         "hostname": hostname,
@@ -111,6 +153,15 @@ def build_record(
         "command": command,
         "label": label,
     }
+    if redact_secrets:
+        record["command_redacted"] = True
+    if command_hash:
+        record["command_sha256"] = hashlib.sha256(
+            raw_command.encode("utf-8")
+        ).hexdigest()
+    if omit_hostname:
+        record["hostname_omitted"] = True
+    return record
 
 
 def append_record(out: Path, record: dict[str, Any]) -> None:
@@ -126,6 +177,9 @@ def cmd_record(args: argparse.Namespace) -> int:
         label=args.label or "",
         hostname=args.hostname,
         repo=Path(args.repo).resolve() if args.repo else None,
+        redact_secrets=getattr(args, "redact_secrets", False),
+        command_hash=getattr(args, "command_hash", False),
+        omit_hostname=getattr(args, "omit_hostname", False),
     )
     out = Path(args.out)
     append_record(out, record)
@@ -221,6 +275,39 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if not out2.is_file():
             errors.append("cmd_record did not write the JSONL file")
 
+        # --- D4: default record shape is unchanged (no new keys when flags absent) ---
+        plain = build_record(command="curl -H 'Authorization: Bearer SECRET'", hostname="h")
+        if set(plain) != {
+            "timestamp", "git_sha", "hostname", "python_version",
+            "node_version", "command", "label",
+        }:
+            errors.append("default record gained unexpected keys")
+        if "Bearer SECRET" not in plain["command"]:
+            errors.append("default record must keep the raw command verbatim")
+
+        # --- D4: --redact-secrets hides secrets and flags the record ---
+        red = build_record(
+            command="curl -H 'Authorization: Bearer SECRET' https://u:p@h/x?token=ABC",
+            hostname="h",
+            redact_secrets=True,
+        )
+        if "SECRET" in red["command"] or "ABC" in red["command"] or ":p@" in red["command"]:
+            errors.append(f"--redact-secrets left a secret in: {red['command']!r}")
+        if red.get("command_redacted") is not True:
+            errors.append("--redact-secrets must set command_redacted=true")
+
+        # --- D4: --command-hash records the hash of the RAW command ---
+        raw_cmd = "curl -H 'Authorization: Bearer SECRET'"
+        hashed = build_record(command=raw_cmd, hostname="h", command_hash=True)
+        import hashlib as _hl
+        if hashed.get("command_sha256") != _hl.sha256(raw_cmd.encode("utf-8")).hexdigest():
+            errors.append("--command-hash must hash the raw command")
+
+        # --- D4: --omit-hostname empties the hostname and flags it ---
+        anon = build_record(command="x", hostname="secret-host", omit_hostname=True)
+        if anon.get("hostname") != "" or anon.get("hostname_omitted") is not True:
+            errors.append("--omit-hostname must empty hostname and set hostname_omitted")
+
     if errors:
         print("run_metadata self-test FAILED:", file=sys.stderr)
         for e in errors:
@@ -253,6 +340,22 @@ def main() -> int:
     )
     rec_p.add_argument(
         "--print", action="store_true", help="Also print the record to stdout."
+    )
+    rec_p.add_argument(
+        "--redact-secrets",
+        action="store_true",
+        help="Redact secret-looking substrings from the recorded command and add "
+        "command_redacted=true. Default keeps the raw command.",
+    )
+    rec_p.add_argument(
+        "--command-hash",
+        action="store_true",
+        help="Add command_sha256 (SHA-256 of the raw command) to the record.",
+    )
+    rec_p.add_argument(
+        "--omit-hostname",
+        action="store_true",
+        help="Record an empty hostname and add hostname_omitted=true.",
     )
 
     sub.add_parser("self-test", help="Run offline self-test.")

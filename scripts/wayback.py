@@ -435,20 +435,56 @@ def fetch_with_backoff(url: str, method: str = "GET", max_retries: int = MAX_RET
 def cmd_save(args: argparse.Namespace) -> int:
     """Submit URL to Save Page Now with rate limiting and retry.
 
-    POSTs to the Save Page Now endpoint with exponential backoff on 429.
-    On success, prints the resulting archive URL.
+    `save` is an explicit archival command: it POSTs to the Save Page Now
+    endpoint with exponential backoff on 429 and prints the resulting archive
+    URL. Archival is the default action of this subcommand and needs no extra
+    flag; `--submit-archive` is accepted as a compatibility alias but is not
+    required. `--dry-run` shows the intended request without any network
+    mutation, and `--json` emits a structured result.
     """
     save_url = f"{SAVE_URL_PREFIX}{args.url}"
+    as_json = getattr(args, "json", False)
+
+    if getattr(args, "dry_run", False):
+        if as_json:
+            print(
+                json.dumps(
+                    {
+                        "action": "save",
+                        "method": "POST",
+                        "endpoint": save_url,
+                        "target": args.url,
+                        "dry_run": True,
+                        "submitted": False,
+                    }
+                )
+            )
+        else:
+            print(f"[dry-run] would POST to Save Page Now: {save_url} (no request sent)")
+        return 0
+
     raw = fetch_with_backoff(save_url, method="POST")
     # The Save Page Now endpoint returns the archive URL in the response
     # or redirects to it. Print the constructed archive URL on success.
     text = raw.decode("utf-8", errors="replace").strip()
+    archive_url = text if (text and text.startswith("http")) else save_url
 
-    # If the response contains a URL, use it; otherwise construct one
-    if text and text.startswith("http"):
-        print(f"Saved: {text}")
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "action": "save",
+                    "method": "POST",
+                    "endpoint": save_url,
+                    "target": args.url,
+                    "dry_run": False,
+                    "submitted": True,
+                    "archive_url": archive_url,
+                }
+            )
+        )
     else:
-        print(f"Saved: {save_url}")
+        print(f"Saved: {archive_url}")
     return 0
 
 
@@ -891,6 +927,48 @@ def cmd_self_test(args: argparse.Namespace) -> int:
         if _retry_after_seconds("999999", now=fixed_now) != MAX_RETRY_DELAY_SECONDS:
             errors.append("Retry-After delay cap failed")
 
+        # --- D4: save --dry-run must not hit the network, --json is structured ---
+        save_dry_ns = argparse.Namespace(
+            url="https://example.com/page",
+            submit_archive=False,
+            dry_run=True,
+            json=True,
+        )
+        captured = io.StringIO()
+        sys.stdout = captured
+        try:
+            rc = cmd_save(save_dry_ns)
+        finally:
+            sys.stdout = old_stdout
+        output = captured.getvalue()
+        if rc != 0:
+            errors.append(f"save --dry-run returned exit code {rc}")
+        else:
+            try:
+                result = json.loads(output)
+                if result.get("dry_run") is not True or result.get("submitted") is not False:
+                    errors.append("save --dry-run must not submit")
+                if result.get("method") != "POST" or "example.com" not in result.get("endpoint", ""):
+                    errors.append("save --dry-run structured result malformed")
+            except json.JSONDecodeError:
+                errors.append("save --dry-run --json output is not valid JSON")
+
+        # --submit-archive is accepted (compat alias) and behaves like a dry-run here.
+        save_alias_ns = argparse.Namespace(
+            url="https://example.com/page",
+            submit_archive=True,
+            dry_run=True,
+            json=False,
+        )
+        captured = io.StringIO()
+        sys.stdout = captured
+        try:
+            rc = cmd_save(save_alias_ns)
+        finally:
+            sys.stdout = old_stdout
+        if rc != 0:
+            errors.append("save --submit-archive alias must be accepted")
+
         # Report results
         if errors:
             print("wayback self-test FAILED:", file=sys.stderr)
@@ -964,6 +1042,22 @@ def main() -> int:
     # -- save (placeholder for future implementation) --
     save_p = sub.add_parser("save", help="Submit URL to Save Page Now.")
     save_p.add_argument("--url", required=True, help="URL to archive.")
+    save_p.add_argument(
+        "--submit-archive",
+        action="store_true",
+        help="Accepted compatibility alias; archival is already the default "
+        "action of `save` and this flag is not required.",
+    )
+    save_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the intended Save Page Now request without sending it.",
+    )
+    save_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a structured JSON result instead of a text line.",
+    )
 
     # -- diff (placeholder for future implementation) --
     diff_p = sub.add_parser(
