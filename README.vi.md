@@ -64,6 +64,11 @@ thay vì theo platform, tách nguồn phi chính thống thành phần riêng, x
 nguồn rò rỉ theo từng lớp và self-exposure audit có xác minh. Xem
 [`docs/release-v3.3.0.md`](docs/release-v3.3.0.md).
 
+Bản candidate đang phát triển là `v3.4.0-rc.1`, một bản mở rộng khả năng theo
+nguyên tắc monotonic: chỉ thêm khả năng, tăng độ tương thích và sửa lỗi, giữ
+nguyên mọi command, route và default của v3.3.0. Xem
+[`docs/release-v3.4.0-rc.1.md`](docs/release-v3.4.0-rc.1.md).
+
 v3.2.1 là bản stable trước đó, nâng ba nhánh optional lên backend production: semantic
 retrieval, citation export giàu metadata và language detection. Semantic
 retrieval ưu

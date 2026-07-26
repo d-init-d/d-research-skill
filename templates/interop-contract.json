@@ -1,0 +1,69 @@
+{
+  "contract_version": "1.0.0",
+  "package_version": "3.4.0-rc.1",
+  "ledger": {
+    "header_sizes": [
+      14,
+      19,
+      22,
+      23,
+      37
+    ],
+    "record_types": [
+      "blocker",
+      "claim",
+      "lead",
+      "process"
+    ],
+    "canonicalization": "d-research-skill/csv/v1",
+    "signature": "d-research-skill/hmac-sha256/v1"
+  },
+  "routes": [
+    "academic_review",
+    "api_collection",
+    "atomic_fact",
+    "broad_research",
+    "creative_or_cultural_research",
+    "dataset_collection",
+    "due_diligence_or_investigation",
+    "frontier_search",
+    "investigative_osint",
+    "large_scale",
+    "leaked_data_handling",
+    "legal_government_financial",
+    "long_horizon",
+    "market_competitor",
+    "medical_or_safety",
+    "monitoring_change",
+    "multilingual",
+    "person_osint_scoped",
+    "policy_or_standards_analysis",
+    "register_jargon",
+    "self_exposure_audit",
+    "semantic_retrieval",
+    "single_url",
+    "social_cross_platform",
+    "social_media_archival",
+    "systematic_review",
+    "technical_research",
+    "visualization_report"
+  ],
+  "entrypoints": [
+    "scripts/api_fetch.mjs",
+    "scripts/check_contract.py",
+    "scripts/evidence_ledger.py",
+    "scripts/investigation_policy.py",
+    "scripts/playwright_crawl.mjs",
+    "scripts/playwright_extract.mjs",
+    "scripts/playwright_probe.mjs",
+    "scripts/release_verify.py",
+    "scripts/report_render.py",
+    "scripts/research_plan.py",
+    "scripts/run_dogfood.py",
+    "scripts/social_snapshot.py",
+    "scripts/web_search.mjs"
+  ],
+  "artifact_profiles": [
+    "full"
+  ]
+}

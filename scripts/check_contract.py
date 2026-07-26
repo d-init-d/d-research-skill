@@ -3162,6 +3162,80 @@ def check_gate_template_drift() -> list[str]:
     return errors
 
 
+def check_interop_contract(root: Path = ROOT) -> list[str]:
+    """Validate the downstream interop contract (templates/interop-contract.json).
+
+    The committed snapshot must match what ``evidence_ledger.build_interop_contract``
+    emits (no drift), its package_version must equal package.json, every advertised
+    entrypoint must exist, its ledger schema numbers must match the live validator
+    constants, and its routes must match the route-manifest ids.
+    """
+    errors: list[str] = []
+    contract_path = root / "templates" / "interop-contract.json"
+    if not contract_path.is_file():
+        return ["missing templates/interop-contract.json"]
+    committed = _load_json(contract_path)
+
+    el_path = root / "scripts" / "evidence_ledger.py"
+    spec = importlib.util.spec_from_file_location(
+        "d_research_evidence_ledger", el_path
+    )
+    if spec is None or spec.loader is None:
+        return ["cannot load scripts/evidence_ledger.py for interop contract check"]
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    generated = module.build_interop_contract(root)
+
+    if committed != generated:
+        errors.append(
+            "templates/interop-contract.json drift: regenerate with "
+            "`python scripts/evidence_ledger.py contract "
+            "--out templates/interop-contract.json`"
+        )
+
+    package_version = str(_load_json(root / "package.json").get("version", ""))
+    if committed.get("package_version") != package_version:
+        errors.append(
+            "interop contract package_version "
+            f"{committed.get('package_version')!r} != package.json "
+            f"{package_version!r}"
+        )
+
+    for entry in committed.get("entrypoints", []) or []:
+        rel = Path(str(entry))
+        if rel.is_absolute() or ".." in rel.parts:
+            errors.append(f"interop entrypoint path unsafe: {entry!r}")
+        elif not (root / rel).is_file():
+            errors.append(f"interop entrypoint missing: {entry}")
+
+    header_sizes = sorted({len(f) for f in module.ACCEPTED_FIELD_SETS})
+    record_types = sorted(t for t in module.VALID_RECORD_TYPES if t)
+    ledger = committed.get("ledger", {})
+    if ledger.get("header_sizes") != header_sizes:
+        errors.append(
+            f"interop ledger header_sizes {ledger.get('header_sizes')!r} "
+            f"!= live {header_sizes}"
+        )
+    if ledger.get("record_types") != record_types:
+        errors.append(
+            f"interop ledger record_types {ledger.get('record_types')!r} "
+            f"!= live {record_types}"
+        )
+    if ledger.get("signature") != module.SIG_VERSION:
+        errors.append("interop ledger signature identifier drift")
+    if ledger.get("canonicalization") != module.CANON_VERSION:
+        errors.append("interop ledger canonicalization identifier drift")
+
+    manifest = _load_json(root / "templates" / "route-manifest.json")
+    manifest_routes = sorted(
+        str(r.get("id")) for r in manifest.get("routes", []) if r.get("id")
+    )
+    if committed.get("routes") != manifest_routes:
+        errors.append("interop routes drift from route-manifest ids")
+
+    return errors
+
+
 def collect_errors(
     release_tag: str | None = None,
     candidate_commit: str | None = None,
@@ -3177,6 +3251,7 @@ def collect_errors(
     errors.extend(check_config_safety())
     errors.extend(check_skill_and_routes())
     errors.extend(check_repository_contract())
+    errors.extend(check_interop_contract())
     errors.extend(check_example_metadata())
     errors.extend(check_canonical_examples())
     errors.extend(check_reference_structure())

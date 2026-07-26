@@ -1,6 +1,6 @@
 {
   "name": "d-research-skill-tools",
-  "version": "3.3.0",
+  "version": "3.4.0-rc.1",
   "description": "Browser-first deep research, data collection, and academic research skill for AI agents.",
   "type": "module",
   "license": "CC-BY-NC-4.0",
@@ -136,6 +136,7 @@
     "graph:expand": "node scripts/run_python.mjs scripts/citation_graph.py expand",
     "graph:coauthors": "node scripts/run_python.mjs scripts/citation_graph.py coauthors",
     "ledger:prov-export": "node scripts/run_python.mjs scripts/evidence_ledger.py prov-export",
+    "ledger:contract": "node scripts/run_python.mjs scripts/evidence_ledger.py contract",
     "meta:record": "node scripts/run_python.mjs scripts/run_metadata.py record",
     "refs:check:decision-tree": "node scripts/run_python.mjs scripts/check_internal_refs.py --decision-tree",
     "package:check": "node scripts/package_manifest_check.mjs",
@@ -149,8 +150,8 @@
   "dResearchPackageManifest": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "file_count": 207,
-    "paths_sha256": "sha256:fbd13cc3b57a548f86036e6b48830a09b52e17ee2bc258b5d67d82bed13e2ad0"
+    "file_count": 209,
+    "paths_sha256": "sha256:e6603eeaa716d59b122cdc2ef84bbab305430c2068ad02775fe13c7a88156aa8"
   },
   "dependencies": {
     "playwright": "1.61.1"

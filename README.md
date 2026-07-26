@@ -97,6 +97,11 @@ classification, separate non-official lead output, leak-aware reporting, and
 verified self-exposure handling. See
 [`docs/release-v3.3.0.md`](docs/release-v3.3.0.md).
 
+The current in-development candidate is `v3.4.0-rc.1`, a monotonic
+capability-expansion release: it only adds capability, widens compatibility, and
+fixes defects, keeping every v3.3.0 command, route, and default intact. See
+[`docs/release-v3.4.0-rc.1.md`](docs/release-v3.4.0-rc.1.md).
+
 v3.2.1 is the previous stable release of three production-capable optional upgrades:
 semantic retrieval, rich citation export, and language detection. Semantic
 retrieval now prefers

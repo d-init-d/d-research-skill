@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "skill_name": "d-research",
   "repository_contract": {
-    "version": "3.3.0-rc.1",
+    "version": "3.4.0-rc.1",
     "counts": {
       "references_markdown": 52,
       "adapters_markdown": 9,
@@ -11,7 +11,7 @@
       "scripts_node_top_level": 8,
       "scripts_node_lib": 5,
       "scripts_total": 49,
-      "templates_files": 15,
+      "templates_files": 16,
       "evidence_ledger_columns": 37
     },
     "core_paths": [

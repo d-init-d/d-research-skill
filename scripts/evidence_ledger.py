@@ -855,6 +855,86 @@ def validate_ledger(file: Path) -> int:
 
 SIG_VERSION = "d-research-skill/hmac-sha256/v1"
 
+# Stable identifier for the canonical CSV byte layout that `canonicalise`
+# produces and that both `sign` and `verify` HMAC over. Downstream consumers
+# (e.g. Aleph) pin this so they can detect a canonicalisation change that would
+# silently invalidate existing signatures.
+CANON_VERSION = "d-research-skill/csv/v1"
+
+# Version of the downstream interop contract shape emitted by `contract --json`.
+# Bumped only when the contract *structure* changes, independent of the package
+# release version.
+INTEROP_CONTRACT_VERSION = "1.0.0"
+
+# Artifact profiles this skill publishes. `full` is the historical source/dev
+# tree; additional profiles (e.g. `runtime`) are appended as they are added,
+# never by removing an existing one.
+ARTIFACT_PROFILES = ["full"]
+
+
+def _skill_root() -> Path:
+    """Repository root, resolved relative to this script (scripts/..)."""
+    return Path(__file__).resolve().parent.parent
+
+
+def build_interop_contract(root: Path | None = None) -> dict:
+    """Build the downstream interop contract from live code + repo constants.
+
+    Single source of truth: the ledger schema numbers and identifiers come from
+    this module's own constants, and the package version / routes come from the
+    committed manifests, so the contract can never silently drift from what the
+    validator and signer actually enforce.
+    """
+    import json
+
+    root = root or _skill_root()
+    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+
+    routes: list[str] = []
+    entrypoints: list[str] = ["scripts/evidence_ledger.py"]
+    manifest_path = root / "templates" / "route-manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        routes = sorted(
+            str(r.get("id")) for r in manifest.get("routes", []) if r.get("id")
+        )
+        contract = manifest.get("repository_contract", {})
+        for entry in contract.get("cli_contracts", []) or []:
+            path = entry.get("path") if isinstance(entry, dict) else None
+            if path:
+                entrypoints.append(str(path))
+    entrypoints = sorted(set(entrypoints))
+
+    header_sizes = sorted({len(fields) for fields in ACCEPTED_FIELD_SETS})
+    record_types = sorted(t for t in VALID_RECORD_TYPES if t)
+
+    return {
+        "contract_version": INTEROP_CONTRACT_VERSION,
+        "package_version": package.get("version"),
+        "ledger": {
+            "header_sizes": header_sizes,
+            "record_types": record_types,
+            "canonicalization": CANON_VERSION,
+            "signature": SIG_VERSION,
+        },
+        "routes": routes,
+        "entrypoints": entrypoints,
+        "artifact_profiles": list(ARTIFACT_PROFILES),
+    }
+
+
+def emit_interop_contract(out: Path | None) -> int:
+    import json
+
+    text = json.dumps(build_interop_contract(), indent=2, ensure_ascii=False) + "\n"
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"wrote interop contract -> {out}")
+    else:
+        sys.stdout.write(text)
+    return 0
+
 
 def canonicalise(file: Path) -> bytes:
     """Rewrite the CSV with a stable field order, Unix line endings, and no
@@ -1870,6 +1950,31 @@ def self_test() -> int:
             print("prov-export missing prov:used", file=sys.stderr)
             return 1
 
+    # --- Interop contract invariants (D1) ---
+    contract = build_interop_contract()
+    if contract["ledger"]["header_sizes"] != [14, 19, 22, 23, 37]:
+        print("interop contract header_sizes drift", file=sys.stderr)
+        return 1
+    for rt in ("claim", "lead", "process", "blocker"):
+        if rt not in contract["ledger"]["record_types"]:
+            print(f"interop contract missing record_type {rt}", file=sys.stderr)
+            return 1
+    if contract["ledger"]["signature"] != SIG_VERSION:
+        print("interop contract signature drift", file=sys.stderr)
+        return 1
+    if contract["ledger"]["canonicalization"] != CANON_VERSION:
+        print("interop contract canonicalization drift", file=sys.stderr)
+        return 1
+    if "full" not in contract["artifact_profiles"]:
+        print("interop contract missing full artifact profile", file=sys.stderr)
+        return 1
+    # Determinism: two independent builds must be byte-identical.
+    if json.dumps(build_interop_contract(), sort_keys=True) != json.dumps(
+        contract, sort_keys=True
+    ):
+        print("interop contract not deterministic", file=sys.stderr)
+        return 1
+
     print("evidence_ledger self-test ok")
     return 0
 
@@ -1917,6 +2022,21 @@ def main() -> int:
         default=None,
         help="Output JSON-LD path (default: stdout).",
     )
+    p_contract = sub.add_parser(
+        "contract",
+        help="Emit the downstream interop contract (ledger schema, routes, "
+        "entrypoints, artifact profiles) as JSON.",
+    )
+    p_contract.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON (default and only format; accepted for explicitness).",
+    )
+    p_contract.add_argument(
+        "--out",
+        default=None,
+        help="Output path (default: stdout).",
+    )
     sub.add_parser("self-test")
     args = parser.parse_args()
     if args.cmd == "init":
@@ -1933,6 +2053,9 @@ def main() -> int:
     if args.cmd == "prov-export":
         out = Path(args.out) if args.out else None
         return prov_export(Path(args.file), out)
+    if args.cmd == "contract":
+        out = Path(args.out) if args.out else None
+        return emit_interop_contract(out)
     if args.cmd == "self-test":
         return self_test()
     return 1

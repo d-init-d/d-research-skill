@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.4.0-rc.1] - 2026-07-26
+
+Release candidate for the v3.4.0 monotonic-capability upgrade. Every change is
+additive: no command, option, route, reference, script, template, ledger schema,
+or default is removed, and all v3.3.0 inputs remain valid. See
+[`docs/release-v3.4.0-rc.1.md`](docs/release-v3.4.0-rc.1.md).
+
+### Added
+
+- Added a machine-readable capability baseline and superset checker
+  (`release-evidence/v3.4.0/baseline/capability_baseline.py`) that fails if any
+  command, route, reference, script, template, ledger header size, or record
+  type regresses, or a recorded default changes without a caller opt-in.
+- Added a downstream interop contract: `evidence_ledger.py contract --json`
+  (npm `ledger:contract`) plus the committed snapshot
+  `templates/interop-contract.json`, generated from live ledger constants and
+  route ids, and validated for drift by `check_contract.py`.
+
+### Changed
+
+- Bumped the candidate version to `3.4.0-rc.1` (Beta classifier) so the
+  candidate is exempt from the stable release-evidence gate while feature work
+  proceeds, per the repository's own `-rc.N` promotion model.
+
 ## [3.3.0] - 2026-07-26
 
 Stable production release of the v3.3 investigative-research expansion.
@@ -1151,7 +1175,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.0-rc.1...HEAD
+[3.4.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.0-rc.1
 [3.3.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.3.0
 [3.3.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.3.0-rc.1
 [3.2.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.2.1
