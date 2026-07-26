@@ -58,11 +58,11 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
 v3.4.0 là bản stable hiện tại và là một bản mở rộng khả năng theo nguyên tắc
-monotonic: mọi command, route, độ rộng ledger và default không-config cũ vẫn
-hợp lệ. Bản này thêm config phân trang opt-in và các HTTP method ghi tường minh,
-giao diện lưu trữ Wayback đúng với code, redaction metadata mạnh hơn, interop
-contract cho consumer hạ nguồn, cùng artifact `full` và `runtime` deterministic.
-Xem [`docs/release-v3.4.0.md`](docs/release-v3.4.0.md).
+monotonic: mọi command, route, độ rộng ledger và default không-config đã được
+baseline ghi nhận vẫn hợp lệ. Bản này thêm config phân trang opt-in, HTTP method
+ghi tường minh, giao diện lưu trữ đúng với code, redaction metadata mạnh hơn,
+interop contract và artifact `full`/`runtime` deterministic khi source byte
+giống nhau. Xem [`docs/release-v3.4.0.md`](docs/release-v3.4.0.md).
 
 v3.3.0 là bản stable trước đó về policy điều tra. Bản này đã thêm tier
 `R0`-`R4`, khóa scope vào plan bằng hash, ledger 37 cột, phân loại social không

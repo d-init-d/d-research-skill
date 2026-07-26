@@ -18,13 +18,13 @@ interop package version, and version-scoped release evidence. See
 ### Added
 
 - Published capability-complete `full` and clean `runtime` installation
-  profiles with deterministic-for-identical-input archives, embedded and
-  sidecar manifests, per-file/tree hashes, archive checksums, extracted-profile
-  self-tests, and trusted-contract verification.
+  profiles with archives deterministic for identical source bytes, embedded
+  and sidecar manifests, per-file/tree hashes, archive checksums,
+  extracted-profile self-tests, and trusted-contract verification.
 - Published a machine-readable downstream interop contract for ledger widths
   `14/19/22/23/37`, record types, routes, entry points, and artifact profiles.
 - Added opt-in API pagination config and explicit POST/PUT/PATCH/DELETE request
-  construction without changing established GET behavior or defaults.
+  construction while preserving the established GET CLI contract and defaults.
 - Added explicit Wayback save/dry-run/JSON interfaces and broad metadata secret
   redaction.
 
@@ -53,7 +53,7 @@ interop package version, and version-scoped release evidence. See
   reproduction, provenance attestation, and all 24 local promotion checks
   passed before stable promotion.
 - No v3.3.0 command, option, route, reference, script, template, ledger schema,
-  record type, or no-config default was removed.
+  record type, or recorded no-config default was removed.
 
 ## [3.4.0-rc.1] - 2026-07-26
 

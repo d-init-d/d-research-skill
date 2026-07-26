@@ -91,11 +91,12 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
 v3.4.0 is the current stable release. It is a monotonic capability expansion:
-existing commands, routes, ledger widths, and no-config defaults remain valid,
-while API collection gains opt-in pagination config and explicit mutation
-methods, archival and metadata handling gain truthful interfaces and stronger
-redaction, downstream consumers gain a machine-readable interop contract, and
-installers gain deterministic `full` and clean `runtime` artifacts. See
+existing commands, routes, ledger widths, and recorded no-config defaults
+remain valid, while API collection gains opt-in pagination config and explicit
+mutation methods, archival and metadata handling gain truthful interfaces and
+stronger redaction, downstream consumers gain a machine-readable interop
+contract, and installers gain `full` and `runtime` artifacts deterministic for
+identical source bytes. See
 [`docs/release-v3.4.0.md`](docs/release-v3.4.0.md).
 
 v3.3.0 is the previous stable investigation-policy release. It added executable

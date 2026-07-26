@@ -6,7 +6,7 @@ D Research v3.4.0 is the stable production release of the monotonic-capability
 candidate frozen as `v3.4.0-rc.1`. It expands API collection, archival,
 metadata protection, downstream interoperability, reference routing, and
 installation packaging while preserving every v3.3.0 command, route, ledger
-format, and no-config default.
+format, and recorded no-config default.
 
 The executable surface is inherited from the signed release candidate. Stable
 promotion changes only lifecycle metadata, documentation, the generated
@@ -19,9 +19,9 @@ interop package version, and version-scoped release evidence.
 - `scripts/api_fetch.mjs` now supports POST, PUT, PATCH, and DELETE through
   explicit `--method` and `--intent` options, plus JSON/file request bodies and
   caller-selected content types.
-- Existing GET/query calls retain the same behavior and the same default limit
-  of 10 pages. `api.maxPagesPerEndpoint` supplies an optional config default;
-  the established `--max-pages` option still wins.
+- Existing GET/query calls retain their CLI contract and defaults, including
+  the limit of 10 pages. `api.maxPagesPerEndpoint` supplies an optional config
+  default; the established `--max-pages` option still wins.
 - Mutation requests make one attempt by default, avoiding accidental duplicate
   writes. Additional attempts remain available through explicit opt-in.
 - Redirect handling follows 301/302/303/307/308 method semantics, removes
