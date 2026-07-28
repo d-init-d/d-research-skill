@@ -90,14 +90,14 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.4.1-rc.2 is the current patch candidate. It corrects the public access-model
-contract so it accurately exposes the explicit archival and authorized API
-mutation capabilities already present in v3.4.0, and adds a regression gate
-against future absolute read-only claims. No command, option, route, schema,
-default, or supported operation is removed. See
-[`docs/release-v3.4.1-rc.2.md`](docs/release-v3.4.1-rc.2.md).
+v3.4.1 is the current stable release. It accurately exposes the explicit
+archival and authorized API mutation capabilities already present in v3.4.0,
+adds a regression gate against future absolute read-only claims, and makes
+mocked social snapshot verification hermetic under filtered DNS. No command,
+option, route, schema, default, or supported operation is removed. See
+[`docs/release-v3.4.1.md`](docs/release-v3.4.1.md).
 
-v3.4.0 is the current stable release. It is a monotonic capability expansion:
+v3.4.0 is the previous stable monotonic capability expansion:
 existing commands, routes, ledger widths, and recorded no-config defaults
 remain valid, while API collection gains opt-in pagination config and explicit
 mutation methods, archival and metadata handling gain truthful interfaces and
@@ -404,7 +404,10 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── release-v3.3.0-rc.1.md            # frozen investigation-policy candidate
 │   ├── release-v3.3.0.md                 # stable investigation-policy release
 │   ├── release-v3.4.0-rc.1.md            # frozen monotonic-capability candidate
-│   └── release-v3.4.0.md                 # stable monotonic-capability release
+│   ├── release-v3.4.0.md                 # stable monotonic-capability release
+│   ├── release-v3.4.1-rc.1.md            # access-contract candidate
+│   ├── release-v3.4.1-rc.2.md            # frozen patch candidate
+│   └── release-v3.4.1.md                 # stable access-contract patch
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates
@@ -431,7 +434,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 Paste this into any LLM agent or IDE assistant (Claude Code, OpenCode, Cursor, Windsurf, etc.):
 
 ```text
-Install D Research v3.4.0 from the GitHub Release runtime artifact into
+Install D Research v3.4.1 from the GitHub Release runtime artifact into
 .agents/skills/d-research. Do not clone the repository. Download both the
 runtime .tar.gz and its .sha256 file, verify SHA-256 before extraction, keep
 the skill read-only by default, and run npm run self-test:runtime when
@@ -463,7 +466,7 @@ Node/Python are available.
    closed inside the artifact. Bash:
 
 ```bash
-version=3.4.0
+version=3.4.1
 base="https://github.com/d-init-d/d-research-skill/releases/download/v${version}"
 mkdir -p .agents/skills
 test ! -e .agents/skills/d-research || { echo 'destination already exists' >&2; exit 1; }
@@ -477,7 +480,7 @@ test -f .agents/skills/d-research/SKILL.md
    PowerShell:
 
 ```powershell
-$Version = '3.4.0'
+$Version = '3.4.1'
 $Base = "https://github.com/d-init-d/d-research-skill/releases/download/v$Version"
 $Archive = "d-research-$Version-runtime.tar.gz"
 New-Item -ItemType Directory -Force .agents/skills | Out-Null
@@ -491,7 +494,7 @@ tar -xzf $Archive -C .agents/skills
 if (-not (Test-Path .agents/skills/d-research/SKILL.md)) { throw 'Skill entry point missing' }
 ```
 
-   Use `d-research-3.4.0-full.tar.gz` instead when you explicitly need the
+   Use `d-research-3.4.1-full.tar.gz` instead when you explicitly need the
    complete contributor/auditor surface, including CI, evaluations, hostile
    fixtures, and release evidence. `full` (alias `source`) remains the
    capability-complete profile; `runtime` is an additional clean install

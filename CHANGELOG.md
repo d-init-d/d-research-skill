@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.4.1] - 2026-07-28
+
+Stable production promotion of the signed `v3.4.1-rc.2` candidate. This patch
+aligns the product's public access-model contract with its existing explicit
+archival and authorized API mutation capabilities, adds machine-enforced
+wording regression protection, and makes the social snapshot self-test
+independent of filtered public DNS. See
+[`docs/release-v3.4.1.md`](docs/release-v3.4.1.md).
+
+### Changed
+
+- Standardized the public access posture as read-only by default while keeping
+  dedicated archival commands and `--intent archive|mutation` fully available.
+- Promoted package lifecycle metadata from `3.4.1-rc.2` Beta to `3.4.1`
+  Production/Stable without changing executable code, dependencies, routes, or
+  package paths after candidate freeze.
+
+### Added
+
+- Added cross-document contract checks and negative fixtures that reject stale
+  absolute read-only claims or omission of the explicit mutation surface.
+
+### Fixed
+
+- Made mocked social snapshot tests hermetic when a filtered resolver maps
+  public fixture hosts to loopback, without weakening production SSRF checks.
+
+### Verification
+
+- Exact candidate CI passed Python 3.10-3.12, Node.js 18/20/22, Windows and
+  Ubuntu integration, real Chromium, optional backends, 34/34 adversarial
+  acceptance, package boundaries, capability-superset, and artifact gates.
+- The signed candidate tag, deterministic source archive replay, independent
+  reproduction, provenance attestation, dependency audit, and all 24 local
+  promotion checks passed before stable promotion.
+- No v3.4.0 command, option, route, reference, script, template, ledger schema,
+  record type, supported operation, or recorded no-config default was removed.
+
 ## [3.4.1-rc.2] - 2026-07-28
 
 Release candidate that supersedes v3.4.1-rc.1 without changing its executable
@@ -1320,7 +1358,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.1-rc.2...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.1...HEAD
+[3.4.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1
 [3.4.1-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1-rc.2
 [3.4.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1-rc.1
 [3.4.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.0

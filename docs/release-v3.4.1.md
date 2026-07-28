@@ -52,11 +52,28 @@ and configured workflows require no schema or command migration.
 
 ## Release assurance
 
-The stable release promotes the exact signed v3.4.1 candidate without changing
-executable code, dependencies, package paths, routes, or artifact contracts.
-Exact-SHA CI, source archive replay, independent reproduction, checksums,
-deterministic dual-profile artifacts, and GitHub provenance remain
-non-waivable release requirements.
+The stable release promotes candidate commit
+`65d11e47068e19bfde3d35b4124d70e33a66fc83`. Its SSH-signed annotated
+`v3.4.1-rc.2` tag object is
+`2d369d30f7f5fd58b17e5828e3d5507de36986f9`, verified by GitHub.
+
+The exact candidate passed:
+
+- the complete CI matrix on Python 3.10-3.12 and Node.js 18/20/22;
+- Windows and Ubuntu integration, real Chromium, and optional backends;
+- source/runtime build, extraction, replay, closure, and deterministic artifact
+  gates;
+- 34/34 adversarial acceptance, dependency audit, contract negative fixtures,
+  and the v3.4.0 capability-superset baseline;
+- source archive checksum verification, independent reproduction, and GitHub
+  provenance attestation.
+
+Stable publication remains fail-closed on exact stable-SHA CI, a signed and
+GitHub-verified stable tag, candidate ancestry, source archive replay,
+checksums, and provenance. Exactly two external assurances are explicitly
+waived and are not represented as completed evidence: independent pull-request
+review and uncontaminated live dogfood. These waivers do not apply to any
+artifact, signature, CI, ancestry, archive, or provenance gate.
 
 **Full changelog:**
 [v3.4.0...v3.4.1](https://github.com/d-init-d/d-research-skill/compare/v3.4.0...v3.4.1)
