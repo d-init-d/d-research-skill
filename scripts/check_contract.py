@@ -153,11 +153,16 @@ _MAINTAINER_OVERRIDE_RELEASES = {
         "policy_deviation_paths": (),
         "required_checks": _V340_REQUIRED_CHECKS,
     },
+    "3.4.1": {
+        "candidate": "3.4.1-rc.1",
+        "policy_deviation_paths": (),
+        "required_checks": _V340_REQUIRED_CHECKS,
+    },
 }
 
 # The active release line drives route-manifest fixtures and negative self-tests.
-_DIRECT_STABLE_OVERRIDE_VERSION = "3.4.0"
-_DIRECT_STABLE_OVERRIDE_CANDIDATE = "3.4.0-rc.1"
+_DIRECT_STABLE_OVERRIDE_VERSION = "3.4.1"
+_DIRECT_STABLE_OVERRIDE_CANDIDATE = "3.4.1-rc.1"
 _DIRECT_STABLE_POLICY_DEVIATION_PATHS = ()
 _DIRECT_STABLE_REQUIRED_CHECKS = _V340_REQUIRED_CHECKS
 
@@ -2276,6 +2281,63 @@ def check_config_safety() -> list[str]:
     return errors
 
 
+def check_access_model_contract(root: Path = ROOT) -> list[str]:
+    """Keep public docs aligned with the explicit mutation surface.
+
+    D Research remains read-only by default, but archival commands and API
+    mutations are supported when the user explicitly authorizes them. Absolute
+    read-only prose silently hides those capabilities from downstream agents.
+    """
+
+    required = {
+        "SKILL.md": (
+            "Read-only by default; explicit, user-authorized archival or API "
+            "mutation operations remain available through dedicated commands or "
+            "`--intent archive|mutation`."
+        ),
+        "AGENTS.md": (
+            "Access is read-only by default. Explicit, user-authorized archival or "
+            "API mutation operations remain available through dedicated commands or "
+            "`--intent archive|mutation`."
+        ),
+        "README.md": (
+            "Explicit, user-authorized archival or API mutation operations remain "
+            "available through dedicated commands or `--intent archive|mutation`."
+        ),
+        "README.vi.md": (
+            "Các thao tác lưu trữ hoặc mutation API do người dùng ủy quyền rõ ràng "
+            "vẫn khả dụng qua command chuyên dụng hoặc `--intent archive|mutation`."
+        ),
+    }
+    forbidden = {
+        "SKILL.md": ("Read-only; never bypasses", "Access is read-only."),
+        "AGENTS.md": (
+            "access is read-only unless the user explicitly authorizes an in-scope "
+            "archival submission",
+        ),
+        "README.md": ("intentionally **read-only and respects access controls**",),
+    }
+
+    errors: list[str] = []
+    for relative, statement in required.items():
+        path = root / relative
+        if not path.is_file():
+            errors.append(f"access-model contract missing document: {relative}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        normalized = re.sub(r"\s+", " ", text).strip()
+        normalized_statement = re.sub(r"\s+", " ", statement).strip()
+        if normalized_statement not in normalized:
+            errors.append(
+                f"{relative} missing read-only-by-default mutation capability contract"
+            )
+        folded = normalized.casefold()
+        for stale in forbidden.get(relative, ()):
+            if re.sub(r"\s+", " ", stale).strip().casefold() in folded:
+                errors.append(f"{relative} contains stale absolute read-only claim: {stale}")
+    return errors
+
+
 def _parse_skill_route_table(skill: str) -> list[tuple[str, str]]:
     match = re.search(
         r"^### Route table\s*$\n(?P<body>.*?)(?=^##\s)",
@@ -3417,6 +3479,7 @@ def collect_errors(
     errors.extend(check_workflow_security())
     errors.extend(check_versions())
     errors.extend(check_config_safety())
+    errors.extend(check_access_model_contract())
     errors.extend(check_skill_and_routes())
     errors.extend(check_repository_contract())
     errors.extend(check_interop_contract())
@@ -3457,6 +3520,43 @@ def self_test() -> int:
         ctrl_errs = _scan_text_for_controls(Path("bad.md"), raw)
         if not ctrl_errs:
             failures.append("expected control-char detection for BEL")
+
+        access_root = root / "access-model"
+        access_root.mkdir()
+        for relative in ("SKILL.md", "AGENTS.md", "README.md", "README.vi.md"):
+            (access_root / relative).write_text(
+                (ROOT / relative).read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+        if check_access_model_contract(access_root):
+            failures.append("expected truthful read-only-by-default access contract to pass")
+
+        access_skill = access_root / "SKILL.md"
+        clean_access_skill = access_skill.read_text(encoding="utf-8")
+        access_skill.write_text(
+            clean_access_skill + "\nAccess is read-only.\n",
+            encoding="utf-8",
+        )
+        if not any(
+            "stale absolute read-only claim" in error
+            for error in check_access_model_contract(access_root)
+        ):
+            failures.append("expected absolute read-only wording to fail")
+        access_skill.write_text(clean_access_skill, encoding="utf-8")
+
+        access_agents = access_root / "AGENTS.md"
+        clean_access_agents = access_agents.read_text(encoding="utf-8")
+        access_agents.write_text(
+            clean_access_agents.replace(
+                "`--intent archive|mutation`", "`--intent archive`", 1
+            ),
+            encoding="utf-8",
+        )
+        if not any(
+            "missing read-only-by-default mutation capability contract" in error
+            for error in check_access_model_contract(access_root)
+        ):
+            failures.append("expected mutation-capability wording drift to fail")
 
         examples_dir = root / "examples"
         examples_dir.mkdir()

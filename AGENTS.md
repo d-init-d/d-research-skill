@@ -3,8 +3,9 @@
 Use D Research for deep or multi-source research, lawful public-data collection,
 source discovery, literature/market/technical research, due diligence,
 policy/standards analysis, cultural research, and the narrow lookup routes below.
-Default browser automation is Playwright; access is read-only unless the user
-explicitly authorizes an in-scope archival submission.
+Default browser automation is Playwright. Access is read-only by default.
+Explicit, user-authorized archival or API mutation operations remain available
+through dedicated commands or `--intent archive|mutation`.
 
 Treat `templates/route-manifest.json` as the canonical route/gate contract shared with `SKILL.md`.
 Use `references/workflow-routes.md` as the narrative decision tree. Do not dispatch until `execute_ready`/`dispatch_ready` passes; preserve the canonical
@@ -68,7 +69,9 @@ Use `references/workflow-routes.md` as the narrative decision tree. Do not dispa
 
 ## Safety invariants
 
-- Read only by default; use only lawfully provided credentials.
+- Read only by default; explicit, user-authorized archival or API mutation
+  operations remain available through dedicated commands or
+  `--intent archive|mutation`; use only lawfully provided credentials.
 - Never bypass login, paywalls, captchas, rate limits, robots restrictions, or
   access controls; captcha solving and stealth/anti-detection plugins are never allowed.
 - Apply `R2` scope, purpose, authorization, minimization, and reporting gates to

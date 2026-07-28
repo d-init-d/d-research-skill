@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.4.1-rc.1] - 2026-07-28
+
+Patch candidate that aligns the public access-model contract with the explicit,
+user-authorized archival and API mutation capabilities already shipped in
+v3.4.0. This is a monotonic documentation-and-validation correction: it removes
+no command, option, route, reference, script, template, ledger format, record
+type, supported operation, or no-config default. See
+[`docs/release-v3.4.1-rc.1.md`](docs/release-v3.4.1-rc.1.md).
+
+### Changed
+
+- Reframed the access posture consistently as read-only by default, with
+  explicit archival and authorized API mutation available through dedicated
+  commands or `--intent archive|mutation`.
+- Synchronized `SKILL.md`, `AGENTS.md`, and both English and Vietnamese product
+  documentation without changing executable request behavior.
+
+### Added
+
+- Added a contract regression gate and negative self-tests that reject stale
+  absolute read-only claims or omission of the explicit mutation surface.
+
+### Fixed
+
+- Made the social snapshot self-test hermetic when filtered DNS maps public
+  fixture hostnames to loopback, while retaining the real SSRF resolver for all
+  private-host and malformed-URL negative cases.
+
+### Verification
+
+- Retains the v3.4.0 capability baseline and requires the complete candidate
+  source/runtime, package, contract, documentation, and artifact gates.
+- Keeps the stable-promotion freeze: executable and policy code are immutable
+  after the signed candidate; stable changes are restricted to lifecycle
+  metadata, release documentation, and version-scoped evidence.
+
 ## [3.4.0] - 2026-07-26
 
 Stable production promotion of the signed `v3.4.0-rc.1` monotonic-capability
@@ -1263,7 +1299,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.1-rc.1...HEAD
+[3.4.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1-rc.1
 [3.4.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.0
 [3.4.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.0-rc.1
 [3.3.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.3.0

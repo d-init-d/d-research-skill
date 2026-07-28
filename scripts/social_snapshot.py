@@ -1375,9 +1375,30 @@ _MOCK_LEMMY_JSON = {
 def self_test() -> int:
     """Offline self-test with mocked HTTP and subprocess."""
     import types
+    import _ssrf_helpers as ssrf_helpers
 
     calls_made: list[str] = []
     errors: list[str] = []
+
+    # Keep the offline test independent of the machine's DNS policy. Some
+    # filtered resolvers intentionally map public names to loopback; the test
+    # transport is mocked, so resolve only the known fixture hosts to a public
+    # sentinel while preserving the production resolver for every other host.
+    original_resolve_public_ips = ssrf_helpers.resolve_public_ips
+    fixture_hosts = {
+        "www.reddit.com",
+        "hn.algolia.com",
+        "mastodon.social",
+        "public.api.bsky.app",
+        "lemmy.ml",
+    }
+
+    def mock_resolve_public_ips(host: str) -> list[str]:
+        if host.lower().rstrip(".") in fixture_hosts:
+            return ["8.8.8.8"]
+        return original_resolve_public_ips(host)
+
+    ssrf_helpers.resolve_public_ips = mock_resolve_public_ips
 
     # --- Monkey-patch urllib.request.urlopen ---
     original_urlopen = urllib.request.urlopen
@@ -1765,6 +1786,7 @@ def self_test() -> int:
         # Restore originals
         urllib.request.urlopen = original_urlopen
         subprocess.run = original_subprocess_run
+        ssrf_helpers.resolve_public_ips = original_resolve_public_ips
 
     if errors:
         print("social_snapshot self-test FAILED:", file=sys.stderr)

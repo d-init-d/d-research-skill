@@ -7,8 +7,10 @@ description: >-
   research, atomic fact verification, single-URL inspection, public social-post
   archival, cross-platform social research, scoped person OSINT, self-exposure
   audits, investigative OSINT, semantic corpus retrieval, evidence ledgers,
-  execution gates, and blocker reports. Read-only; never bypasses
-  logins, paywalls, captchas, robots restrictions, or rate limits.
+  execution gates, and blocker reports. Read-only by default; explicit,
+  user-authorized archival or API mutation operations remain available through
+  dedicated commands or `--intent archive|mutation`. Never bypasses logins,
+  paywalls, captchas, robots restrictions, or rate limits.
 ---
 
 # D Research
@@ -297,7 +299,10 @@ Full inventory: `references/script-inventory.md`.
 ## Configuration
 
 Obey project `research.config.json` or `research.config.example.json` defaults.
-Access is read-only. Captcha solving and stealth evasion are never allowed.
+Access is read-only by default. Explicit, user-authorized archival or API
+mutation operations remain available through dedicated commands or
+`--intent archive|mutation`. Captcha solving and stealth evasion are never
+allowed.
 Field reference: `references/config-reference.md`.
 
 ## Compatibility notes

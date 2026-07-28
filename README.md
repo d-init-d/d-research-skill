@@ -23,7 +23,7 @@ plus six ready-to-register worker roles.
 | Area | What D Research provides |
 |---|---|
 | Primary users | AI agents and agent operators who need source-backed research, public-data collection, literature review, fact verification, or long-horizon investigation workflows. |
-| Access model | Read-only by default. It uses search, browser automation, public APIs, web archives, user-provided read-only databases, and local files. |
+| Access model | Read-only by default. Explicit, user-authorized archival or API mutation operations remain available through dedicated commands or `--intent archive\|mutation`. |
 | Evidence model | Every meaningful claim should land in an evidence ledger with source, quote/value, access method, confidence, contradictions, provenance, and optional HMAC signature. |
 | Outputs | Evidence ledgers, citation files, extracted tables, frontier ledgers, coverage maps, research plans, reports, and reproducibility metadata. |
 | Verification | Offline self-tests, internal-reference checks, a 12-task regression bench, and a 52-task frontier bench covering 26 capability classes. |
@@ -89,6 +89,13 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 5 | **synthesize** | Combine evidence into atomic claims; apply synthesis patterns; render citations in the required style. | `references/synthesis-patterns.md`, `references/citation-management.md`, `scripts/citation_render.py`, `scripts/citation_export.py` |
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
+
+v3.4.1-rc.1 is the current patch candidate. It corrects the public access-model
+contract so it accurately exposes the explicit archival and authorized API
+mutation capabilities already present in v3.4.0, and adds a regression gate
+against future absolute read-only claims. No command, option, route, schema,
+default, or supported operation is removed. See
+[`docs/release-v3.4.1-rc.1.md`](docs/release-v3.4.1-rc.1.md).
 
 v3.4.0 is the current stable release. It is a monotonic capability expansion:
 existing commands, routes, ledger widths, and recorded no-config defaults
@@ -226,7 +233,11 @@ For the full release history see [CHANGELOG.md](CHANGELOG.md).
 
 ## Safety boundary
 
-The skill is intentionally **read-only and respects access controls**. Allowed and disallowed actions are spelled out in full in `SKILL.md` ("Safety boundary" section) and `references/safety-and-access-policy.md`.
+The skill is read-only by default and respects access controls. Explicit,
+user-authorized archival or API mutation operations remain available through
+dedicated commands or `--intent archive|mutation`. Allowed and disallowed
+actions are spelled out in full in `SKILL.md` ("Safety boundary" section) and
+`references/safety-and-access-policy.md`.
 
 Not allowed:
 - bypass login or authentication

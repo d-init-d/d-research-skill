@@ -2,9 +2,9 @@
   "schema_version": "1.0",
   "skill_name": "d-research",
   "repository_contract": {
-    "version": "3.4.0-rc.1",
+    "version": "3.4.1-rc.1",
     "contract_role": "frozen_candidate",
-    "promotes_to": "3.4.0",
+    "promotes_to": "3.4.1",
     "counts": {
       "references_markdown": 52,
       "adapters_markdown": 9,
@@ -202,8 +202,8 @@
   "stable_release_gate": {
     "promotion_mode": "maintainer_override",
     "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
-    "required_baseline_version": "3.3.0",
-    "required_candidate_version": "3.4.0-rc.1",
+    "required_baseline_version": "3.4.0",
+    "required_candidate_version": "3.4.1-rc.1",
     "full_ci": {
       "workflow_path": ".github/workflows/lint-and-self-test.yml",
       "exact_candidate_sha": true,
@@ -214,7 +214,7 @@
       "annotated": true,
       "github_verified": true,
       "bind_tag_object_sha": true,
-      "expected_tag_object_sha": "050d4060182a38c9383365896941b9cbeffee5f4",
+      "expected_tag_object_sha": "65b5b788f841f40b1de50269c5dbf3fd2b51e4d9",
       "verification_mode": "github_verified_tag_object_sha"
     },
     "candidate_tag": {
@@ -234,7 +234,7 @@
       "authorization_timing": "post_candidate_owner_direction",
       "policy_deviation_paths": [],
       "manifest_path": "release-evidence/v{version}/maintainer-override.json",
-      "allowed_release_version": "3.4.0",
+      "allowed_release_version": "3.4.1",
       "required_decision": "approved_with_waivers",
       "required_repository": "d-init-d/d-research-skill",
       "required_maintainer_login": "d-init-d",

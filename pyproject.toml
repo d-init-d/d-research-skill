@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "d-research-skill"
-version = "3.4.0"
+version = "3.4.1-rc.1"
 description = "Browser-first deep research, data collection, and academic research skill for AI agents."
 readme = "README.md"
 license = { text = "CC-BY-NC-4.0" }
@@ -24,7 +24,7 @@ authors = [
     { name = "d-init-d" },
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: Other/Proprietary License",

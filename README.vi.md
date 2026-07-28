@@ -15,7 +15,7 @@ D Research biến research bằng agent từ kiểu "tìm nhanh rồi trả lờ
 | Mục | D Research cung cấp |
 |---|---|
 | Người dùng chính | AI agent, người vận hành agent, researcher, developer hoặc team cần kết quả research có nguồn và có thể kiểm tra lại. |
-| Cách truy cập | Read-only mặc định. Skill có thể dùng web search, browser automation, public API, Wayback/archive, database read-only do user cấp, và file local. |
+| Cách truy cập | Read-only mặc định. Các thao tác lưu trữ hoặc mutation API do người dùng ủy quyền rõ ràng vẫn khả dụng qua command chuyên dụng hoặc `--intent archive\|mutation`. |
 | Đầu ra | Evidence ledger, citation file, bảng trích xuất, frontier ledger, coverage map, research plan, report, metadata tái lập. |
 | Kiểm chứng | Self-test offline, internal-reference check, dogfood bench 12 task, frontier bench 52 task / 26 class. |
 | Ranh giới an toàn | Không bypass login, paywall, captcha, rate limit, robots restriction hoặc access control. Nguồn bị chặn thì ghi blocker report. |
@@ -56,6 +56,13 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 5 | **synthesize** | Tổng hợp claim atomic; apply synthesis pattern; render citation theo style yêu cầu. | `references/synthesis-patterns.md`, `references/citation-management.md`, `scripts/citation_render.py` |
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
+
+v3.4.1-rc.1 là patch candidate hiện tại. Bản này sửa access-model contract để
+mô tả chính xác capability lưu trữ và mutation API có ủy quyền đã tồn tại từ
+v3.4.0, đồng thời thêm regression gate ngăn tài liệu quay lại assertion
+read-only tuyệt đối. Không command, option, route, schema, default hay thao tác
+được hỗ trợ nào bị loại bỏ. Xem
+[`docs/release-v3.4.1-rc.1.md`](docs/release-v3.4.1-rc.1.md).
 
 v3.4.0 là bản stable hiện tại và là một bản mở rộng khả năng theo nguyên tắc
 monotonic: mọi command, route, độ rộng ledger và default không-config đã được
@@ -316,7 +323,11 @@ node ../scripts/run_python.mjs ../scripts/research_plan.py gate --file research-
 
 ## An toàn
 
-Mặc định read-only. Không bypass login, paywall, captcha, rate limit, robots restriction hoặc access control. Nếu nguồn bị chặn, agent phải dừng và tạo blocker report thay vì cố truy cập.
+Mặc định read-only. Các thao tác lưu trữ hoặc mutation API do người dùng ủy
+quyền rõ ràng vẫn khả dụng qua command chuyên dụng hoặc
+`--intent archive|mutation`. Không bypass login, paywall, captcha, rate limit,
+robots restriction hoặc access control. Nếu nguồn bị chặn, agent phải dừng và
+tạo blocker report thay vì cố truy cập.
 
 ## License
 
