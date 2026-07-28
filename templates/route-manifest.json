@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "skill_name": "d-research",
   "repository_contract": {
-    "version": "3.4.1-rc.1",
+    "version": "3.4.1-rc.2",
     "contract_role": "frozen_candidate",
     "promotes_to": "3.4.1",
     "counts": {
@@ -203,7 +203,7 @@
     "promotion_mode": "maintainer_override",
     "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
     "required_baseline_version": "3.4.0",
-    "required_candidate_version": "3.4.1-rc.1",
+    "required_candidate_version": "3.4.1-rc.2",
     "full_ci": {
       "workflow_path": ".github/workflows/lint-and-self-test.yml",
       "exact_candidate_sha": true,

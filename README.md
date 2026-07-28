@@ -90,12 +90,12 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.4.1-rc.1 is the current patch candidate. It corrects the public access-model
+v3.4.1-rc.2 is the current patch candidate. It corrects the public access-model
 contract so it accurately exposes the explicit archival and authorized API
 mutation capabilities already present in v3.4.0, and adds a regression gate
 against future absolute read-only claims. No command, option, route, schema,
 default, or supported operation is removed. See
-[`docs/release-v3.4.1-rc.1.md`](docs/release-v3.4.1-rc.1.md).
+[`docs/release-v3.4.1-rc.2.md`](docs/release-v3.4.1-rc.2.md).
 
 v3.4.0 is the current stable release. It is a monotonic capability expansion:
 existing commands, routes, ledger widths, and recorded no-config defaults

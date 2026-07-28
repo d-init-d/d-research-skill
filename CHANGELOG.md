@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.4.1-rc.2] - 2026-07-28
+
+Release candidate that supersedes v3.4.1-rc.1 without changing its executable
+behavior. It freezes the final stable release-note path inside the candidate
+package boundary so RC-to-stable promotion can remain metadata-only and the npm
+package allowlist stays byte-auditable. See
+[`docs/release-v3.4.1-rc.2.md`](docs/release-v3.4.1-rc.2.md).
+
+### Changed
+
+- Advanced candidate lifecycle metadata from `3.4.1-rc.1` to `3.4.1-rc.2`.
+- Pre-committed `docs/release-v3.4.1.md` before candidate freeze; stable
+  promotion may refine that document but cannot add an unvalidated package path.
+
+### Verification
+
+- Inherits the access-contract regression guard and hermetic social snapshot
+  self-test from RC1.
+- Requires a new signed tag, exact-SHA CI, source archive replay, independent
+  reproduction, and provenance attestation before stable promotion.
+
 ## [3.4.1-rc.1] - 2026-07-28
 
 Patch candidate that aligns the public access-model contract with the explicit,
@@ -1299,7 +1320,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.1-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.1-rc.2...HEAD
+[3.4.1-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1-rc.2
 [3.4.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1-rc.1
 [3.4.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.0
 [3.4.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.0-rc.1

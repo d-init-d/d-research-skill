@@ -57,12 +57,12 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
-v3.4.1-rc.1 là patch candidate hiện tại. Bản này sửa access-model contract để
+v3.4.1-rc.2 là patch candidate hiện tại. Bản này sửa access-model contract để
 mô tả chính xác capability lưu trữ và mutation API có ủy quyền đã tồn tại từ
 v3.4.0, đồng thời thêm regression gate ngăn tài liệu quay lại assertion
 read-only tuyệt đối. Không command, option, route, schema, default hay thao tác
 được hỗ trợ nào bị loại bỏ. Xem
-[`docs/release-v3.4.1-rc.1.md`](docs/release-v3.4.1-rc.1.md).
+[`docs/release-v3.4.1-rc.2.md`](docs/release-v3.4.1-rc.2.md).
 
 v3.4.0 là bản stable hiện tại và là một bản mở rộng khả năng theo nguyên tắc
 monotonic: mọi command, route, độ rộng ledger và default không-config đã được
