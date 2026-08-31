@@ -65,7 +65,7 @@ extraction = [
 visualization = [
     "matplotlib>=3.7,<4",
     "pandas>=2.0,<4",
-    "plotly>=5.18,<7",
+    "plotly>=5.18,<8",
 ]
 dev = [
     "ruff==0.15.21",
