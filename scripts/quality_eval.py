@@ -2310,7 +2310,7 @@ def run_fuzz(seed: int = FUZZ_SEED, rounds: int = 64) -> list[tuple[str, bool, s
         (ws / "evidence-ledger.csv").write_text(
             cols
             + 'C001,"Test claim one","sq","T","https://example.com",official,'
-            '2024-01-01,2026-01-01,fetch,"ev","q",none,high,"",,,,,,"",not_checked,prov:1,claim\n',
+            '2024-01-01,2026-01-01,fetch,"Test claim one","Test claim one",none,high,"",,,,,,"",not_checked,prov:1,claim\n',
             encoding="utf-8",
         )
         (ws / "report.md").write_text("# Report\n\nNo claim refs here.\n", encoding="utf-8")

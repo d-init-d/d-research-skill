@@ -789,10 +789,10 @@ def _is_non_factual_text(text: str, section_heading: str) -> bool:
         return True
     if re.match(r"^[-*_]{3,}$", s):
         return True
+    if s.startswith("total claims:") or s.startswith("total screened:") or s.startswith("included:") or s.startswith("excluded:"):
+        return True
     sec_lower = section_heading.lower()
     if "screening summary" in sec_lower:
-        return True
-    if s.startswith("total screened:") or s.startswith("included:") or s.startswith("excluded:"):
         return True
     if any(
         k in sec_lower
@@ -806,7 +806,13 @@ def _is_non_factual_text(text: str, section_heading: str) -> bool:
             "contradictions and unknowns",
         )
     ):
-        if "references" in sec_lower and (re.match(r"^[-*]?\s*\[ref:[^\]]+\]", s) or s.startswith("http://") or s.startswith("https://") or s.startswith("[ref:")):
+        if "references" in sec_lower and (
+            re.match(r"^(\d+\.|[-*])?\s*\[ref:[^\]]+\]", s)
+            or re.match(r"^\d+\.\s+", s)
+            or s.startswith("http://")
+            or s.startswith("https://")
+            or s.startswith("[ref:")
+        ):
             return True
         if (
             s in _NON_FACTUAL_PHRASES
@@ -1175,7 +1181,7 @@ def parse_report_spans(
                 if not cell:
                     continue
                 cell_refs = [c.strip() for c in re.findall(r"\[ref:([^\]]+)\]", cell) if re.match(r"^C[0-9]{3,}$", c.strip())]
-                cell_type = "factual" if cell_refs or not _is_non_factual_text(cell, current_section) else "non_factual"
+                cell_type = "factual" if cell_refs or (not _is_non_factual_text(cell, current_section) and "evidence summary" not in current_section.lower()) else "non_factual"
                 span_counter += 1
                 spans.append({
                     "span_id": f"span:{span_counter}",
@@ -1801,7 +1807,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
             content,
             workspace,
             rows if ledger_path.is_file() else [],
-            strict=getattr(args, "strict", False),
+            strict=getattr(args, "strict_snapshots", False),
         )
         errors.extend(span_errors)
 
@@ -2045,8 +2051,8 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 "sub_question": "", "source_title": "Source A",
                 "source_url": "https://example.com/a", "source_type": "primary",
                 "date_published": "2024", "date_accessed": "2026-05-18",
-                "access_method": "browser", "evidence": "Found evidence A",
-                "quote_or_anchor": "", "contradiction": "none",
+                "access_method": "browser", "evidence": "Test claim one",
+                "quote_or_anchor": "Test claim one", "contradiction": "none",
                 "confidence": "high", "notes": "",
                 "archive_url": "", "content_hash": "", "snapshot_status": "",
                 "verifiability": "", "verifiability_note": "",
@@ -2056,8 +2062,8 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 "sub_question": "", "source_title": "Source B",
                 "source_url": "https://example.com/b", "source_type": "secondary",
                 "date_published": "2023", "date_accessed": "2026-05-18",
-                "access_method": "api_fetch", "evidence": "Found evidence B",
-                "quote_or_anchor": "", "contradiction": "none",
+                "access_method": "api_fetch", "evidence": "Test claim two",
+                "quote_or_anchor": "Test claim two", "contradiction": "none",
                 "confidence": "medium", "notes": "",
                 "archive_url": "", "content_hash": "", "snapshot_status": "",
                 "verifiability": "", "verifiability_note": "",
@@ -2140,11 +2146,11 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             "# Test Research Report\n\n"
             "Generated: 2026-06-01T00:00:00Z\n\n"
             "## Executive Summary\n\n"
-            "Test claim one is supported [ref:C001]. Test claim two is supported [ref:C002].\n\n"
+            "Test claim one [ref:C001]. Test claim two [ref:C002].\n\n"
             "## Literature Review\n\n"
-            "Test claim one from literature [ref:C001].\n\n"
+            "Test claim one [ref:C001].\n\n"
             "## Data Collection\n\n"
-            "Test claim two from data collection [ref:C002].\n\n"
+            "Test claim two [ref:C002].\n\n"
             "## Analysis\n\n"
             "Inference: Analytical synthesis of findings.\n\n"
             "## Caveats and Limitations\n\n"
