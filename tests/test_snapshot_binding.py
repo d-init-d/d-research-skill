@@ -103,3 +103,168 @@ def test_d10_unopened_url_rejection():
     assert res["status"] == "unsupported"
     assert res.get("supports_claim") is False
     assert res.get("reason") in {"unopened_url", "empty_evidence", "missing_snapshot_bytes", "no_deterministic_support"}
+
+
+def test_vdr02_legacy_ledger_missing_snapshot():
+    """VDR02: Report, ledger, and quote agree, but no physical snapshot artifact exists on disk.
+
+    Legacy reading succeeds; grants standard_verified assurance, NOT strict_verified.
+    In strict mode, gate fails closed.
+    """
+    import report_render
+
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        row = {
+            "claim_id": "C001",
+            "claim": "System latency is 12ms.",
+            "evidence": "System latency is 12ms.",
+            "quote_or_anchor": "System latency is 12ms.",
+            "source_url": "https://example.com/status",
+            "confidence": "high",
+        }
+        report_text = "# Performance\n\nSystem latency is 12ms. [ref:C001]\n"
+        (ws / "report.md").write_text(report_text, encoding="utf-8")
+
+        # Non-strict mode: legacy readable, standard_verified (not strict_verified)
+        spans_nonstrict, err_nonstrict = report_render.parse_report_spans(report_text, ws, [row], strict=False)
+        sidecar_nonstrict = report_render.generate_report_claims_sidecar(
+            ws, ws / "report.md", [row], spans_nonstrict, strict=False, errors=err_nonstrict
+        )
+        assert sidecar_nonstrict["review_decision"]["status"] == "verified"
+        assert sidecar_nonstrict["review_decision"]["assurance_tier"] == "standard_verified"
+        assert sidecar_nonstrict["review_decision"]["assurance_tier"] != "strict_verified"
+
+        # Strict mode: missing snapshot file blocks verification
+        spans_strict, err_strict = report_render.parse_report_spans(report_text, ws, [row], strict=True)
+        assert any("MISSING_SNAPSHOT" in e for e in err_strict)
+        sidecar_strict = report_render.generate_report_claims_sidecar(
+            ws, ws / "report.md", [row], spans_strict, strict=True, errors=err_strict
+        )
+        assert sidecar_strict["review_decision"]["status"] == "rejected"
+        assert sidecar_strict["review_decision"]["assurance_tier"] == "degraded"
+
+
+def test_vdr03_valid_snapshot_byte_binding():
+    """VDR03: Valid snapshot file on disk with correct digest and exact quote match.
+
+    Positive verification grants strict_verified in strict gate.
+    """
+    import report_render
+
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        snap_content = "The database cluster maintains 99.999% uptime."
+        snap_dir = ws / "evidence"
+        snap_dir.mkdir(parents=True)
+        snap_file = snap_dir / "C001.txt"
+        snap_file.write_text(snap_content, encoding="utf-8")
+        h = f"sha256:{hashlib.sha256(snap_content.encode('utf-8')).hexdigest()}"
+
+        row = {
+            "claim_id": "C001",
+            "claim": "The database cluster maintains 99.999% uptime.",
+            "evidence": snap_content,
+            "quote_or_anchor": "99.999% uptime",
+            "source_url": "https://example.com/db-status",
+            "snapshot_path": "evidence/C001.txt",
+            "content_hash": h,
+            "confidence": "high",
+        }
+        report_text = "# System Status\n\nThe database cluster maintains 99.999% uptime. [ref:C001]\n"
+        (ws / "report.md").write_text(report_text, encoding="utf-8")
+
+        spans, errors = report_render.parse_report_spans(report_text, ws, [row], strict=True)
+        assert not errors
+        sidecar = report_render.generate_report_claims_sidecar(
+            ws, ws / "report.md", [row], spans, strict=True, errors=errors
+        )
+        assert sidecar["review_decision"]["status"] == "verified"
+        assert sidecar["review_decision"]["assurance_tier"] == "strict_verified"
+        assert sidecar["review_decision"]["uncovered_factual_spans_count"] == 0
+        assert sidecar["review_decision"]["unsupported_claims_count"] == 0
+
+
+def test_vdr04_snapshot_tamper_or_path_escape():
+    """VDR04: Snapshot path escapes workspace (path traversal) or snapshot bytes differ from declared digest.
+
+    Both must result in structured rejection; cannot get verified status.
+    """
+    import report_render
+
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        # Part A: Path Traversal
+        traversal_row = {
+            "claim_id": "C001",
+            "claim": "Configuration details.",
+            "evidence": "Config data.",
+            "quote_or_anchor": "Config data.",
+            "source_url": "https://example.com/config",
+            "snapshot_path": "../../etc/shadow",
+            "confidence": "high",
+        }
+        report_text = "# Config\n\nConfiguration details. [ref:C001]\n"
+        (ws / "report.md").write_text(report_text, encoding="utf-8")
+        spans, errs = report_render.parse_report_spans(report_text, ws, [traversal_row], strict=True)
+        assert any("PATH_TRAVERSAL" in e for e in errs)
+
+        sidecar = report_render.generate_report_claims_sidecar(
+            ws, ws / "report.md", [traversal_row], spans, strict=True, errors=errs
+        )
+        assert sidecar["review_decision"]["status"] == "rejected"
+
+        # Part B: Digest Tamper
+        (ws / "evidence").mkdir(parents=True, exist_ok=True)
+        (ws / "evidence" / "C002.txt").write_text("Actual content on disk", encoding="utf-8")
+        fake_hash = f"sha256:{hashlib.sha256(b'Tampered fake content').hexdigest()}"
+        tamper_row = {
+            "claim_id": "C002",
+            "claim": "Actual content on disk.",
+            "evidence": "Actual content on disk",
+            "quote_or_anchor": "Actual content on disk",
+            "source_url": "https://example.com/source",
+            "snapshot_path": "evidence/C002.txt",
+            "content_hash": fake_hash,
+            "confidence": "high",
+        }
+        report_text2 = "# Data\n\nActual content on disk. [ref:C002]\n"
+        (ws / "report2.md").write_text(report_text2, encoding="utf-8")
+        spans2, errs2 = report_render.parse_report_spans(report_text2, ws, [tamper_row], strict=True)
+        assert any("SNAPSHOT_TAMPER" in e for e in errs2)
+
+        sidecar2 = report_render.generate_report_claims_sidecar(
+            ws, ws / "report2.md", [tamper_row], spans2, strict=True, errors=errs2
+        )
+        assert sidecar2["review_decision"]["status"] == "rejected"
+
+
+def test_vdr05_wrong_source_binding_rejection():
+    """VDR05: Quote exists in Source A, but claim is bound to Source B whose snapshot lacks the quote.
+
+    Evaluator detects cross-source mismatch and rejects binding.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        (ws / "evidence").mkdir(parents=True, exist_ok=True)
+        (ws / "evidence" / "source_a.txt").write_text("Alpha feature active.", encoding="utf-8")
+        (ws / "evidence" / "source_b.txt").write_text("Beta feature pending.", encoding="utf-8")
+
+        # Claim claims Alpha feature, but references source B snapshot
+        hash_b = f"sha256:{hashlib.sha256(b'Beta feature pending.').hexdigest()}"
+        row = {
+            "claim_id": "C005",
+            "claim": "Alpha feature active.",
+            "evidence": "Alpha feature active.",
+            "quote_or_anchor": "Alpha feature active.",
+            "source_url": "https://example.com/source_b",
+            "snapshot_path": "evidence/source_b.txt",
+            "content_hash": hash_b,
+            "confidence": "high",
+        }
+        res = quality_eval.classify_claim_evidence(
+            row["claim"], row["evidence"], row, workspace=ws
+        )
+        assert res["status"] in {"unsupported", "contradicts", "insufficient"}
+        assert res.get("supports_claim") is False
+        assert res.get("reason") in {"quote_not_in_snapshot", "quote_not_found"}

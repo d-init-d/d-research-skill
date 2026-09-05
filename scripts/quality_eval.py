@@ -896,6 +896,29 @@ def classify_claim_evidence(
         snap_file = Path(resolved_snap_path)
         if workspace and not snap_file.is_absolute():
             snap_file = Path(workspace) / snap_file
+        if workspace:
+            try:
+                snap_resolved = snap_file.resolve()
+                ws_resolved = Path(workspace).resolve()
+                if not snap_resolved.is_relative_to(ws_resolved):
+                    return {
+                        "status": "unsupported",
+                        "source_exists": bool(source_url),
+                        "source_relevant": False,
+                        "supports_claim": False,
+                        "contradicts_claim": False,
+                        "reason": "snapshot_path_outside_workspace",
+                    }
+                snap_file = snap_resolved
+            except (ValueError, OSError):
+                return {
+                    "status": "unsupported",
+                    "source_exists": bool(source_url),
+                    "source_relevant": False,
+                    "supports_claim": False,
+                    "contradicts_claim": False,
+                    "reason": "snapshot_path_outside_workspace",
+                }
         if not snap_file.is_file():
             return {
                 "status": "unsupported",
@@ -939,6 +962,33 @@ def classify_claim_evidence(
             "contradicts_claim": False,
             "reason": "unopened_url",
         }
+
+    # D07: Sign inversion check (+ vs -)
+    cs_signed = [re.sub(r"\s+", "", s) for s in re.findall(r"(?:^|\s)([+-]\s*\d+(?:\.\d+)?(?:%|[a-zA-Z]+)?)", str(claim or ""))]
+    ev_signed = [re.sub(r"\s+", "", s) for s in re.findall(r"(?:^|\s)([+-]\s*\d+(?:\.\d+)?(?:%|[a-zA-Z]+)?)", str(evidence or "") + " " + str(quote_raw or ""))]
+    for cs_num in cs_signed:
+        if cs_num.startswith("+"):
+            opposite = "-" + cs_num[1:]
+            if opposite in ev_signed:
+                return {
+                    "status": "contradicts",
+                    "source_exists": bool(source_url),
+                    "source_relevant": True,
+                    "supports_claim": False,
+                    "contradicts_claim": True,
+                    "reason": "sign_inversion",
+                }
+        elif cs_num.startswith("-"):
+            opposite = "+" + cs_num[1:]
+            if opposite in ev_signed:
+                return {
+                    "status": "contradicts",
+                    "source_exists": bool(source_url),
+                    "source_relevant": True,
+                    "supports_claim": False,
+                    "contradicts_claim": True,
+                    "reason": "sign_inversion",
+                }
 
     # D01: Version mismatch distortion (e.g. claim 9.9.9 vs evidence 3.4.1)
     cv = _extract_versions(claim)
@@ -1044,7 +1094,7 @@ def classify_claim_evidence(
                 "reason": "quote_not_found",
             }
         # If quote is in evidence AND quote supports claim
-        if quote_n in claim_n or claim_n in quote_n:
+        if claim_n in quote_n:
             return {
                 "status": "supports",
                 "source_exists": True,
@@ -1053,6 +1103,31 @@ def classify_claim_evidence(
                 "contradicts_claim": False,
                 "reason": "verified_quote_supports",
             }
+        elif quote_n in claim_n:
+            # Short quote in longer claim: check if claim adds unsupported factual assertions
+            extra_text = claim_n.replace(quote_n, "", 1).strip()
+            extra_tokens = set(re.findall(r"[a-z0-9\u00C0-\u1EF9]{3,}", extra_text)) - {
+                "the", "this", "that", "was", "were", "has", "have", "been", "with", "from",
+                "and", "for", "are", "about", "which", "whose", "their", "its", "của", "và", "là", "trong", "được"
+            }
+            if not extra_tokens:
+                return {
+                    "status": "supports",
+                    "source_exists": True,
+                    "source_relevant": True,
+                    "supports_claim": True,
+                    "contradicts_claim": False,
+                    "reason": "verified_quote_supports",
+                }
+            else:
+                return {
+                    "status": "unsupported",
+                    "source_exists": True,
+                    "source_relevant": True,
+                    "supports_claim": False,
+                    "contradicts_claim": False,
+                    "reason": "quote_does_not_cover_claim_assertions",
+                }
 
     # Oracle support pattern
     if oracle_pat:

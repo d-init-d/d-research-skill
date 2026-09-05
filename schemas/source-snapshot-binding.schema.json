@@ -1,0 +1,345 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d-research.local/contracts/v2/source-snapshot-binding.schema.json",
+  "title": "Source Snapshot Binding Schema",
+  "description": "Authoritative contract for cryptographic source snapshot bindings (V2). Enforces byte-level evidence anchoring, SHA-256 digest validation, verbatim quote offset containment, strict sign/number/negation preservation, and assurance tier categorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "binding_id",
+    "claim_id",
+    "claim_text",
+    "source_metadata",
+    "quote_binding",
+    "verification"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "SemVer of this schema specification (e.g. 2.0.0)."
+    },
+    "binding_id": {
+      "type": "string",
+      "pattern": "^binding:[0-9a-zA-Z_-]+$",
+      "description": "Unique stable identifier for this source snapshot binding."
+    },
+    "claim_id": {
+      "type": "string",
+      "pattern": "^C[0-9]{3,}$",
+      "description": "Evidence ledger claim identifier anchored by this binding."
+    },
+    "claim_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Factual proposition asserting specific facts or findings."
+    },
+    "source_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_url",
+        "access_time",
+        "snapshot_path",
+        "sha256_digest",
+        "content_type",
+        "byte_length",
+        "capture_method"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier of the source."
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Canonical HTTP/HTTPS URL or official data retrieval endpoint."
+        },
+        "access_time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp when the source snapshot was captured."
+        },
+        "snapshot_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative POSIX workspace path to the raw snapshot file stored on disk."
+        },
+        "sha256_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "SHA-256 cryptographic digest computed directly over raw snapshot file bytes on disk."
+        },
+        "content_type": {
+          "type": "string",
+          "description": "MIME content type of the captured artifact (e.g. text/html, text/plain, application/json, application/pdf)."
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total size in bytes of the snapshot file on disk."
+        },
+        "capture_method": {
+          "type": "string",
+          "enum": [
+            "direct_fetch",
+            "playwright_browser",
+            "archive_org",
+            "manual_import",
+            "test_fixture"
+          ],
+          "description": "Method utilized to capture and persist the snapshot artifact."
+        }
+      }
+    },
+    "quote_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quote_type",
+        "quote",
+        "byte_offset"
+      ],
+      "properties": {
+        "quote_type": {
+          "type": "string",
+          "enum": [
+            "literal_verbatim",
+            "normalized_span",
+            "selector_dom",
+            "page_coordinate",
+            "legacy_locator"
+          ],
+          "description": "Classification of the quote anchor. Only literal_verbatim and strictly normalized_span qualify for strict_verified assurance."
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Extracted quote text supporting the factual claim."
+        },
+        "byte_offset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start_offset",
+            "end_offset"
+          ],
+          "properties": {
+            "start_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "0-based starting byte offset within the snapshot file."
+            },
+            "end_offset": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "0-based ending byte offset (exclusive) within the snapshot file."
+            }
+          }
+        },
+        "char_offset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start_char",
+            "end_char"
+          ],
+          "properties": {
+            "start_char": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end_char": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "context_before": {
+          "type": "string",
+          "description": "Preceding context string in snapshot."
+        },
+        "context_after": {
+          "type": "string",
+          "description": "Succeeding context string in snapshot."
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified_at",
+        "status",
+        "assurance_tier",
+        "rules_enforced",
+        "reason_codes",
+        "verifier_identity"
+      ],
+      "properties": {
+        "verified_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp of verification execution."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "refuted",
+            "mismatch",
+            "missing_snapshot",
+            "degraded_legacy"
+          ],
+          "description": "Verification outcome."
+        },
+        "assurance_tier": {
+          "type": "string",
+          "enum": [
+            "strict_verified",
+            "standard_verified",
+            "limited",
+            "requires_review"
+          ],
+          "description": "Assurance tier granted by this binding."
+        },
+        "rules_enforced": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file_exists_on_disk",
+            "digest_match",
+            "byte_offset_containment",
+            "semantic_polarity_checked",
+            "negation_preserved",
+            "numeric_exactness_preserved",
+            "sign_preserved"
+          ],
+          "properties": {
+            "file_exists_on_disk": {
+              "type": "boolean",
+              "description": "True if snapshot file was confirmed to exist on local disk."
+            },
+            "digest_match": {
+              "type": "boolean",
+              "description": "True if SHA-256 digest of local snapshot bytes matches declared digest."
+            },
+            "byte_offset_containment": {
+              "type": "boolean",
+              "description": "True if quote bytes match byte slice at [start_offset:end_offset]."
+            },
+            "semantic_polarity_checked": {
+              "type": "boolean",
+              "description": "True if claim polarity agrees with quote context."
+            },
+            "negation_preserved": {
+              "type": "boolean",
+              "description": "True if negation state was not altered or inverted."
+            },
+            "numeric_exactness_preserved": {
+              "type": "boolean",
+              "description": "True if numeric values, versions, and percentages match exactly."
+            },
+            "sign_preserved": {
+              "type": "boolean",
+              "description": "True if mathematical signs (+ vs -) were preserved without stripping."
+            }
+          }
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of diagnostic reason codes emitted during verification."
+        },
+        "verifier_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entity",
+            "role"
+          ],
+          "properties": {
+            "entity": {
+              "type": "string",
+              "description": "Name or component of the verifier."
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "cli_gate",
+                "independent_evaluator",
+                "test_runner",
+                "human_reviewer"
+              ],
+              "description": "Role of the verifier executing the check."
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verification": {
+            "properties": {
+              "assurance_tier": {
+                "const": "strict_verified"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quote_binding": {
+            "properties": {
+              "quote_type": {
+                "enum": [
+                  "literal_verbatim",
+                  "normalized_span"
+                ]
+              }
+            }
+          },
+          "verification": {
+            "properties": {
+              "status": {
+                "const": "verified"
+              },
+              "rules_enforced": {
+                "properties": {
+                  "file_exists_on_disk": {
+                    "const": true
+                  },
+                  "digest_match": {
+                    "const": true
+                  },
+                  "byte_offset_containment": {
+                    "const": true
+                  },
+                  "sign_preserved": {
+                    "const": true
+                  },
+                  "numeric_exactness_preserved": {
+                    "const": true
+                  },
+                  "negation_preserved": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

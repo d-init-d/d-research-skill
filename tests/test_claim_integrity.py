@@ -1,8 +1,7 @@
-import os
-import sys
-import tempfile
 import hashlib
 from pathlib import Path
+import sys
+import tempfile
 
 # Add scripts directory to sys.path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
@@ -130,5 +129,120 @@ def test_d08_hypothetical_context():
         "confidence": "high",
     }
     res = quality_eval.classify_claim_evidence(claim, hypothetical_evidence, row)
+    assert res["status"] in {"contradicts", "refutes", "insufficient", "requires_review"}
+    assert res.get("supports_claim") is False
+
+
+def test_vdr01_report_repeats_mismatched_ledger():
+    """VDR01: Report repeats ledger claim 9.9.9 while evidence is 3.4.1.
+
+    Strict/final gate is not verified; emits specific citation misuse / mismatch error.
+    """
+    import report_render
+
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        row = {
+            "claim_id": "C001",
+            "claim": "The package version is 9.9.9.",
+            "evidence": "The package version is 3.4.1.",
+            "quote_or_anchor": "The package version is 3.4.1.",
+            "source_url": "https://example.com/package.json",
+            "confidence": "high",
+        }
+        report_text = "# Report\n\nThe package version is 9.9.9. [ref:C001]\n"
+        (ws / "report.md").write_text(report_text, encoding="utf-8")
+
+        spans, errors = report_render.parse_report_spans(report_text, ws, [row], strict=True)
+        assert any("CITATION_MISUSE" in e for e in errors)
+        assert any(
+            b["support_status"] in {"contradicts", "insufficient", "refutes"}
+            for s in spans
+            for b in s.get("evidence_bindings", [])
+        )
+
+        sidecar = report_render.generate_report_claims_sidecar(
+            ws, ws / "report.md", [row], spans, strict=True, errors=errors
+        )
+        assert sidecar["review_decision"]["status"] == "rejected"
+        assert sidecar["review_decision"]["assurance_tier"] == "degraded"
+        assert sidecar["review_decision"]["unsupported_claims_count"] > 0
+
+
+def test_vdr06_locator_selector_not_literal_quote():
+    """VDR06: quote_or_anchor is a selector/page/screenshot legacy anchor instead of literal quote.
+
+    Evaluator must not treat locators as verbatim quote matches.
+    """
+    import report_render
+
+    locators = [
+        "page 42",
+        "p. 15",
+        "line 120",
+        "xpath://div[@id='content']",
+        "css:.main-title",
+        "selector: #results",
+        "figures/chart.png",
+    ]
+    for loc in locators:
+        row = {
+            "claim_id": "C200",
+            "claim": "Throughput reached 10000 req/sec.",
+            "evidence": "Throughput was observed to scale up.",
+            "quote_or_anchor": loc,
+            "source_url": "https://example.com/report.pdf",
+            "confidence": "high",
+        }
+        status, reason, method = report_render._statement_supported_by_row(
+            "Throughput reached 10000 req/sec. [ref:C200]", row, None
+        )
+        assert method != "exact_quote_offset"
+        assert status != "supports"
+
+        res = quality_eval.classify_claim_evidence(
+            "Throughput reached 10000 req/sec.", row["evidence"], row
+        )
+        assert res["status"] != "supports"
+
+
+def test_vdr09_short_quote_long_claim_assertion():
+    """VDR09: Short quote + longer claim adding new ungrounded assertions is not proven by quote alone."""
+    import report_render
+
+    row = {
+        "claim_id": "C301",
+        "claim": "The service is active with 500 million enterprise users in 2026.",
+        "evidence": "The service is active and running.",
+        "quote_or_anchor": "active",
+        "source_url": "https://example.com/status",
+        "confidence": "high",
+    }
+    res = quality_eval.classify_claim_evidence(
+        row["claim"], row["evidence"], row
+    )
+    assert res["status"] != "supports"
+
+    status, reason, method = report_render._statement_supported_by_row(
+        row["claim"], row, None
+    )
+    assert status != "supports"
+
+
+def test_vdr11_quote_in_refutation_context():
+    """VDR11: Quote appears within refutation or hypothetical context; not promoted to established fact."""
+    evidence = (
+        "Claims that the vaccine contains microchips were thoroughly disproven and refuted by medical consensus."
+    )
+    claim = "The vaccine contains microchips."
+    row = {
+        "claim_id": "C401",
+        "claim": claim,
+        "evidence": evidence,
+        "quote_or_anchor": "vaccine contains microchips",
+        "source_url": "https://example.com/health-review",
+        "confidence": "high",
+    }
+    res = quality_eval.classify_claim_evidence(claim, evidence, row)
     assert res["status"] in {"contradicts", "refutes", "insufficient", "requires_review"}
     assert res.get("supports_claim") is False

@@ -2191,6 +2191,32 @@ def _claim_coverage_complete(plan: dict[str, Any], plan_path: Path) -> tuple[boo
     if res.returncode != 0:
         detail = res.stderr.strip() or res.stdout.strip() or "claim coverage failed"
         return False, detail
+
+    sidecar_path = base / "report-claims.json"
+    if not sidecar_path.is_file():
+        cand_sidecars = [
+            report.parent / "report-claims.json",
+            report.parent / (report.stem + ".claims.json"),
+        ]
+        sidecar_path = next((p for p in cand_sidecars if p.is_file()), sidecar_path)
+
+    if sidecar_path.is_file():
+        try:
+            sidecar_data = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            decision = sidecar_data.get("review_decision", {})
+            if decision.get("status") != "verified":
+                return False, f"claim coverage status is {decision.get('status')}, expected verified"
+            if decision.get("assurance_tier") != "strict_verified":
+                return False, f"claim coverage assurance_tier is {decision.get('assurance_tier')}, expected strict_verified"
+            if decision.get("unsupported_claims_count", 0) > 0:
+                return False, f"claim coverage has {decision.get('unsupported_claims_count')} unsupported claims"
+            if decision.get("uncovered_factual_spans_count", 0) > 0:
+                return False, f"claim coverage has {decision.get('uncovered_factual_spans_count')} uncovered factual spans"
+        except Exception as exc:
+            return False, f"could not read report-claims.json: {exc}"
+    else:
+        return False, "report-claims.json sidecar not found"
+
     return True, f"claim coverage 100% on {report}"
 
 

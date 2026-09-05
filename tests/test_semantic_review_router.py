@@ -57,3 +57,40 @@ def test_d21_missing_backend_graceful_degradation():
     assert res["status"] != "supports"
     assert res.get("supports_claim") is False
     assert res["status"] in {"requires_review", "unsupported", "insufficient"}
+
+
+def test_vdr12_paraphrase_review_and_fallback():
+    """VDR12: Paraphrase verified through valid trusted review; missing backend yields honest degraded status.
+
+    Positive review outcome is admitted; missing review backend honestly marks as requires_review.
+    """
+    evidence = "The municipal government concluded negotiations and finalized the public transit budget allocation."
+    paraphrase_claim = "The city administration completed the transit funding agreement."
+    row = {
+        "claim_id": "C900",
+        "claim": paraphrase_claim,
+        "evidence": evidence,
+        "quote_or_anchor": "",
+        "source_url": "https://example.com/city-council-transit",
+        "confidence": "high",
+    }
+
+    # Case A: External trusted review oracle confirms semantic match
+    trusted_oracle = {
+        "expected_support": "supports",
+        "polarity": "positive",
+        "review_source": "independent_adjudicator",
+    }
+    res_reviewed = quality_eval.classify_claim_evidence(
+        paraphrase_claim, evidence, row, oracle=trusted_oracle
+    )
+    assert res_reviewed["status"] == "supports"
+    assert res_reviewed.get("supports_claim") is True
+
+    # Case B: Backend unavailable / missing oracle
+    res_fallback = quality_eval.classify_claim_evidence(
+        paraphrase_claim, evidence, row, oracle=None
+    )
+    assert res_fallback["status"] != "supports"
+    assert res_fallback["status"] in {"requires_review", "unsupported", "insufficient"}
+    assert res_fallback.get("supports_claim") is False

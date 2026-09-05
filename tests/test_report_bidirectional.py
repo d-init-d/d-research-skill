@@ -258,3 +258,181 @@ def test_d19_inference_statement_admissibility():
     assert len(inference_spans) == 2
     # Inferences do not require factual claim bindings and do not generate UNCOVERED_FACTUAL_SPAN
     assert not any("UNCOVERED_FACTUAL_SPAN" in e for e in errors)
+
+
+def test_vdr10_compound_multi_assertion_sentence():
+    """VDR10: Compound sentences in EN and VI with multiple assertions and a trailing citation.
+
+    All sub-clauses must be audited; token overlap is not accepted as an oracle.
+    """
+    # English compound sentence
+    text_en = "System A achieved 99% reliability and System B processed 10M transactions [ref:C001]."
+    row_en = [
+        {
+            "claim_id": "C001",
+            "claim": "System A achieved 99% reliability.",
+            "evidence": "System A achieved 99% reliability.",
+            "source_url": "https://example.com/sys-a",
+        }
+    ]
+    is_compound, clauses = report_render.decompose_compound_claim(text_en, row_en)
+    assert is_compound is True
+    assert len(clauses) == 2
+    uncovered = [c for c in clauses if not c.get("sub_claim_id")]
+    assert len(uncovered) == 1
+
+    # Vietnamese compound sentence
+    text_vi = "Hệ thống A đạt 99% độ tin cậy và Hệ thống B xử lý 10 triệu giao dịch [ref:C001]."
+    row_vi = [
+        {
+            "claim_id": "C001",
+            "claim": "Hệ thống A đạt 99% độ tin cậy.",
+            "evidence": "Hệ thống A đạt 99% độ tin cậy.",
+            "source_url": "https://example.com/sys-a",
+        }
+    ]
+    is_compound_vi, clauses_vi = report_render.decompose_compound_claim(text_vi, row_vi)
+    assert is_compound_vi is True
+    assert len(clauses_vi) == 2
+    uncovered_vi = [c for c in clauses_vi if not c.get("sub_claim_id")]
+    assert len(uncovered_vi) == 1
+
+
+def test_vdr14_report_edit_invalidates_sidecar():
+    """VDR14: Report markdown modified after review invalidates sidecar via report_digest mismatch."""
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        rep = ws / "report.md"
+        rep.write_text("# Report\n\nVerified initial text. [ref:C001]\n", encoding="utf-8")
+        h = f"sha256:{report_render.hashlib.sha256(rep.read_bytes()).hexdigest()}"
+
+        sidecar = {
+            "schema_version": "1.0.0",
+            "report_path": "report.md",
+            "report_digest": h,
+            "algorithm": "d-research-report-claims/v1",
+            "created_at": "2026-09-05T00:00:00Z",
+            "generator": {"name": "test", "version": "1.0.0", "commit": "abc"},
+            "spans": [],
+            "review_decision": {
+                "status": "verified",
+                "uncovered_factual_spans_count": 0,
+                "unsupported_claims_count": 0,
+                "reasons": [],
+                "reviewed_at": "2026-09-05T00:00:00Z",
+                "assurance_tier": "standard_verified",
+            },
+        }
+        (ws / "report-claims.json").write_text(json.dumps(sidecar), encoding="utf-8")
+
+        # Mutate report text
+        rep.write_text("# Report\n\nModified text post-review. [ref:C001]\n", encoding="utf-8")
+        errors = report_render.validate_report_claims_sidecar(ws, rep, rep.read_text(encoding="utf-8"))
+        assert any("STALE_SIDECAR" in e for e in errors)
+
+
+def test_vdr15_uncovered_factual_span_detection():
+    """VDR15: Uncited factual assertions in narrative, bullets, or factual headings are detected."""
+    content = (
+        "# Summary\n\n"
+        "## Revenue surged by 45% in 2025\n\n"
+        "The project launched in June 2024. [ref:C001]\n\n"
+        "- The system reached 50,000 requests per second.\n"
+    )
+    rows = [
+        {
+            "claim_id": "C001",
+            "claim": "The project launched in June 2024.",
+            "evidence": "The project launched in June 2024.",
+            "source_url": "https://example.com/launch",
+        }
+    ]
+    spans, errors = report_render.parse_report_spans(content, None, rows, strict=True)
+    uncovered = [e for e in errors if "UNCOVERED_FACTUAL_SPAN" in e]
+    assert len(uncovered) >= 2
+
+
+def test_vdr16_table_caption_footnote_assertions():
+    """VDR16: Factual table cells, captions, and footnotes are parsed and bound as discrete spans."""
+    content = (
+        "# Report\n\n"
+        "Table 1: Cluster performance benchmarks [ref:C001]\n\n"
+        "| Node | Latency |\n"
+        "| --- | --- |\n"
+        "| Node-1 | 5ms [ref:C002] |\n\n"
+        "[^1]: All benchmarks conducted on hardware cluster A [ref:C003].\n"
+    )
+    rows = [
+        {"claim_id": "C001", "claim": "benchmarks", "evidence": "benchmarks", "source_url": "https://example.com"},
+        {"claim_id": "C002", "claim": "5ms", "evidence": "5ms", "source_url": "https://example.com"},
+        {"claim_id": "C003", "claim": "cluster A", "evidence": "cluster A", "source_url": "https://example.com"},
+    ]
+    spans, _ = report_render.parse_report_spans(content, None, rows, strict=False)
+    types = {s["location_type"] for s in spans}
+    assert "table_caption" in types
+    assert "table_cell" in types
+    assert "footnote" in types
+
+
+def test_vdr17_citation_in_comment_or_code_block():
+    """VDR17: Citations inside comments or code blocks do not satisfy narrative coverage requirements."""
+    content = (
+        "# Report\n\n"
+        "Quantum computing achieved practical fault tolerance in 2026.\n\n"
+        "<!-- Hidden comment: [ref:C001] -->\n\n"
+        "```python\n# [ref:C001]\n```\n"
+    )
+    rows = [
+        {"claim_id": "C001", "claim": "Quantum computing achieved practical fault tolerance in 2026.", "evidence": "Data", "source_url": "https://example.com"}
+    ]
+    spans, errors = report_render.parse_report_spans(content, None, rows, strict=True)
+    assert any("UNCOVERED_FACTUAL_SPAN" in e for e in errors)
+
+
+def test_vdr18_generated_block_factual_assertion():
+    """VDR18: Factual assertions inside generated blocks undergo full verification; false assertions fail."""
+    content = (
+        "# Report\n\n"
+        "<!-- BEGIN GENERATED: evidence-summary -->\n"
+        "The system version is 9.9.9. [ref:C001]\n"
+        "<!-- END GENERATED: evidence-summary -->\n"
+    )
+    rows = [
+        {
+            "claim_id": "C001",
+            "claim": "The system version is 9.9.9.",
+            "evidence": "The system version is 3.4.1.",
+            "source_url": "https://example.com/v",
+        }
+    ]
+    spans, errors = report_render.parse_report_spans(content, None, rows, strict=True)
+    assert any("CITATION_MISUSE" in e for e in errors)
+    bindings = [b for s in spans for b in s.get("evidence_bindings", [])]
+    assert any(b["support_status"] in {"contradicts", "insufficient"} for b in bindings)
+
+
+def test_vdr19_valid_generated_block_and_code_spans():
+    """VDR19: Valid generated table summaries and instructional code spans are not over-blocked."""
+    content = (
+        "# Report\n\n"
+        "<!-- BEGIN GENERATED: evidence-summary -->\n"
+        "| Claim | Source | Status |\n"
+        "| --- | --- | --- |\n"
+        "| Latency is 10ms [ref:C001] | https://example.com | Verified |\n"
+        "<!-- END GENERATED: evidence-summary -->\n\n"
+        "To verify installation, run the following command:\n\n"
+        "```bash\ncurl https://example.com/install.sh\n```\n"
+    )
+    rows = [
+        {
+            "claim_id": "C001",
+            "claim": "Latency is 10ms",
+            "evidence": "Measured latency is 10ms",
+            "quote_or_anchor": "10ms",
+            "source_url": "https://example.com",
+        }
+    ]
+    spans, errors = report_render.parse_report_spans(content, None, rows, strict=False)
+    code_spans = [s for s in spans if s.get("location_type") == "code_block"]
+    assert len(code_spans) >= 1
+    assert all(s.get("statement_type") in {"instructional", "non_factual"} for s in code_spans)

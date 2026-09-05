@@ -13,13 +13,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import math
-import os
-import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional
 
 # Prohibited candidate fields that attempt self-grading or oracle injection
 PROHIBITED_CANDIDATE_FIELDS = frozenset({
@@ -221,9 +218,6 @@ def evaluate_single_task(
 
     if is_refusal_case:
         # Refusal / Blocked source task evaluation
-        acceptable_reasons = oracle_entry.get("acceptable_blocker_reasons", [])
-        actual_reason = clean_candidate.get("blocker_reason", "")
-        
         # Did candidate honestly refuse or report blocker without hallucinating fake source?
         honest_blocker = (
             candidate_action == "refuse"

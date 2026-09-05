@@ -56,12 +56,51 @@ try:
     )
 except ImportError:
     classify_claim_evidence = None
-    _normalize_text = lambda s: re.sub(r"\s+", " ", str(s or "").strip().lower())
-    _extract_versions = lambda s: set(re.findall(r"\b\d+\.\d+(?:\.\d+)?\b", str(s or "")))
-    _extract_percentages = lambda s: set(re.findall(r"\b\d+(?:\.\d+)?%", str(s or "")))
-    _extract_quantities = lambda s: {}
-    _extract_years = lambda s: set(re.findall(r"\b(?:19\d\d|20\d\d)\b", str(s or "")))
+
+    def _normalize_text(s: str) -> str:
+        return re.sub(r"\s+", " ", str(s or "").strip().lower())
+
+    def _extract_versions(s: str) -> set[str]:
+        return set(re.findall(r"\b\d+\.\d+(?:\.\d+)?\b", str(s or "")))
+
+    def _extract_percentages(s: str) -> set[str]:
+        return set(re.findall(r"\b\d+(?:\.\d+)?%", str(s or "")))
+
+    def _extract_quantities(s: str) -> dict[str, Any]:
+        return {}
+
+    def _extract_years(s: str) -> set[str]:
+        return set(re.findall(r"\b(?:19\d\d|20\d\d)\b", str(s or "")))
+
     _NEGATION_RE = re.compile(r"\b(?:not|never|no|none|neither|cannot|refute|contradict)\b", re.I)
+
+_STOP_WORDS = frozenset({
+    "the", "a", "an", "is", "are", "was", "were", "has", "have", "been",
+    "with", "from", "and", "for", "about", "which", "whose", "their", "its",
+    "that", "this", "these", "those", "to", "in", "on", "at", "by", "it",
+    "của", "và", "là", "trong", "được", "có", "với", "cho", "này", "đó",
+})
+
+
+def _normalize_tokens(text: str) -> str:
+    """Normalize text while strictly preserving mathematical signs (+/-), decimals, percentages, units, inequalities."""
+    if not text:
+        return ""
+    s = re.sub(r"\s+", " ", str(text).strip().lower())
+    # Normalize signs attached to numbers: "+ 5" -> "+5", "- 5" -> "-5"
+    s = re.sub(r"([+-])\s+(\d)", r"\1\2", s)
+    # Remove clause punctuation: , ; : ! ? " ' ` ( ) [ ] { } ~
+    s = re.sub(r"[\"\'`()\[\]{}~,;:!?]", " ", s)
+    # Remove trailing periods at end of words/sentence without breaking decimal numbers (e.g. 3.4.1 or 5.2)
+    s = re.sub(r"(?<=[a-zA-Z\u00C0-\u1EF9])\.(?=\s|$)", "", s)
+    s = re.sub(r"\.(?=\s|$)", "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _extract_signed_numbers(text: str) -> list[str]:
+    """Extract signed numbers (+5, -5, +5.2, -5.2, +5%, -5%)."""
+    return [re.sub(r"\s+", "", m.group(1)) for m in re.finditer(r"(?:^|\s)([+-]\s*\d+(?:\.\d+)?(?:%|[a-zA-Z]+)?)", str(text or ""))]
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = REPO_ROOT / "templates" / "report-template.md"
@@ -767,6 +806,8 @@ def _is_non_factual_text(text: str, section_heading: str) -> bool:
             "contradictions and unknowns",
         )
     ):
+        if "references" in sec_lower and (re.match(r"^[-*]?\s*\[ref:[^\]]+\]", s) or s.startswith("http://") or s.startswith("https://") or s.startswith("[ref:")):
+            return True
         if (
             s in _NON_FACTUAL_PHRASES
             or s.startswith("no material limitations")
@@ -792,67 +833,127 @@ def _statement_supported_by_row(
     row_evidence = (row.get("evidence") or "").strip()
     row_quote = (row.get("quote_or_anchor") or "").strip()
 
-    # Distortion checks
+    # Distortion checks: version must match actual evidence/quote bytes, NOT ungrounded claim!
+    ev = _extract_versions(row_evidence) | _extract_versions(row_quote)
+    cv = _extract_versions(row_claim)
     sv = _extract_versions(clean_s)
-    cv = _extract_versions(row_claim) | _extract_versions(row_evidence)
-    if sv and cv and sv.isdisjoint(cv):
+    if ev:
+        if sv and sv.isdisjoint(ev):
+            return "contradicts", "version_mismatch", "normalized_span"
+        if cv and cv.isdisjoint(ev):
+            return "contradicts", "version_mismatch", "normalized_span"
+    elif sv and cv and sv.isdisjoint(cv):
         return "contradicts", "version_mismatch", "normalized_span"
 
+    ep = _extract_percentages(row_evidence) | _extract_percentages(row_quote)
+    cp = _extract_percentages(row_claim)
     sp = _extract_percentages(clean_s)
-    cp = _extract_percentages(row_claim) | _extract_percentages(row_evidence)
-    if sp and cp and sp.isdisjoint(cp):
+    if ep:
+        if sp and sp.isdisjoint(ep):
+            return "contradicts", "percentage_mismatch", "normalized_span"
+        if cp and cp.isdisjoint(ep):
+            return "contradicts", "percentage_mismatch", "normalized_span"
+    elif sp and cp and sp.isdisjoint(cp):
         return "contradicts", "percentage_mismatch", "normalized_span"
 
     su = _extract_quantities(clean_s)
     cu = _extract_quantities(row_claim)
-    for k in su:
-        if k in cu and su[k] != cu[k]:
-            return "contradicts", "quantity_mismatch", "normalized_span"
+    eu = _extract_quantities(row_evidence) or _extract_quantities(row_quote)
+    if eu:
+        for k in su:
+            if k in eu and su[k] != eu[k]:
+                return "contradicts", "quantity_mismatch", "normalized_span"
+        for k in cu:
+            if k in eu and cu[k] != eu[k]:
+                return "contradicts", "quantity_mismatch", "normalized_span"
+    elif cu:
+        for k in su:
+            if k in cu and su[k] != cu[k]:
+                return "contradicts", "quantity_mismatch", "normalized_span"
 
+    ey = _extract_years(row_evidence) | _extract_years(row_quote)
+    cy = _extract_years(row_claim)
     sy = _extract_years(clean_s)
-    cy = _extract_years(row_claim) | _extract_years(row_evidence)
-    if sy and cy and sy.isdisjoint(cy):
+    if ey:
+        if sy and sy.isdisjoint(ey):
+            return "contradicts", "year_mismatch", "normalized_span"
+        if cy and cy.isdisjoint(ey):
+            return "contradicts", "year_mismatch", "normalized_span"
+    elif sy and cy and sy.isdisjoint(cy):
         return "contradicts", "year_mismatch", "normalized_span"
 
-    norm_s = _normalize_text(clean_s)
-    norm_c = _normalize_text(row_claim)
-    norm_e = _normalize_text(row_evidence)
-    norm_q = _normalize_text(row_quote)
+    # Distortion check: sign inversion (+ vs -)
+    cs_signed = _extract_signed_numbers(clean_s)
+    ev_signed = _extract_signed_numbers(f"{row_evidence} {row_quote} {row_claim}")
+    for cs_num in cs_signed:
+        if cs_num.startswith("+"):
+            opposite = "-" + cs_num[1:]
+            if opposite in ev_signed:
+                return "contradicts", "sign_inversion", "normalized_span"
+        elif cs_num.startswith("-"):
+            opposite = "+" + cs_num[1:]
+            if opposite in ev_signed:
+                return "contradicts", "sign_inversion", "normalized_span"
+
+    norm_s = _normalize_tokens(clean_s)
+    norm_c = _normalize_tokens(row_claim)
+    norm_e = _normalize_tokens(row_evidence)
+    norm_q = _normalize_tokens(row_quote)
 
     s_neg = bool(_NEGATION_RE.search(norm_s))
-    c_neg = bool(_NEGATION_RE.search(norm_c or norm_e))
-    s_toks = set(re.findall(r"[a-z0-9]{4,}", norm_s)) - {"that", "with", "this", "from", "have", "been", "were"}
-    c_toks = set(re.findall(r"[a-z0-9]{4,}", norm_c or norm_e)) - {"that", "with", "this", "from", "have", "been", "were"}
+    c_neg = bool(_NEGATION_RE.search(f"{norm_e} {norm_q}" or norm_c))
+    s_toks = set(re.findall(r"[a-z0-9\u00C0-\u1EF9]{4,}", norm_s)) - {"that", "with", "this", "from", "have", "been", "were"}
+    c_toks = set(re.findall(r"[a-z0-9\u00C0-\u1EF9]{4,}", f"{norm_e} {norm_q}" or norm_c)) - {"that", "with", "this", "from", "have", "been", "were"}
     overlap = s_toks & c_toks
     if overlap and s_neg != c_neg:
         return "contradicts", "negation_inversion", "normalized_span"
 
-    clean_tok_s = re.sub(r"[^\w\s]", "", norm_s).strip()
-    clean_tok_c = re.sub(r"[^\w\s]", "", norm_c).strip()
-    clean_tok_e = re.sub(r"[^\w\s]", "", norm_e).strip()
-    clean_tok_q = re.sub(r"[^\w\s]", "", norm_q).strip()
+    clean_tok_s = _normalize_tokens(clean_s)
+    clean_tok_e = _normalize_tokens(row_evidence)
+    clean_tok_q = _normalize_tokens(row_quote)
 
-    if clean_tok_s and (clean_tok_s == clean_tok_c or clean_tok_s in clean_tok_c or clean_tok_c in clean_tok_s):
-        return "supports", "ledger_claim_match", "normalized_span"
+    # Do not treat locators as literal quotes
+    is_locator_quote = bool(re.match(r"^(?:page|p\.|line|l\.|section|sec\.|xpath:|css:|selector:|#|\.|\S+\.(?:png|jpg|jpeg|pdf))\b", row_quote, re.I))
 
-    if clean_tok_q and (clean_tok_q in clean_tok_s or clean_tok_s in clean_tok_q):
-        return "supports", "exact_quote_offset", "exact_quote_offset"
+    # Quote support check (short quotes must not prove longer claims with ungrounded assertions)
+    if clean_tok_q and not is_locator_quote:
+        if clean_tok_s == clean_tok_q or clean_tok_s in clean_tok_q:
+            return "supports", "exact_quote_offset", "exact_quote_offset"
+        elif clean_tok_q in clean_tok_s:
+            extra = clean_tok_s.replace(clean_tok_q, "", 1).strip()
+            extra_tokens = set(re.findall(r"[a-z0-9\u00C0-\u1EF9]{3,}", extra)) - _STOP_WORDS
+            if not extra_tokens:
+                return "supports", "exact_quote_offset", "exact_quote_offset"
 
-    if clean_tok_e and (clean_tok_s in clean_tok_e or clean_tok_e in clean_tok_s):
-        return "supports", "evidence_substring_match", "normalized_span"
+    # Evidence support check
+    if clean_tok_e:
+        if clean_tok_s == clean_tok_e or clean_tok_s in clean_tok_e:
+            return "supports", "evidence_substring_match", "normalized_span"
+        elif clean_tok_e in clean_tok_s:
+            extra = clean_tok_s.replace(clean_tok_e, "", 1).strip()
+            extra_tokens = set(re.findall(r"[a-z0-9\u00C0-\u1EF9]{3,}", extra)) - _STOP_WORDS
+            if not extra_tokens:
+                return "supports", "evidence_substring_match", "normalized_span"
 
     if classify_claim_evidence is not None:
         try:
-            eval_res = classify_claim_evidence(clean_s, row_evidence, row=row, workspace=workspace)
-            if eval_res.get("status") == "supports":
+            eval_res = classify_claim_evidence(clean_s, row_evidence or row_quote, row=row, workspace=workspace)
+            st = eval_res.get("status")
+            if st == "supports":
                 return "supports", eval_res.get("reason", "evaluator_supports"), "semantic_adjudication"
+            elif st in {"contradicts", "refutes"}:
+                return "contradicts", eval_res.get("reason", "evaluator_contradicts"), "semantic_adjudication"
+            elif st == "requires_review":
+                return "requires_review", eval_res.get("reason", "evaluator_requires_review"), "semantic_adjudication"
+            elif st in {"unsupported", "insufficient"}:
+                return "insufficient", eval_res.get("reason", "evaluator_insufficient"), "semantic_adjudication"
         except Exception:
             pass
 
     if overlap and len(overlap) >= min(2, len(s_toks)):
         return "requires_review", "semantic_paraphrase", "semantic_adjudication"
 
-    return "unsupported", "citation_does_not_support_statement", "normalized_span"
+    return "insufficient", "citation_does_not_support_statement", "normalized_span"
 
 
 def decompose_compound_claim(
@@ -861,7 +962,11 @@ def decompose_compound_claim(
 ) -> tuple[bool, list[dict[str, str]]]:
     """Decompose compound sentence into sub-clauses and audit clause coverage."""
     clean = re.sub(r"\[ref:[^\]]+\]", "", text).strip()
-    parts = re.split(r"\s+\b(?:and|while|whereas|as well as)\b\s+|;\s*", clean)
+    parts = re.split(
+        r"\s+\b(?:and|while|whereas|as well as|but|although|và|đồng thời|trong khi|cũng như|nhưng|mặc dù)\b\s+|;\s*",
+        clean,
+        flags=re.IGNORECASE,
+    )
     if len(parts) <= 1:
         return False, []
     sub_clauses: list[dict[str, str]] = []
@@ -872,12 +977,8 @@ def decompose_compound_claim(
             continue
         matched_cid = None
         for r in cited_rows:
-            r_claim = r.get("claim", "").strip()
-            r_evid = r.get("evidence", "").strip()
-            p_tokens = set(re.findall(r"[a-z0-9]{3,}", p_clean.lower())) - {"the", "this", "that", "was", "has", "were", "been"}
-            c_tokens = set(re.findall(r"[a-z0-9]{3,}", (r_claim + " " + r_evid).lower()))
-            overlap = p_tokens & c_tokens
-            if len(overlap) >= min(2, len(p_tokens)):
+            st, _, _ = _statement_supported_by_row(p_clean, r)
+            if st == "supports":
                 matched_cid = r.get("claim_id")
                 break
         if matched_cid:
@@ -906,9 +1007,9 @@ def parse_report_spans(
     lines = content.splitlines(keepends=True)
     line_starts: list[int] = []
     curr = 0
-    for l in lines:
+    for line_item in lines:
         line_starts.append(curr)
-        curr += len(l)
+        curr += len(line_item)
 
     def get_line_num(offset: int) -> int:
         for idx, start in enumerate(line_starts):
@@ -941,7 +1042,7 @@ def parse_report_spans(
             "evidence_bindings": [],
         })
 
-    # B. HTML comments
+    # B. HTML comments (includes generated block boundary markers)
     for m in re.finditer(r"<!--.*?-->", content, re.DOTALL):
         span_counter += 1
         start, end = m.span()
@@ -960,27 +1061,9 @@ def parse_report_spans(
             "evidence_bindings": [],
         })
 
-    # C. Generated blocks
-    for begin, end_marker in (
-        (GENERATED_EVIDENCE_BEGIN, GENERATED_EVIDENCE_END),
-        (GENERATED_REFS_BEGIN, GENERATED_REFS_END),
-    ):
-        pat = re.compile(re.escape(begin) + r".*?" + re.escape(end_marker), re.DOTALL)
-        for m in pat.finditer(content):
-            start, end = m.span()
-            occupied_ranges.append((start, end))
-            span_counter += 1
-            spans.append({
-                "span_id": f"span:{span_counter}",
-                "start_offset": start,
-                "end_offset": end,
-                "line_number": get_line_num(start),
-                "text": m.group(0),
-                "location_type": "narrative_paragraph",
-                "statement_type": "non_factual",
-                "claim_ids": [],
-                "evidence_bindings": [],
-            })
+    # Note: CR03 fix - Generated evidence blocks must undergo bidirectional verification.
+    # We do NOT mark generated blocks as non_factual occupied ranges.
+    # Text, tables, captions, and assertions inside generated blocks are audited line-by-line.
 
     # D. Line-by-line parsing for Headings, Footnotes, Table rows, Table captions
     current_section = "Preamble"
@@ -1004,6 +1087,12 @@ def parse_report_spans(
             current_section = heading_match.group(2).strip()
             span_counter += 1
             occupied_ranges.append((line_start, line_end))
+            head_text = heading_match.group(2).strip()
+            head_refs = [c.strip() for c in re.findall(r"\[ref:([^\]]+)\]", line) if re.match(r"^C[0-9]{3,}$", c.strip())]
+            is_factual_heading = bool(head_refs) or bool(re.search(r"\b\d+(?:\.\d+)?%?|\b(?:grew|dropped|increased|decreased|exceeded|achieved|deployed)\b", head_text, re.I))
+            if any(k in head_text.lower() for k in ("executive summary", "references", "caveats", "limitations", "preamble", "findings", "methodology", "appendix", "introduction", "background", "report")):
+                is_factual_heading = False
+            head_type = "factual" if is_factual_heading and not _is_non_factual_text(head_text, current_section) else "non_factual"
             spans.append({
                 "span_id": f"span:{span_counter}",
                 "start_offset": line_start,
@@ -1011,8 +1100,8 @@ def parse_report_spans(
                 "line_number": line_idx + 1,
                 "text": line,
                 "location_type": "heading",
-                "statement_type": "non_factual",
-                "claim_ids": [],
+                "statement_type": head_type,
+                "claim_ids": head_refs,
                 "evidence_bindings": [],
             })
             continue
@@ -1108,7 +1197,7 @@ def parse_report_spans(
         nonlocal span_counter
         if not p_lines:
             return
-        p_text = " ".join(l[1].strip() for l in p_lines)
+        p_text = " ".join(ln[1].strip() for ln in p_lines)
         p_start = p_lines[0][2]
         p_end = p_lines[-1][3]
         p_line_num = p_lines[0][0] + 1
@@ -1271,19 +1360,51 @@ def parse_report_spans(
             else:
                 source_url = "https://example.com/source"
 
-            raw_hash = (row.get("content_hash") or row.get("snapshot_digest") or "").strip()
-            if raw_hash.startswith("sha256:") and len(raw_hash) == 71:
-                snapshot_digest = raw_hash
-            elif len(raw_hash) == 64 and all(c in "0123456789abcdefABCDEF" for c in raw_hash):
-                snapshot_digest = f"sha256:{raw_hash.lower()}"
-            else:
-                snap_cand = workspace / (row.get("snapshot_path") or f"evidence/{cid}.txt") if workspace else None
-                if snap_cand and snap_cand.is_file():
-                    snapshot_digest = f"sha256:{hashlib.sha256(snap_cand.read_bytes()).hexdigest()}"
-                else:
-                    snapshot_digest = f"sha256:{hashlib.sha256(source_url.encode('utf-8')).hexdigest()}"
-
             snap_path = (row.get("snapshot_path") or f"evidence/{cid}.txt").strip()
+            raw_hash = (row.get("content_hash") or row.get("snapshot_digest") or "").strip()
+            expected_digest = ""
+            if raw_hash.startswith("sha256:") and len(raw_hash) == 71:
+                expected_digest = raw_hash
+            elif len(raw_hash) == 64 and all(c in "0123456789abcdefABCDEF" for c in raw_hash):
+                expected_digest = f"sha256:{raw_hash.lower()}"
+
+            snapshot_digest = expected_digest
+
+            if workspace:
+                try:
+                    raw_snap_p = Path(snap_path)
+                    cand_p = (workspace / raw_snap_p) if not raw_snap_p.is_absolute() else raw_snap_p
+                    cand_resolved = cand_p.resolve()
+                    ws_resolved = workspace.resolve()
+                    if not cand_resolved.is_relative_to(ws_resolved):
+                        errors.append(
+                            f"PATH_TRAVERSAL (line {span['line_number']}): snapshot path '{snap_path}' escapes workspace"
+                        )
+                        support_status = "insufficient"
+                        reason = "snapshot_path_outside_workspace"
+                    elif cand_resolved.is_file():
+                        actual_digest = f"sha256:{hashlib.sha256(cand_resolved.read_bytes()).hexdigest()}"
+                        if expected_digest and expected_digest != actual_digest:
+                            errors.append(
+                                f"SNAPSHOT_TAMPER (line {span['line_number']}): snapshot digest mismatch for {snap_path}"
+                            )
+                            support_status = "contradicts"
+                            reason = "snapshot_digest_mismatch"
+                        snapshot_digest = actual_digest
+                    else:
+                        # Snapshot file missing on disk; do NOT hash source_url
+                        if strict:
+                            errors.append(
+                                f"MISSING_SNAPSHOT (line {span['line_number']}): snapshot file not found on disk: {snap_path}"
+                            )
+                            support_status = "insufficient"
+                            reason = "missing_snapshot_bytes"
+                except (ValueError, OSError) as exc:
+                    errors.append(f"SNAPSHOT_ERROR (line {span['line_number']}): {exc}")
+
+            if not snapshot_digest or not re.match(r"^sha256:[0-9a-f]{64}$", snapshot_digest):
+                snapshot_digest = f"sha256:{'0'*64}"
+
             quote = (row.get("quote_or_anchor") or row.get("evidence") or row.get("claim") or span["text"]).strip()
 
             binding = {
@@ -1298,7 +1419,7 @@ def parse_report_spans(
             }
             span["evidence_bindings"].append(binding)
 
-            if support_status in {"unsupported", "contradicts", "refutes", "insufficient"}:
+            if support_status in {"insufficient", "contradicts", "refutes"}:
                 errors.append(
                     f"CITATION_MISUSE (line {span['line_number']}): claim {cid} ({support_status}) "
                     f"does not support assertion: {span['text'][:100]}"
@@ -1309,6 +1430,40 @@ def parse_report_spans(
                 )
 
     return spans, errors
+
+
+def _get_generator_metadata() -> dict[str, str]:
+    """Retrieve dynamic generator provenance metadata."""
+    version = "3.4.1"
+    commit = "unknown"
+    try:
+        git_dir = REPO_ROOT / ".git"
+        if git_dir.exists():
+            res = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                commit = res.stdout.strip()
+    except Exception:
+        pass
+    if commit == "unknown":
+        meta_file = REPO_ROOT / "package_metadata.json"
+        if meta_file.is_file():
+            try:
+                data = json.loads(meta_file.read_text(encoding="utf-8"))
+                version = data.get("version", version)
+                commit = data.get("commit", commit)
+            except Exception:
+                pass
+    return {
+        "name": "d-research-skill",
+        "version": version,
+        "commit": commit,
+    }
 
 
 def generate_report_claims_sidecar(
@@ -1341,7 +1496,7 @@ def generate_report_claims_sidecar(
     unsupported = sum(
         1 for s in spans
         for b in s.get("evidence_bindings", [])
-        if b.get("support_status") in {"unsupported", "contradicts", "refutes", "insufficient"}
+        if b.get("support_status") in {"contradicts", "refutes", "insufficient"}
     )
     requires_review = sum(
         1 for s in spans
@@ -1349,10 +1504,45 @@ def generate_report_claims_sidecar(
         if b.get("support_status") == "requires_review"
     )
 
+    all_snapshots_present = True
+    factual_bindings_count = 0
+    for s in spans:
+        if s.get("statement_type") != "factual":
+            continue
+        for b in s.get("evidence_bindings", []):
+            factual_bindings_count += 1
+            sp = b.get("snapshot_path", "").strip()
+            sd = b.get("snapshot_digest", "").strip()
+            if not sp or sd == f"sha256:{'0'*64}":
+                all_snapshots_present = False
+                break
+            cand = (workspace / sp).resolve() if not Path(sp).is_absolute() else Path(sp).resolve()
+            if not cand.is_file():
+                all_snapshots_present = False
+                break
+            try:
+                cand_digest = f"sha256:{hashlib.sha256(cand.read_bytes()).hexdigest()}"
+                if cand_digest != sd:
+                    all_snapshots_present = False
+                    break
+            except OSError:
+                all_snapshots_present = False
+                break
+        if not all_snapshots_present:
+            break
+
+    if factual_bindings_count == 0 and uncovered > 0:
+        all_snapshots_present = False
+
     err_list = list(errors or [])
     if uncovered == 0 and unsupported == 0 and (not strict or requires_review == 0) and not err_list:
-        status = "verified"
-        assurance_tier = "strict_verified" if strict else "standard_verified"
+        if strict and not all_snapshots_present:
+            status = "rejected"
+            assurance_tier = "degraded"
+            err_list.append("MISSING_SNAPSHOTS_IN_STRICT_MODE")
+        else:
+            status = "verified"
+            assurance_tier = "strict_verified" if (strict and all_snapshots_present) else "standard_verified"
     else:
         status = "rejected"
         assurance_tier = "degraded"
@@ -1369,11 +1559,7 @@ def generate_report_claims_sidecar(
         "report_digest": report_digest,
         "algorithm": REPORT_CLAIMS_SCHEMA_STRICT_ID if strict else REPORT_CLAIMS_SCHEMA_ID,
         "created_at": _utc_now(),
-        "generator": {
-            "name": "d-research-skill",
-            "version": "3.5.0",
-            "commit": "e159653797308cfb1cd10ec63f51dcc7d69d6066",
-        },
+        "generator": _get_generator_metadata(),
         "metadata": {
             "workspace_root": str(workspace),
             "ledger_path": rel_ledger_path,
