@@ -358,13 +358,22 @@ def test_e09_harness_mutation_catch():
     assert eval_mismatch["answer_matched"] is False
 
 
+def _find_audit_artifacts_dir() -> Path:
+    for p in Path(__file__).resolve().parents:
+        if (p / "audit-artifacts" / "evaluation").is_dir():
+            return p / "audit-artifacts"
+    raise FileNotFoundError("Could not locate audit-artifacts directory")
+
+
 def test_e10_raw_artifact_scoring_reproducibility():
     """E10: Scorer executed against raw benchmark outputs and empirical pilot artifacts.
     
     Recomputed metrics match recorded metrics exactly; proves automated reproducible evaluation.
     """
+    audit_artifacts = _find_audit_artifacts_dir()
+
     # Test A: Benchmark artifact recomputation
-    eval_dir = Path(__file__).resolve().parent.parent.parent.parent / "audit-artifacts" / "evaluation"
+    eval_dir = audit_artifacts / "evaluation"
     summary_file = eval_dir / "results" / "evaluation_summary.json"
     assert summary_file.is_file(), "evaluation_summary.json must exist"
 
@@ -379,7 +388,7 @@ def test_e10_raw_artifact_scoring_reproducibility():
     assert recomputed["citation_correctness"] == summary_data["candidate_summary"]["citation_correctness"]
 
     # Test B: Empirical Pilot cases recomputation from real pilot artifacts on disk
-    pilot_dir = Path(__file__).resolve().parent.parent.parent.parent / "audit-artifacts" / "empirical-pilot"
+    pilot_dir = audit_artifacts / "empirical-pilot"
     hindcast_dir = pilot_dir / "hindcast"
     assert hindcast_dir.is_dir(), "hindcast directory must exist"
 

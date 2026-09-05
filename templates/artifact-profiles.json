@@ -33,8 +33,10 @@
         "references/**",
         "release-evidence/**",
         "research.config.example.json",
+        "schemas/**",
         "scripts/**",
-        "templates/**"
+        "templates/**",
+        "tests/**"
       ],
       "exclude_categories": {
         "version_control": [
@@ -96,6 +98,7 @@
         "pyproject.toml",
         "references/**",
         "research.config.example.json",
+        "schemas/**",
         "scripts/**",
         "templates/**"
       ],

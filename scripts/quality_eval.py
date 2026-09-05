@@ -4861,13 +4861,16 @@ def cmd_self_test(args: argparse.Namespace) -> int:
     if cmd_integrity(NS()) != 0:
         failures.append("integrity")
 
-    with tempfile.TemporaryDirectory() as td:
+    if (FIXTURES / "hostile").is_dir():
+        with tempfile.TemporaryDirectory() as td:
 
-        class HS:
-            out = td
+            class HS:
+                out = td
 
-        if cmd_hostile(HS()) != 0:
-            failures.append("hostile")
+            if cmd_hostile(HS()) != 0:
+                failures.append("hostile")
+    else:
+        print("  [SKIP] hostile fixtures omitted in runtime profile")
 
     # score-artifact smoke: good pass, bad auto-fail
     good = load_json(FIXTURES / "integrity" / "good_claim_chain.json")
