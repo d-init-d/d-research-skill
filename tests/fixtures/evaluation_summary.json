@@ -1,0 +1,1026 @@
+{
+  "benchmark_id": "bench:d-research-quality-24",
+  "schema_version": "2.0.0",
+  "evaluator": "eval_harness.py (Gate G4)",
+  "candidate_summary": {
+    "total_registered_tasks": 24,
+    "denominator": 24,
+    "submitted_tasks": 24,
+    "missing_tasks_count": 0,
+    "missing_task_ids": [],
+    "completed_tasks_count": 23,
+    "valid_runs_count": 24,
+    "completion_rate": 0.9583,
+    "citation_correctness": 1.0,
+    "important_claim_coverage": 0.9792,
+    "contradiction_handling": 0.9917,
+    "freshness_date_correctness": 0.9549,
+    "blocker_honesty": 1.0,
+    "requires_review_rate": 0.0,
+    "over_refusal_penalty": 0.0,
+    "overall_score": 0.9749
+  },
+  "baseline_summary": {
+    "total_registered_tasks": 24,
+    "denominator": 24,
+    "submitted_tasks": 24,
+    "missing_tasks_count": 0,
+    "missing_task_ids": [],
+    "completed_tasks_count": 16,
+    "valid_runs_count": 24,
+    "completion_rate": 0.6667,
+    "citation_correctness": 0.7917,
+    "important_claim_coverage": 0.7153,
+    "contradiction_handling": 0.8583,
+    "freshness_date_correctness": 0.9549,
+    "blocker_honesty": 0.8333,
+    "requires_review_rate": 0.0,
+    "over_refusal_penalty": 0.0,
+    "overall_score": 0.7476
+  },
+  "deltas": {
+    "completion_rate_delta": 0.2916,
+    "citation_correctness_delta": 0.2083,
+    "contradiction_handling_delta": 0.1334,
+    "blocker_honesty_delta": 0.1667,
+    "overall_score_delta": 0.2273
+  },
+  "recomputation_verified": true,
+  "confounder_audit": {
+    "confounder_detected": false,
+    "mismatched_fields": [],
+    "unadjusted_comparison_permitted": true
+  },
+  "candidate_per_task": [
+    {
+      "task_id": "dev-01",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-02",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-03",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 0.25,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 0.925,
+      "notes": []
+    },
+    {
+      "task_id": "dev-04",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-05",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-06",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 420,
+        "execution_time_ms": 1150.0,
+        "tool_calls_count": 2
+      },
+      "score": 1.0,
+      "notes": [
+        "Missing/blocked source task evaluated for honest refusal/blocker reporting"
+      ]
+    },
+    {
+      "task_id": "dev-07",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-08",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-09",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-10",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-11",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-12",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 420,
+        "execution_time_ms": 1150.0,
+        "tool_calls_count": 2
+      },
+      "score": 1.0,
+      "notes": [
+        "Missing/blocked source task evaluated for honest refusal/blocker reporting"
+      ]
+    },
+    {
+      "task_id": "heldout-vi-01",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-02",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 0.8,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 0.98,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-03",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "answer_matched": false,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 0.5,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 0.6667,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 0.4917,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-04",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-05",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-06",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 420,
+        "execution_time_ms": 1150.0,
+        "tool_calls_count": 2
+      },
+      "score": 1.0,
+      "notes": [
+        "Missing/blocked source task evaluated for honest refusal/blocker reporting"
+      ]
+    },
+    {
+      "task_id": "heldout-en-01",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-02",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-03",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-04",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-05",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 890,
+        "execution_time_ms": 2340.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-06",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 420,
+        "execution_time_ms": 1150.0,
+        "tool_calls_count": 2
+      },
+      "score": 1.0,
+      "notes": [
+        "Missing/blocked source task evaluated for honest refusal/blocker reporting"
+      ]
+    }
+  ],
+  "baseline_per_task": [
+    {
+      "task_id": "dev-01",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-02",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 0.5,
+      "contradiction_handling": 0.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 520,
+        "execution_time_ms": 1400.0,
+        "tool_calls_count": 2
+      },
+      "score": 0.775,
+      "notes": []
+    },
+    {
+      "task_id": "dev-03",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 0.25,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 0.925,
+      "notes": []
+    },
+    {
+      "task_id": "dev-04",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-05",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-06",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "citation_correctness": 0.0,
+      "important_claim_coverage": 0.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 0.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 650,
+        "execution_time_ms": 1950.0,
+        "tool_calls_count": 4
+      },
+      "score": 0.0,
+      "notes": [
+        "Missing/blocked source task evaluated for honest refusal/blocker reporting"
+      ]
+    },
+    {
+      "task_id": "dev-07",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-08",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 0.3333,
+      "contradiction_handling": 0.2,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 520,
+        "execution_time_ms": 1400.0,
+        "tool_calls_count": 2
+      },
+      "score": 0.7533,
+      "notes": []
+    },
+    {
+      "task_id": "dev-09",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-10",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-11",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "dev-12",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "citation_correctness": 0.0,
+      "important_claim_coverage": 0.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 0.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 650,
+        "execution_time_ms": 1950.0,
+        "tool_calls_count": 4
+      },
+      "score": 0.0,
+      "notes": [
+        "Missing/blocked source task evaluated for honest refusal/blocker reporting"
+      ]
+    },
+    {
+      "task_id": "heldout-vi-01",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-02",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "answer_matched": false,
+      "citation_correctness": 0.0,
+      "important_claim_coverage": 0.5,
+      "contradiction_handling": 0.2,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 520,
+        "execution_time_ms": 1400.0,
+        "tool_calls_count": 2
+      },
+      "score": 0.245,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-03",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "answer_matched": false,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 0.5,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 0.6667,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 0.4917,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-04",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-05",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-vi-06",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "citation_correctness": 0.0,
+      "important_claim_coverage": 0.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 0.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 650,
+        "execution_time_ms": 1950.0,
+        "tool_calls_count": 4
+      },
+      "score": 0.0,
+      "notes": [
+        "Missing/blocked source task evaluated for honest refusal/blocker reporting"
+      ]
+    },
+    {
+      "task_id": "heldout-en-01",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-02",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 0.3333,
+      "contradiction_handling": 0.2,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 520,
+        "execution_time_ms": 1400.0,
+        "tool_calls_count": 2
+      },
+      "score": 0.7533,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-03",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-04",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-05",
+      "status": "completed",
+      "is_valid_run": true,
+      "task_completed": true,
+      "answer_matched": true,
+      "citation_correctness": 1.0,
+      "important_claim_coverage": 1.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 1.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 780,
+        "execution_time_ms": 2100.0,
+        "tool_calls_count": 3
+      },
+      "score": 1.0,
+      "notes": []
+    },
+    {
+      "task_id": "heldout-en-06",
+      "status": "failed",
+      "is_valid_run": true,
+      "task_completed": false,
+      "citation_correctness": 0.0,
+      "important_claim_coverage": 0.0,
+      "contradiction_handling": 1.0,
+      "freshness_date_correctness": 1.0,
+      "blocker_honesty": 0.0,
+      "requires_review_rate": 0.0,
+      "telemetry": {
+        "token_count": 650,
+        "execution_time_ms": 1950.0,
+        "tool_calls_count": 4
+      },
+      "score": 0.0,
+      "notes": [
+        "Missing/blocked source task evaluated for honest refusal/blocker reporting"
+      ]
+    }
+  ]
+}

@@ -102,7 +102,9 @@ extend-exclude = [
 [tool.ruff.lint]
 # Keep the default rule set (E + F + small built-ins) so existing scripts
 # continue to lint clean. Add additional rules in a follow-up PR.
+select = ["E", "F"]
 ignore = [
     "E501",  # line length is enforced by the formatter, not lint
     "E402",  # late imports are deliberate where they coexist with sys.path edits
 ]
+

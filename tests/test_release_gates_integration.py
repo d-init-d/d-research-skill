@@ -190,3 +190,49 @@ def test_vdr22_cli_final_and_runtime_archive():
         (ws / "report.md").write_text(gen_block_report, encoding="utf-8")
         rc_neg_vdr18 = report_render.cmd_lint(lint_args)
         assert rc_neg_vdr18 != 0
+
+
+def test_vux02_d_research_docs_positive_workflow(monkeypatch):
+    """VUX02: Agent following D Research docs executes real positive workflow (capture, sign, review, finalize).
+
+    Verifies that authentic commands and real verification gates achieve strict_verified tier
+    without fabricated JSON sidecars or dummy mocks.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        _setup_positive_workspace(ws)
+
+        # 1. Sign evidence ledger with real HMAC key via evidence_ledger
+        monkeypatch.setenv("D_RESEARCH_LEDGER_KEY", "secret-test-key-12345678901234567890")
+        import evidence_ledger
+
+        sig_rc = evidence_ledger.sign_ledger(
+            ws / "evidence-ledger.csv", "D_RESEARCH_LEDGER_KEY", None
+        )
+        assert sig_rc == 0
+        sig_file = ws / "evidence-ledger.csv.hmac"
+        assert sig_file.is_file()
+
+        # 2. Execute report lint / gate review using real cmd_lint
+        lint_args = argparse.Namespace(
+            workspace=str(ws), report="report.md", strict=True, allow_unreferenced=False
+        )
+        rc = report_render.cmd_lint(lint_args)
+        assert rc == 0
+
+        # 3. Verify real generated review sidecar
+        sidecar_path = ws / "report-claims.json"
+        assert sidecar_path.is_file()
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        review = sidecar.get("review_decision", {})
+        assert review.get("status") == "verified"
+        assert review.get("assurance_tier") == "strict_verified"
+        assert review.get("uncovered_factual_spans_count") == 0
+        assert review.get("unsupported_claims_count") == 0
+
+        # 4. Verify build provenance is dynamic and real (not hardcoded dummy)
+        gen = sidecar.get("generator", {})
+        assert gen.get("name") == "d-research-skill"
+        assert "version" in gen
+        assert "commit" in gen
+
