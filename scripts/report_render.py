@@ -839,6 +839,81 @@ def _statement_supported_by_row(
     row_evidence = (row.get("evidence") or "").strip()
     row_quote = (row.get("quote_or_anchor") or "").strip()
 
+    # RV2-01: Source snapshot grounding. When source snapshot file is available on disk,
+    # it is the authoritative ground truth; candidate-supplied row fields cannot self-certify.
+    cid = (row.get("claim_id") or "").strip()
+    snap_path = (row.get("snapshot_path") or (f"evidence/{cid}.txt" if cid else "")).strip()
+    snap_text: str | None = None
+    if workspace and snap_path:
+        try:
+            raw_snap_p = Path(snap_path)
+            cand_p = (workspace / raw_snap_p) if not raw_snap_p.is_absolute() else raw_snap_p
+            cand_resolved = cand_p.resolve()
+            ws_resolved = workspace.resolve()
+            if cand_resolved.is_relative_to(ws_resolved) and cand_resolved.is_file():
+                snap_text = cand_resolved.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+    if snap_text is not None:
+        clean_snap_toks = _normalize_tokens(snap_text)
+        clean_quote_toks = _normalize_tokens(row_quote)
+        is_locator = bool(re.match(r"^(?:page|p\.|line|l\.|section|sec\.|xpath:|css:|selector:|#|\.|\S+\.(?:png|jpg|jpeg|pdf))\b", row_quote, re.I))
+
+        # 1. Quote must actually exist in the decoded snapshot text
+        if clean_quote_toks and not is_locator and clean_quote_toks not in clean_snap_toks:
+            return "contradicts", "quote_not_found_in_snapshot", "source_snapshot"
+
+        # 2. Version numbers must match source snapshot
+        snap_versions = _extract_versions(snap_text)
+        sv_check = _extract_versions(clean_s)
+        qv_check = _extract_versions(row_quote)
+        ev_check = _extract_versions(row_evidence)
+        if snap_versions:
+            if sv_check and sv_check.isdisjoint(snap_versions):
+                return "contradicts", "version_mismatch_with_source", "source_snapshot"
+            if qv_check and qv_check.isdisjoint(snap_versions):
+                return "contradicts", "version_mismatch_with_source", "source_snapshot"
+            if ev_check and ev_check.isdisjoint(snap_versions):
+                return "contradicts", "version_mismatch_with_source", "source_snapshot"
+
+        # 3. Percentages must match source snapshot
+        snap_percentages = _extract_percentages(snap_text)
+        sp_check = _extract_percentages(clean_s)
+        qp_check = _extract_percentages(row_quote)
+        if snap_percentages:
+            if sp_check and sp_check.isdisjoint(snap_percentages):
+                return "contradicts", "percentage_mismatch_with_source", "source_snapshot"
+            if qp_check and qp_check.isdisjoint(snap_percentages):
+                return "contradicts", "percentage_mismatch_with_source", "source_snapshot"
+
+        # 4. Quantities must match source snapshot
+        snap_quantities = _extract_quantities(snap_text)
+        su_check = _extract_quantities(clean_s)
+        if snap_quantities and su_check:
+            for k in su_check:
+                if k in snap_quantities and su_check[k] != snap_quantities[k]:
+                    return "contradicts", "quantity_mismatch_with_source", "source_snapshot"
+
+        # 5. Years must match source snapshot
+        snap_years = _extract_years(snap_text)
+        sy_check = _extract_years(clean_s)
+        if snap_years and sy_check and sy_check.isdisjoint(snap_years):
+            return "contradicts", "year_mismatch_with_source", "source_snapshot"
+
+        # 6. Signs (+ vs -) must match source snapshot
+        snap_signed = _extract_signed_numbers(snap_text)
+        cs_signed_check = _extract_signed_numbers(clean_s)
+        for cs_num in cs_signed_check:
+            if cs_num.startswith("+"):
+                opposite = "-" + cs_num[1:]
+                if opposite in snap_signed:
+                    return "contradicts", "sign_inversion_with_source", "source_snapshot"
+            elif cs_num.startswith("-"):
+                opposite = "+" + cs_num[1:]
+                if opposite in snap_signed:
+                    return "contradicts", "sign_inversion_with_source", "source_snapshot"
+
     # Distortion checks: version must match actual evidence/quote bytes, NOT ungrounded claim!
     ev = _extract_versions(row_evidence) | _extract_versions(row_quote)
     cv = _extract_versions(row_claim)
@@ -924,21 +999,29 @@ def _statement_supported_by_row(
     # Quote support check (short quotes must not prove longer claims with ungrounded assertions)
     if clean_tok_q and not is_locator_quote:
         if clean_tok_s == clean_tok_q or clean_tok_s in clean_tok_q:
+            if snap_text is not None and clean_tok_s not in clean_snap_toks:
+                return "contradicts", "statement_not_found_in_snapshot", "source_snapshot"
             return "supports", "exact_quote_offset", "exact_quote_offset"
         elif clean_tok_q in clean_tok_s:
             extra = clean_tok_s.replace(clean_tok_q, "", 1).strip()
             extra_tokens = set(re.findall(r"[a-z0-9\u00C0-\u1EF9]{3,}", extra)) - _STOP_WORDS
             if not extra_tokens:
+                if snap_text is not None and clean_tok_s not in clean_snap_toks:
+                    return "contradicts", "statement_not_found_in_snapshot", "source_snapshot"
                 return "supports", "exact_quote_offset", "exact_quote_offset"
 
     # Evidence support check
     if clean_tok_e:
         if clean_tok_s == clean_tok_e or clean_tok_s in clean_tok_e:
+            if snap_text is not None and clean_tok_s not in clean_snap_toks:
+                return "contradicts", "statement_not_found_in_snapshot", "source_snapshot"
             return "supports", "evidence_substring_match", "normalized_span"
         elif clean_tok_e in clean_tok_s:
             extra = clean_tok_s.replace(clean_tok_e, "", 1).strip()
             extra_tokens = set(re.findall(r"[a-z0-9\u00C0-\u1EF9]{3,}", extra)) - _STOP_WORDS
             if not extra_tokens:
+                if snap_text is not None and clean_tok_s not in clean_snap_toks:
+                    return "contradicts", "statement_not_found_in_snapshot", "source_snapshot"
                 return "supports", "evidence_substring_match", "normalized_span"
 
     if classify_claim_evidence is not None:
@@ -1807,7 +1890,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
             content,
             workspace,
             rows if ledger_path.is_file() else [],
-            strict=getattr(args, "strict_snapshots", False),
+            strict=getattr(args, "strict", False),
         )
         errors.extend(span_errors)
 
@@ -1958,9 +2041,13 @@ def cmd_lint(args: argparse.Namespace) -> int:
 
     # R02: On successful lint, generate or refresh the report-claims sidecar
     if report_file is not None and ledger_path.is_file():
-        generate_report_claims_sidecar(
-            workspace, report_file, rows, spans, strict=getattr(args, "strict", False)
+        sidecar = generate_report_claims_sidecar(
+            workspace, report_file, rows, spans, strict=getattr(args, "strict", False), errors=errors
         )
+        if getattr(args, "strict", False) and sidecar.get("review_decision", {}).get("status") == "rejected":
+            reasons = sidecar.get("review_decision", {}).get("reasons", [])
+            print(f"FAIL: strict lint rejected by sidecar: {reasons}", file=sys.stderr)
+            return 1
 
     print(
         f"OK: workspace lint passed "
@@ -2045,6 +2132,14 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             "archive_url", "content_hash", "snapshot_status", "verifiability",
             "verifiability_note",
         ]
+        # Create snapshots for self-test
+        ev_dir = ws / "evidence"
+        ev_dir.mkdir(parents=True, exist_ok=True)
+        (ev_dir / "C001.txt").write_bytes(b"Test claim one\n")
+        (ev_dir / "C002.txt").write_bytes(b"Test claim two\n")
+        h1 = "sha256:" + hashlib.sha256(b"Test claim one\n").hexdigest()
+        h2 = "sha256:" + hashlib.sha256(b"Test claim two\n").hexdigest()
+
         ledger_rows = [
             {
                 "claim_id": "C001", "claim": "Test claim one",
@@ -2054,7 +2149,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 "access_method": "browser", "evidence": "Test claim one",
                 "quote_or_anchor": "Test claim one", "contradiction": "none",
                 "confidence": "high", "notes": "",
-                "archive_url": "", "content_hash": "", "snapshot_status": "",
+                "archive_url": "", "content_hash": h1, "snapshot_status": "intact",
                 "verifiability": "", "verifiability_note": "",
             },
             {
@@ -2065,7 +2160,7 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 "access_method": "api_fetch", "evidence": "Test claim two",
                 "quote_or_anchor": "Test claim two", "contradiction": "none",
                 "confidence": "medium", "notes": "",
-                "archive_url": "", "content_hash": "", "snapshot_status": "",
+                "archive_url": "", "content_hash": h2, "snapshot_status": "intact",
                 "verifiability": "", "verifiability_note": "",
             },
         ]
@@ -2446,6 +2541,10 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         # Test 11: investigative claims and leads stay in separate sections.
         partition_ws = Path(tmpdir) / "partition-workspace"
         partition_ws.mkdir()
+        (partition_ws / "evidence").mkdir(exist_ok=True)
+        (partition_ws / "evidence/C100.txt").write_bytes(b"Verified.\n")
+        h100 = "sha256:" + hashlib.sha256(b"Verified.\n").hexdigest()
+
         partition_ledger = partition_ws / "evidence-ledger.csv"
         partition_rows = [
             {
@@ -2456,9 +2555,12 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 "source_type": "official",
                 "access_method": "fetch",
                 "evidence": "verified",
+                "quote_or_anchor": "Verified.",
                 "contradiction": "none",
                 "confidence": "high",
                 "record_type": "claim",
+                "content_hash": h100,
+                "snapshot_status": "intact",
                 "source_access_class": "standard_public",
                 "subject_class": "organization",
                 "purpose_category": "general_research",

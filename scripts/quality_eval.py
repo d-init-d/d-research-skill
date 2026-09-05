@@ -2307,10 +2307,15 @@ def run_fuzz(seed: int = FUZZ_SEED, rounds: int = 64) -> list[tuple[str, bool, s
             "verifiability,verifiability_note,license_spdx,robots_status,"
             "prov_activity_id,record_type\n"
         )
+        ev_dir = ws / "evidence"
+        ev_dir.mkdir(parents=True, exist_ok=True)
+        (ev_dir / "C001.txt").write_bytes(b"Test claim one\n")
+        h_fuzz = "sha256:" + hashlib.sha256(b"Test claim one\n").hexdigest()
         (ws / "evidence-ledger.csv").write_text(
             cols
-            + 'C001,"Test claim one","sq","T","https://example.com",official,'
-            '2024-01-01,2026-01-01,fetch,"Test claim one","Test claim one",none,high,"",,,,,,"",not_checked,prov:1,claim\n',
+            + f'C001,"Test claim one","sq","T","https://example.com",official,'
+            f'2024-01-01,2026-01-01,fetch,"Test claim one","Test claim one",none,high,"","",{h_fuzz},"intact",'
+            ',,"",not_checked,prov:1,claim\n',
             encoding="utf-8",
         )
         (ws / "report.md").write_text("# Report\n\nNo claim refs here.\n", encoding="utf-8")
