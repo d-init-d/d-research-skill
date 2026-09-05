@@ -740,6 +740,50 @@ def _normalize_text(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip().lower())
 
 
+_VERSION_RE = re.compile(r"\bv?(\d+(?:\.\d+)+(?:-[a-zA-Z0-9.]+)?)\b", re.IGNORECASE)
+_PERCENT_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*(?:%|percent\b|per cent\b)", re.IGNORECASE)
+_UNIT_RE = re.compile(
+    r"\b(\d+(?:\.\d+)?)\s*(kg|lbs|pounds?|kilograms?|usd|eur|dollars?|euros?|ms|milliseconds?|seconds?|sec|minutes?|hours?|km|miles?|gb|mb|tb)\b",
+    re.IGNORECASE,
+)
+_LOCATOR_RE = re.compile(
+    r"^(?:"
+    r"[#.][a-zA-Z0-9_-]+|"
+    r"xpath:|"
+    r"css:|"
+    r"selector:|"
+    r"(?:page|p\.)\s*\d+(?:\s*-\s*\d+)?|"
+    r"(?:line|l\.)\s*\d+|"
+    r"(?:section|sec\.)\s*\d+(?:\.\d+)*|"
+    r".+\.(?:png|jpg|jpeg|webp|pdf|svg)$"
+    r")",
+    re.IGNORECASE,
+)
+_HYPOTHETICAL_RE = re.compile(
+    r"(?i)\b(?:if|hypothetically|supposing|allegations?\s+that|rumors?\s+that|unconfirmed|whether|claims?\s+that)\b"
+)
+
+
+def _extract_versions(text: str) -> set[str]:
+    return set(_VERSION_RE.findall(text or ""))
+
+
+def _extract_percentages(text: str) -> set[str]:
+    return set(_PERCENT_RE.findall(text or ""))
+
+
+def _extract_quantities(text: str) -> dict[str, str]:
+    res = {}
+    for val, unit in _UNIT_RE.findall(text or ""):
+        res[unit.lower().rstrip("s")] = val
+    return res
+
+
+def _is_locator(text: str) -> bool:
+    s = (text or "").strip()
+    return bool(_LOCATOR_RE.match(s))
+
+
 def _extract_years(value: str) -> set[str]:
     """Full 4-digit years only (never bare '19'/'20' century prefixes)."""
     return set(re.findall(r"\b(?:19|20)\d{2}\b", value or ""))
@@ -753,48 +797,65 @@ def classify_claim_evidence(
     claim: str,
     evidence: str,
     row: dict[str, Any] | None = None,
+    *,
+    oracle: dict[str, Any] | None = None,
+    trusted_metadata: dict[str, Any] | None = None,
+    snapshot_bytes: bytes | None = None,
+    snapshot_path: Path | str | None = None,
+    workspace: Path | str | None = None,
 ) -> dict[str, Any]:
     """Fail-closed citation support classification (no token-overlap truth claims).
 
+    Enforces trust boundary: candidate ledger rows CANNOT supply their own grading oracles.
     Returns status in:
-      supports | contradicts | unsupported | requires_review | unknown
+      supports | refutes | contradicts | unsupported | requires_review | unknown
     """
     row = row or {}
     claim_n = _normalize_text(claim)
     evidence_n = _normalize_text(evidence)
-    quote = _normalize_text(row.get("quote_or_anchor") or "")
-    polarity = (row.get("polarity") or row.get("support_polarity") or "").strip().lower()
-    expected = (row.get("expected_support") or "").strip().lower()
+    quote_raw = (row.get("quote_or_anchor") or "").strip()
+    quote_n = _normalize_text(quote_raw)
+    source_url = (row.get("source_url") or "").strip()
+
+    # R01: Candidate rows CANNOT supply grading oracles
+    # Real oracle ground truth must come strictly from external evaluator/oracle channel
+    oracle_data = oracle or trusted_metadata or {}
+    expected = (oracle_data.get("expected_support") or "").strip().lower()
+    polarity = (
+        oracle_data.get("polarity")
+        or oracle_data.get("support_polarity")
+        or ""
+    ).strip().lower()
+    oracle_pat = (oracle_data.get("support_pattern") or "").strip()
 
     if not claim_n:
         return {
             "status": "unknown",
-            "source_exists": bool(row.get("source_url")),
+            "source_exists": bool(source_url),
             "source_relevant": False,
             "supports_claim": False,
             "contradicts_claim": False,
             "reason": "empty_claim",
         }
-    if not evidence_n and not quote:
+    if not evidence_n and not quote_n:
         return {
             "status": "unsupported",
-            "source_exists": bool(row.get("source_url")),
+            "source_exists": bool(source_url),
             "source_relevant": False,
             "supports_claim": False,
             "contradicts_claim": False,
             "reason": "empty_evidence",
         }
 
-    body = evidence_n or quote
-
-    # Explicit fixture polarity / oracle fields win
-    if expected in {"supports", "contradicts", "unsupported", "requires_review"}:
+    # Explicit trusted oracle fields win when provided through external channel
+    if expected in {"supports", "contradicts", "refutes", "unsupported", "requires_review"}:
+        norm_status = "contradicts" if expected == "refutes" else expected
         return {
-            "status": expected,
-            "source_exists": bool(row.get("source_url")),
+            "status": norm_status,
+            "source_exists": bool(source_url),
             "source_relevant": expected != "unsupported",
             "supports_claim": expected == "supports",
-            "contradicts_claim": expected == "contradicts",
+            "contradicts_claim": expected in {"contradicts", "refutes"},
             "reason": "fixture_expected_support",
         }
     if polarity in {"supports", "support", "positive"}:
@@ -804,92 +865,212 @@ def classify_claim_evidence(
             "source_relevant": True,
             "supports_claim": True,
             "contradicts_claim": False,
-            "reason": "explicit_polarity",
+            "reason": "explicit_oracle_polarity",
         }
-    if polarity in {"contradicts", "contradiction", "negative", "rejects"}:
+    if polarity in {"contradicts", "contradiction", "negative", "rejects", "refutes"}:
         return {
             "status": "contradicts",
             "source_exists": True,
             "source_relevant": True,
             "supports_claim": False,
             "contradicts_claim": True,
-            "reason": "explicit_polarity",
+            "reason": "explicit_oracle_polarity",
         }
 
-    # Deterministic exact quote/anchor containment (normalized)
-    if quote and (quote in claim_n or claim_n in quote):
-        if _NEGATION_RE.search(body) and not _NEGATION_RE.search(claim_n):
+    # D06: Locators/selectors/page numbers/screenshot paths
+    if quote_raw and _is_locator(quote_raw):
+        return {
+            "status": "requires_review",
+            "source_exists": bool(source_url),
+            "source_relevant": True,
+            "supports_claim": False,
+            "contradicts_claim": False,
+            "assurance_tier": "degraded",
+            "reason": "locator_anchor_not_literal_quote",
+            "notes": [f"locator anchor '{quote_raw}' requires text extraction/verification"],
+        }
+
+    # D05/D10: Snapshot validation if snapshot file or path is specified
+    resolved_snap_path = snapshot_path or row.get("snapshot_path")
+    if resolved_snap_path:
+        snap_file = Path(resolved_snap_path)
+        if workspace and not snap_file.is_absolute():
+            snap_file = Path(workspace) / snap_file
+        if not snap_file.is_file():
+            return {
+                "status": "unsupported",
+                "source_exists": bool(source_url),
+                "source_relevant": False,
+                "supports_claim": False,
+                "contradicts_claim": False,
+                "reason": "missing_snapshot_bytes",
+            }
+        snap_raw = snap_file.read_bytes()
+        actual_digest = "sha256:" + hashlib.sha256(snap_raw).hexdigest()
+        expected_digest = row.get("content_hash") or row.get("snapshot_digest")
+        if expected_digest and not str(expected_digest).startswith("sha256:"):
+            expected_digest = f"sha256:{expected_digest}"
+        if expected_digest and actual_digest != expected_digest:
             return {
                 "status": "contradicts",
                 "source_exists": True,
                 "source_relevant": True,
                 "supports_claim": False,
                 "contradicts_claim": True,
-                "reason": "negated_quote",
+                "reason": "snapshot_digest_mismatch",
             }
+        if quote_n and quote_n not in _normalize_text(snap_raw.decode("utf-8", errors="ignore")):
+            return {
+                "status": "unsupported",
+                "source_exists": True,
+                "source_relevant": False,
+                "supports_claim": False,
+                "contradicts_claim": False,
+                "reason": "quote_not_in_snapshot",
+            }
+
+    # D10: Unopened URL rejection
+    if row.get("snapshot_status") == "unopened":
         return {
-            "status": "supports",
-            "source_exists": True,
-            "source_relevant": True,
-            "supports_claim": True,
+            "status": "unsupported",
+            "source_exists": bool(source_url),
+            "source_relevant": False,
+            "supports_claim": False,
             "contradicts_claim": False,
-            "reason": "exact_normalized_quote",
+            "reason": "unopened_url",
         }
 
-    # Assertion pattern from row
-    pat = (row.get("support_pattern") or "").strip()
-    if pat:
+    # D01: Version mismatch distortion (e.g. claim 9.9.9 vs evidence 3.4.1)
+    cv = _extract_versions(claim)
+    ev = _extract_versions(evidence or "")
+    if cv and ev and cv.isdisjoint(ev):
+        return {
+            "status": "contradicts",
+            "source_exists": bool(source_url),
+            "source_relevant": True,
+            "supports_claim": False,
+            "contradicts_claim": True,
+            "reason": "version_mismatch",
+        }
+
+    # D07: Number & percentage mismatch
+    cp = _extract_percentages(claim)
+    ep = _extract_percentages(evidence or "")
+    if cp and ep and cp.isdisjoint(ep):
+        return {
+            "status": "contradicts",
+            "source_exists": bool(source_url),
+            "source_relevant": True,
+            "supports_claim": False,
+            "contradicts_claim": True,
+            "reason": "percentage_mismatch",
+        }
+
+    # D07: Unit / quantity mismatch
+    cu = _extract_quantities(claim)
+    eu = _extract_quantities(evidence or "")
+    for u_key in cu:
+        if u_key in eu and cu[u_key] != eu[u_key]:
+            return {
+                "status": "contradicts",
+                "source_exists": bool(source_url),
+                "source_relevant": True,
+                "supports_claim": False,
+                "contradicts_claim": True,
+                "reason": "quantity_mismatch",
+            }
+    if cu and eu and set(cu.keys()).isdisjoint(set(eu.keys())):
+        return {
+            "status": "contradicts",
+            "source_exists": bool(source_url),
+            "source_relevant": True,
+            "supports_claim": False,
+            "contradicts_claim": True,
+            "reason": "unit_mismatch",
+        }
+
+    # D07: Year mismatch
+    cy = _extract_years(claim)
+    ey = _extract_years(evidence or "")
+    if cy and ey and cy.isdisjoint(ey):
+        return {
+            "status": "contradicts",
+            "source_exists": bool(source_url),
+            "source_relevant": True,
+            "supports_claim": False,
+            "contradicts_claim": True,
+            "reason": "year_mismatch",
+        }
+
+    body = evidence_n or quote_n
+
+    # D07: Negation inversion
+    claim_neg = bool(_NEGATION_RE.search(claim_n))
+    evid_neg = bool(_NEGATION_RE.search(body))
+    claim_tokens = {t for t in re.findall(r"[a-z0-9]{4,}", claim_n)} - {"that", "with", "this", "from", "have"}
+    evid_tokens = {t for t in re.findall(r"[a-z0-9]{4,}", body)} - {"that", "with", "this", "from", "have"}
+    overlap = claim_tokens & evid_tokens
+    if overlap and (claim_neg != evid_neg):
+        return {
+            "status": "contradicts",
+            "source_exists": bool(source_url),
+            "source_relevant": True,
+            "supports_claim": False,
+            "contradicts_claim": True,
+            "reason": "negation_inversion",
+        }
+
+    # D08: Hypothetical or refuted context in evidence
+    if _HYPOTHETICAL_RE.search(evidence_n) and not _HYPOTHETICAL_RE.search(claim_n):
+        return {
+            "status": "requires_review",
+            "source_exists": bool(source_url),
+            "source_relevant": True,
+            "supports_claim": False,
+            "contradicts_claim": False,
+            "reason": "hypothetical_context",
+        }
+
+    # D04: Check quote existence in evidence
+    if quote_n:
+        if evidence_n and quote_n not in evidence_n:
+            # Quote claimed by candidate does not appear in evidence
+            return {
+                "status": "unsupported",
+                "source_exists": bool(source_url),
+                "source_relevant": bool(overlap),
+                "supports_claim": False,
+                "contradicts_claim": False,
+                "reason": "quote_not_found",
+            }
+        # If quote is in evidence AND quote supports claim
+        if quote_n in claim_n or claim_n in quote_n:
+            return {
+                "status": "supports",
+                "source_exists": True,
+                "source_relevant": True,
+                "supports_claim": True,
+                "contradicts_claim": False,
+                "reason": "verified_quote_supports",
+            }
+
+    # Oracle support pattern
+    if oracle_pat:
         try:
-            if re.search(pat, evidence or "", re.I):
-                if _NEGATION_RE.search(body) and not _NEGATION_RE.search(claim_n):
-                    return {
-                        "status": "contradicts",
-                        "source_exists": True,
-                        "source_relevant": True,
-                        "supports_claim": False,
-                        "contradicts_claim": True,
-                        "reason": "pattern_with_negation",
-                    }
+            if re.search(oracle_pat, evidence or "", re.I):
                 return {
                     "status": "supports",
                     "source_exists": True,
                     "source_relevant": True,
                     "supports_claim": True,
                     "contradicts_claim": False,
-                    "reason": "support_pattern",
+                    "reason": "oracle_support_pattern",
                 }
         except re.error:
             pass
 
-    # Negation in evidence with shared content words -> contradiction / unsupported
-    claim_tokens = {t for t in re.findall(r"[a-z0-9]{4,}", claim_n)}
-    evid_tokens = {t for t in re.findall(r"[a-z0-9]{4,}", body)}
-    overlap = claim_tokens & evid_tokens
-    if _NEGATION_RE.search(body) and not _NEGATION_RE.search(claim_n):
-        return {
-            "status": "contradicts" if overlap else "unsupported",
-            "source_exists": bool(row.get("source_url")),
-            "source_relevant": bool(overlap),
-            "supports_claim": False,
-            "contradicts_claim": bool(overlap),
-            "reason": "evidence_negation",
-        }
-
-    # Year mismatch between claim and evidence is not support
-    cy = _extract_years(claim)
-    ey = _extract_years(evidence or "")
-    if cy and ey and cy.isdisjoint(ey) and not (quote and quote in claim_n):
-        return {
-            "status": "unsupported",
-            "source_exists": bool(row.get("source_url")),
-            "source_relevant": False,
-            "supports_claim": False,
-            "contradicts_claim": False,
-            "reason": "year_mismatch",
-        }
-
-    # Exact claim substring in evidence (strong deterministic support)
-    if claim_n and claim_n in body and not _NEGATION_RE.search(body):
+    # Exact claim substring in evidence
+    if claim_n and claim_n in evidence_n and not evid_neg:
         return {
             "status": "supports",
             "source_exists": True,
@@ -899,20 +1080,20 @@ def classify_claim_evidence(
             "reason": "claim_substring_in_evidence",
         }
 
-    # Paraphrase / weak lexical overlap alone is NOT support
+    # D09: Paraphrase / Semantic review routing
     if overlap:
         return {
             "status": "requires_review",
-            "source_exists": bool(row.get("source_url")),
+            "source_exists": bool(source_url),
             "source_relevant": True,
             "supports_claim": False,
             "contradicts_claim": False,
-            "reason": "lexical_overlap_only_not_entailment",
+            "reason": "requires_review_paraphrase",
         }
 
     return {
         "status": "unsupported",
-        "source_exists": bool(row.get("source_url")),
+        "source_exists": bool(source_url),
         "source_relevant": False,
         "supports_claim": False,
         "contradicts_claim": False,
@@ -920,12 +1101,22 @@ def classify_claim_evidence(
     }
 
 
-def _supports_claim(claim: str, evidence: str, row: dict[str, Any]) -> bool:
+def _supports_claim(
+    claim: str,
+    evidence: str,
+    row: dict[str, Any],
+    *,
+    oracle: dict[str, Any] | None = None,
+) -> bool:
     """True only when classify_claim_evidence status is supports (fail-closed)."""
-    return classify_claim_evidence(claim, evidence, row).get("status") == "supports"
+    return classify_claim_evidence(claim, evidence, row, oracle=oracle).get("status") == "supports"
 
 
-def analyze_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+def analyze_artifact(
+    artifact: dict[str, Any],
+    *,
+    trusted_rubric: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Full integrity + critical-failure analysis from artifact content only."""
     if not isinstance(artifact, dict):
         return {
@@ -955,7 +1146,24 @@ def analyze_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     critical: list[str] = []
     notes: list[str] = []
 
-    important = [c for c in report_claims if c.get("important")]
+    # Trust boundary: candidate cannot supply own oracle or suppress evaluation via important=false
+    trusted_rubric = trusted_rubric or {}
+    trusted_important_ids = set(trusted_rubric.get("important_claim_ids") or [])
+    trusted_oracles = trusted_rubric.get("oracles") or {}
+
+    if trusted_important_ids:
+        important = [c for c in report_claims if c.get("claim_id") in trusted_important_ids]
+    else:
+        declared_important = [c for c in report_claims if c.get("important") is True]
+        if declared_important:
+            important = declared_important
+        else:
+            # If candidate set important=False or omitted it, substantive claims must still be evaluated
+            important = [c for c in report_claims if c.get("important") is not False]
+            if not important and report_claims:
+                important = report_claims
+                notes.append("candidate_all_claims_marked_unimportant_evaluated_all")
+
     covered = 0
     citation_ok = 0
     citation_n = 0
@@ -974,9 +1182,19 @@ def analyze_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
             notes.append(f"claim {cid} source not in sources list")
         evidence = (row.get("evidence") or row.get("quote_or_anchor") or "").strip()
         claim_text = (c.get("text") or row.get("claim") or "").strip()
+
+        # Isolate candidate row from self-grading fields
+        clean_row = dict(row)
+        for injected_field in ("expected_support", "polarity", "support_polarity", "support_pattern"):
+            if injected_field in clean_row:
+                clean_row.pop(injected_field, None)
+                if "candidate_injected_oracle_ignored" not in notes:
+                    notes.append("candidate_injected_oracle_ignored")
+
+        row_oracle = trusted_oracles.get(cid)
         if not evidence:
             critical.append("important_claim_without_evidence")
-        elif not _supports_claim(claim_text, evidence, row):
+        elif not _supports_claim(claim_text, evidence, clean_row, oracle=row_oracle):
             critical.append("citation_does_not_support_claim")
         else:
             citation_ok += 1
@@ -1001,9 +1219,15 @@ def analyze_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
 
     # Fabricated
     for row in rows:
-        url = row.get("source_url") or ""
-        claim = row.get("claim") or ""
-        if row.get("fabricated") or "fake." in url or "10.9999/fake" in url or "10.9999/fake" in claim:
+        url = (row.get("source_url") or "").strip()
+        claim = (row.get("claim") or "").strip()
+        is_fab = (
+            row.get("fabricated") is True
+            or "fake." in url
+            or "10.9999/fake" in url
+            or "10.9999/fake" in claim
+        )
+        if is_fab:
             critical.append("fabricated_source_or_citation")
 
     # Entity ambiguity without disambiguation
@@ -2033,7 +2257,7 @@ def run_fuzz(seed: int = FUZZ_SEED, rounds: int = 64) -> list[tuple[str, bool, s
         )
         # with proper ref, lint should not invent extra coverage
         (ws / "report.md").write_text(
-            "# Report\n\nClaim holds [ref:C001].\n", encoding="utf-8"
+            "# Report\n\nTest claim one [ref:C001].\n", encoding="utf-8"
         )
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             rc_ok = rr.cmd_lint(ns)

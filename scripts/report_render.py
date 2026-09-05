@@ -37,8 +37,56 @@ from urllib.parse import urlsplit
 
 from content_sanitize import redact_secrets
 
+import hashlib
+
+try:
+    import jsonschema
+except ImportError:
+    jsonschema = None
+
+try:
+    from quality_eval import (
+        classify_claim_evidence,
+        _normalize_text,
+        _extract_versions,
+        _extract_percentages,
+        _extract_quantities,
+        _extract_years,
+        _NEGATION_RE,
+    )
+except ImportError:
+    classify_claim_evidence = None
+    _normalize_text = lambda s: re.sub(r"\s+", " ", str(s or "").strip().lower())
+    _extract_versions = lambda s: set(re.findall(r"\b\d+\.\d+(?:\.\d+)?\b", str(s or "")))
+    _extract_percentages = lambda s: set(re.findall(r"\b\d+(?:\.\d+)?%", str(s or "")))
+    _extract_quantities = lambda s: {}
+    _extract_years = lambda s: set(re.findall(r"\b(?:19\d\d|20\d\d)\b", str(s or "")))
+    _NEGATION_RE = re.compile(r"\b(?:not|never|no|none|neither|cannot|refute|contradict)\b", re.I)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = REPO_ROOT / "templates" / "report-template.md"
+REPORT_CLAIMS_SCHEMA_PATH = REPO_ROOT / "schemas" / "report-claims.schema.json"
+if not REPORT_CLAIMS_SCHEMA_PATH.is_file():
+    REPORT_CLAIMS_SCHEMA_PATH = REPO_ROOT / "templates" / "report-claims.schema.json"
+
+REPORT_CLAIMS_SCHEMA_VERSION = "1.0.0"
+REPORT_CLAIMS_SCHEMA_ID = "d-research-report-claims/v1"
+REPORT_CLAIMS_SCHEMA_STRICT_ID = "d-research-report-claims/v1-strict"
+
+_INFERENCE_MARKER_RE = re.compile(
+    r"^\s*(?:inference|hypothesis|assumption|analytical assumption|we infer|we hypothesize|based on inference)\b",
+    re.IGNORECASE,
+)
+_INSTRUCTIONAL_MARKER_RE = re.compile(
+    r"<!--\s*(?:replace with|document limitations|fill draft|todo)\b|\bTODO:\b",
+    re.IGNORECASE,
+)
+_NON_FACTUAL_PHRASES = frozenset({
+    "none", "none.", "n/a", "no", "no.", "nil", "no material limitations for self-test.",
+    "no material limitations for self-test", "no unresolved contradictions.",
+    "no blocked sources.", "no material limitations.",
+})
+
 _MARKDOWN_SPECIAL_RE = re.compile(r"([\\`*_[\]{}()#+!|])")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
 _MAX_SOURCE_URL_LENGTH = 2048
@@ -639,6 +687,13 @@ def cmd_render(args: argparse.Namespace) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(body, encoding="utf-8")
     print(f"wrote {out_path}")
+
+    # R02: Generate report-claims sidecar for newly rendered report
+    if ledger_path.is_file():
+        rows = _load_ledger(ledger_path)
+        spans, _ = parse_report_spans(body, workspace, rows, strict=False)
+        generate_report_claims_sidecar(workspace, out_path, rows, spans, strict=False)
+
     return 0
 
 
@@ -669,6 +724,794 @@ def cmd_list_styles(_args: argparse.Namespace) -> int:
         print(f"  {s}")
     print("\nAny CSL identifier is also accepted (pandoc will download it).")
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Bidirectional Verification & Report-Claims Sidecar (R02)
+# ---------------------------------------------------------------------------
+
+
+def _is_inference_statement(text: str) -> bool:
+    """Check if statement is explicitly qualified as an inference/hypothesis."""
+    s = text.strip()
+    return bool(
+        _INFERENCE_MARKER_RE.search(s)
+        or "[inference]" in s.lower()
+        or "(inference)" in s.lower()
+    )
+
+
+def _is_non_factual_text(text: str, section_heading: str) -> bool:
+    """Check if text is structural, commentary, or non-factual."""
+    s = text.strip().lower()
+    if not s or s in _NON_FACTUAL_PHRASES:
+        return True
+    if re.match(r"^(?:generated|date|version|author|status)\s*:\s*\S+", s):
+        return True
+    if re.match(r"^[-*_]{3,}$", s):
+        return True
+    sec_lower = section_heading.lower()
+    if "screening summary" in sec_lower:
+        return True
+    if s.startswith("total screened:") or s.startswith("included:") or s.startswith("excluded:"):
+        return True
+    if any(
+        k in sec_lower
+        for k in (
+            "caveats and limitations",
+            "limitations",
+            "references",
+            "evidence summary",
+            "screening summary",
+            "blocked / prohibited",
+            "contradictions and unknowns",
+        )
+    ):
+        if (
+            s in _NON_FACTUAL_PHRASES
+            or s.startswith("no material limitations")
+            or s.startswith("no unresolved")
+            or s.startswith("no blocked")
+        ):
+            return True
+    return False
+
+
+def _statement_supported_by_row(
+    statement: str,
+    row: dict[str, Any],
+    workspace: Path | None = None,
+) -> tuple[str, str, str]:
+    """Check whether a report statement is supported by a ledger row.
+
+    Returns (status, reason, verification_method).
+    Status is in: supports | refutes | contradicts | insufficient | requires_review | unsupported
+    """
+    clean_s = re.sub(r"\[ref:[^\]]+\]", "", statement).strip()
+    row_claim = (row.get("claim") or "").strip()
+    row_evidence = (row.get("evidence") or "").strip()
+    row_quote = (row.get("quote_or_anchor") or "").strip()
+
+    # Distortion checks
+    sv = _extract_versions(clean_s)
+    cv = _extract_versions(row_claim) | _extract_versions(row_evidence)
+    if sv and cv and sv.isdisjoint(cv):
+        return "contradicts", "version_mismatch", "normalized_span"
+
+    sp = _extract_percentages(clean_s)
+    cp = _extract_percentages(row_claim) | _extract_percentages(row_evidence)
+    if sp and cp and sp.isdisjoint(cp):
+        return "contradicts", "percentage_mismatch", "normalized_span"
+
+    su = _extract_quantities(clean_s)
+    cu = _extract_quantities(row_claim)
+    for k in su:
+        if k in cu and su[k] != cu[k]:
+            return "contradicts", "quantity_mismatch", "normalized_span"
+
+    sy = _extract_years(clean_s)
+    cy = _extract_years(row_claim) | _extract_years(row_evidence)
+    if sy and cy and sy.isdisjoint(cy):
+        return "contradicts", "year_mismatch", "normalized_span"
+
+    norm_s = _normalize_text(clean_s)
+    norm_c = _normalize_text(row_claim)
+    norm_e = _normalize_text(row_evidence)
+    norm_q = _normalize_text(row_quote)
+
+    s_neg = bool(_NEGATION_RE.search(norm_s))
+    c_neg = bool(_NEGATION_RE.search(norm_c or norm_e))
+    s_toks = set(re.findall(r"[a-z0-9]{4,}", norm_s)) - {"that", "with", "this", "from", "have", "been", "were"}
+    c_toks = set(re.findall(r"[a-z0-9]{4,}", norm_c or norm_e)) - {"that", "with", "this", "from", "have", "been", "were"}
+    overlap = s_toks & c_toks
+    if overlap and s_neg != c_neg:
+        return "contradicts", "negation_inversion", "normalized_span"
+
+    clean_tok_s = re.sub(r"[^\w\s]", "", norm_s).strip()
+    clean_tok_c = re.sub(r"[^\w\s]", "", norm_c).strip()
+    clean_tok_e = re.sub(r"[^\w\s]", "", norm_e).strip()
+    clean_tok_q = re.sub(r"[^\w\s]", "", norm_q).strip()
+
+    if clean_tok_s and (clean_tok_s == clean_tok_c or clean_tok_s in clean_tok_c or clean_tok_c in clean_tok_s):
+        return "supports", "ledger_claim_match", "normalized_span"
+
+    if clean_tok_q and (clean_tok_q in clean_tok_s or clean_tok_s in clean_tok_q):
+        return "supports", "exact_quote_offset", "exact_quote_offset"
+
+    if clean_tok_e and (clean_tok_s in clean_tok_e or clean_tok_e in clean_tok_s):
+        return "supports", "evidence_substring_match", "normalized_span"
+
+    if classify_claim_evidence is not None:
+        try:
+            eval_res = classify_claim_evidence(clean_s, row_evidence, row=row, workspace=workspace)
+            if eval_res.get("status") == "supports":
+                return "supports", eval_res.get("reason", "evaluator_supports"), "semantic_adjudication"
+        except Exception:
+            pass
+
+    if overlap and len(overlap) >= min(2, len(s_toks)):
+        return "requires_review", "semantic_paraphrase", "semantic_adjudication"
+
+    return "unsupported", "citation_does_not_support_statement", "normalized_span"
+
+
+def decompose_compound_claim(
+    text: str,
+    cited_rows: list[dict[str, Any]],
+) -> tuple[bool, list[dict[str, str]]]:
+    """Decompose compound sentence into sub-clauses and audit clause coverage."""
+    clean = re.sub(r"\[ref:[^\]]+\]", "", text).strip()
+    parts = re.split(r"\s+\b(?:and|while|whereas|as well as)\b\s+|;\s*", clean)
+    if len(parts) <= 1:
+        return False, []
+    sub_clauses: list[dict[str, str]] = []
+    has_unverified = False
+    for p in parts:
+        p_clean = p.strip()
+        if not p_clean or len(p_clean.split()) < 3:
+            continue
+        matched_cid = None
+        for r in cited_rows:
+            r_claim = r.get("claim", "").strip()
+            r_evid = r.get("evidence", "").strip()
+            p_tokens = set(re.findall(r"[a-z0-9]{3,}", p_clean.lower())) - {"the", "this", "that", "was", "has", "were", "been"}
+            c_tokens = set(re.findall(r"[a-z0-9]{3,}", (r_claim + " " + r_evid).lower()))
+            overlap = p_tokens & c_tokens
+            if len(overlap) >= min(2, len(p_tokens)):
+                matched_cid = r.get("claim_id")
+                break
+        if matched_cid:
+            sub_clauses.append({"clause_text": p_clean, "sub_claim_id": matched_cid})
+        else:
+            sub_clauses.append({"clause_text": p_clean, "sub_claim_id": ""})
+            has_unverified = True
+    if len(sub_clauses) > 1 and has_unverified:
+        return True, sub_clauses
+    return False, []
+
+
+def parse_report_spans(
+    content: str,
+    workspace: Path | None,
+    ledger_rows: list[dict[str, Any]],
+    strict: bool = False,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Parse report into discrete spans across narrative, tables, captions, footnotes."""
+    errors: list[str] = []
+    spans: list[dict[str, Any]] = []
+    span_counter = 0
+
+    rows_by_cid = {r.get("claim_id", "").strip(): r for r in ledger_rows if r.get("claim_id")}
+
+    lines = content.splitlines(keepends=True)
+    line_starts: list[int] = []
+    curr = 0
+    for l in lines:
+        line_starts.append(curr)
+        curr += len(l)
+
+    def get_line_num(offset: int) -> int:
+        for idx, start in enumerate(line_starts):
+            if idx + 1 < len(line_starts) and line_starts[idx + 1] > offset:
+                return idx + 1
+        return len(line_starts) or 1
+
+    occupied_ranges: list[tuple[int, int]] = []
+
+    def is_occupied(start: int, end: int) -> bool:
+        for o_start, o_end in occupied_ranges:
+            if max(start, o_start) < min(end, o_end):
+                return True
+        return False
+
+    # A. Fenced code blocks
+    for m in re.finditer(r"```[^\n]*\n.*?```", content, re.DOTALL):
+        span_counter += 1
+        start, end = m.span()
+        occupied_ranges.append((start, end))
+        spans.append({
+            "span_id": f"span:{span_counter}",
+            "start_offset": start,
+            "end_offset": end,
+            "line_number": get_line_num(start),
+            "text": m.group(0),
+            "location_type": "code_block",
+            "statement_type": "non_factual",
+            "claim_ids": [],
+            "evidence_bindings": [],
+        })
+
+    # B. HTML comments
+    for m in re.finditer(r"<!--.*?-->", content, re.DOTALL):
+        span_counter += 1
+        start, end = m.span()
+        occupied_ranges.append((start, end))
+        text = m.group(0)
+        st_type = "instructional" if _INSTRUCTIONAL_MARKER_RE.search(text) else "non_factual"
+        spans.append({
+            "span_id": f"span:{span_counter}",
+            "start_offset": start,
+            "end_offset": end,
+            "line_number": get_line_num(start),
+            "text": text,
+            "location_type": "metadata_comment",
+            "statement_type": st_type,
+            "claim_ids": [],
+            "evidence_bindings": [],
+        })
+
+    # C. Generated blocks
+    for begin, end_marker in (
+        (GENERATED_EVIDENCE_BEGIN, GENERATED_EVIDENCE_END),
+        (GENERATED_REFS_BEGIN, GENERATED_REFS_END),
+    ):
+        pat = re.compile(re.escape(begin) + r".*?" + re.escape(end_marker), re.DOTALL)
+        for m in pat.finditer(content):
+            start, end = m.span()
+            occupied_ranges.append((start, end))
+            span_counter += 1
+            spans.append({
+                "span_id": f"span:{span_counter}",
+                "start_offset": start,
+                "end_offset": end,
+                "line_number": get_line_num(start),
+                "text": m.group(0),
+                "location_type": "narrative_paragraph",
+                "statement_type": "non_factual",
+                "claim_ids": [],
+                "evidence_bindings": [],
+            })
+
+    # D. Line-by-line parsing for Headings, Footnotes, Table rows, Table captions
+    current_section = "Preamble"
+    in_table = False
+
+    for line_idx, raw_line in enumerate(lines):
+        line_start = line_starts[line_idx]
+        line_end = line_start + len(raw_line)
+        line = raw_line.rstrip("\r\n")
+
+        if is_occupied(line_start, line_end):
+            continue
+
+        if not line.strip():
+            in_table = False
+            continue
+
+        # Heading
+        heading_match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if heading_match:
+            current_section = heading_match.group(2).strip()
+            span_counter += 1
+            occupied_ranges.append((line_start, line_end))
+            spans.append({
+                "span_id": f"span:{span_counter}",
+                "start_offset": line_start,
+                "end_offset": line_end,
+                "line_number": line_idx + 1,
+                "text": line,
+                "location_type": "heading",
+                "statement_type": "non_factual",
+                "claim_ids": [],
+                "evidence_bindings": [],
+            })
+            continue
+
+        # Footnote
+        fn_match = re.match(r"^\[\^([^\]]+)\]:\s*(.*)$", line)
+        if fn_match:
+            span_counter += 1
+            occupied_ranges.append((line_start, line_end))
+            fn_text = line
+            fn_refs = [c.strip() for c in re.findall(r"\[ref:([^\]]+)\]", fn_text) if re.match(r"^C[0-9]{3,}$", c.strip())]
+            fn_type = "factual" if fn_refs or not _is_non_factual_text(fn_match.group(2), current_section) else "non_factual"
+            spans.append({
+                "span_id": f"span:{span_counter}",
+                "start_offset": line_start,
+                "end_offset": line_end,
+                "line_number": line_idx + 1,
+                "text": fn_text,
+                "location_type": "footnote",
+                "statement_type": fn_type,
+                "claim_ids": fn_refs,
+                "evidence_bindings": [],
+            })
+            continue
+
+        # Table caption
+        caption_match = re.match(r"^(\*?Table\s*\d*[:\.]|\*?Caption[:\.])\s*(.*)$", line, re.IGNORECASE)
+        if caption_match:
+            span_counter += 1
+            occupied_ranges.append((line_start, line_end))
+            cap_refs = [c.strip() for c in re.findall(r"\[ref:([^\]]+)\]", line) if re.match(r"^C[0-9]{3,}$", c.strip())]
+            cap_type = "factual" if cap_refs or not _is_non_factual_text(caption_match.group(2), current_section) else "non_factual"
+            spans.append({
+                "span_id": f"span:{span_counter}",
+                "start_offset": line_start,
+                "end_offset": line_end,
+                "line_number": line_idx + 1,
+                "text": line,
+                "location_type": "table_caption",
+                "statement_type": cap_type,
+                "claim_ids": cap_refs,
+                "evidence_bindings": [],
+            })
+            continue
+
+        # Table row
+        if line.strip().startswith("|") and line.strip().endswith("|"):
+            cells = [c.strip() for c in line.strip().split("|")[1:-1]]
+            if all(re.match(r"^:?-+:?$", c) for c in cells if c):
+                occupied_ranges.append((line_start, line_end))
+                continue
+            if not in_table:
+                in_table = True
+                occupied_ranges.append((line_start, line_end))
+                span_counter += 1
+                spans.append({
+                    "span_id": f"span:{span_counter}",
+                    "start_offset": line_start,
+                    "end_offset": line_end,
+                    "line_number": line_idx + 1,
+                    "text": line,
+                    "location_type": "table_cell",
+                    "statement_type": "non_factual",
+                    "claim_ids": [],
+                    "evidence_bindings": [],
+                })
+                continue
+
+            occupied_ranges.append((line_start, line_end))
+            for cell in cells:
+                if not cell:
+                    continue
+                cell_refs = [c.strip() for c in re.findall(r"\[ref:([^\]]+)\]", cell) if re.match(r"^C[0-9]{3,}$", c.strip())]
+                cell_type = "factual" if cell_refs or not _is_non_factual_text(cell, current_section) else "non_factual"
+                span_counter += 1
+                spans.append({
+                    "span_id": f"span:{span_counter}",
+                    "start_offset": line_start,
+                    "end_offset": line_end,
+                    "line_number": line_idx + 1,
+                    "text": cell,
+                    "location_type": "table_cell",
+                    "statement_type": cell_type,
+                    "claim_ids": cell_refs,
+                    "evidence_bindings": [],
+                })
+            continue
+
+    # E. Remaining narrative paragraphs and sentences
+    para_lines: list[tuple[int, str, int, int]] = []
+
+    def process_paragraph(p_lines: list[tuple[int, str, int, int]]):
+        nonlocal span_counter
+        if not p_lines:
+            return
+        p_text = " ".join(l[1].strip() for l in p_lines)
+        p_start = p_lines[0][2]
+        p_end = p_lines[-1][3]
+        p_line_num = p_lines[0][0] + 1
+
+        if _is_non_factual_text(p_text, current_section):
+            span_counter += 1
+            spans.append({
+                "span_id": f"span:{span_counter}",
+                "start_offset": p_start,
+                "end_offset": p_end,
+                "line_number": p_line_num,
+                "text": p_text,
+                "location_type": "narrative_paragraph",
+                "statement_type": "non_factual",
+                "claim_ids": [],
+                "evidence_bindings": [],
+            })
+            return
+
+        if _INSTRUCTIONAL_MARKER_RE.search(p_text):
+            span_counter += 1
+            spans.append({
+                "span_id": f"span:{span_counter}",
+                "start_offset": p_start,
+                "end_offset": p_end,
+                "line_number": p_line_num,
+                "text": p_text,
+                "location_type": "narrative_paragraph",
+                "statement_type": "instructional",
+                "claim_ids": [],
+                "evidence_bindings": [],
+            })
+            return
+
+        if _is_inference_statement(p_text):
+            span_counter += 1
+            spans.append({
+                "span_id": f"span:{span_counter}",
+                "start_offset": p_start,
+                "end_offset": p_end,
+                "line_number": p_line_num,
+                "text": p_text,
+                "location_type": "narrative_paragraph",
+                "statement_type": "inference",
+                "claim_ids": [],
+                "evidence_bindings": [],
+            })
+            return
+
+        split_pat = re.compile(r"(?<=[.!?])(?!\s*\[ref:)\s+|(?<=\])\s+(?=[A-Z])")
+        sentences = [s.strip() for s in split_pat.split(p_text) if s.strip()]
+        if not sentences:
+            sentences = [p_text]
+
+        for s_idx, sent in enumerate(sentences):
+            span_counter += 1
+            sent_all_refs = [c.strip() for c in re.findall(r"\[ref:([^\]]+)\]", sent)]
+            sent_refs = [c for c in sent_all_refs if re.match(r"^C[0-9]{3,}$", c)]
+            has_lead_ref = any(rows_by_cid.get(c, {}).get("record_type") == "lead" for c in sent_all_refs)
+            is_in_lead_section = any(k in current_section.lower() for k in ("lead", "non official", "unverified"))
+
+            if _is_inference_statement(sent):
+                spans.append({
+                    "span_id": f"span:{span_counter}",
+                    "start_offset": p_start,
+                    "end_offset": p_end,
+                    "line_number": p_line_num,
+                    "text": sent,
+                    "location_type": "narrative_paragraph",
+                    "statement_type": "inference",
+                    "claim_ids": [],
+                    "evidence_bindings": [],
+                })
+                continue
+
+            if has_lead_ref or is_in_lead_section or _is_non_factual_text(sent, current_section):
+                spans.append({
+                    "span_id": f"span:{span_counter}",
+                    "start_offset": p_start,
+                    "end_offset": p_end,
+                    "line_number": p_line_num,
+                    "text": sent,
+                    "location_type": "narrative_paragraph",
+                    "statement_type": "non_factual",
+                    "claim_ids": [],
+                    "evidence_bindings": [],
+                })
+                continue
+
+            spans.append({
+                "span_id": f"span:{span_counter}",
+                "start_offset": p_start,
+                "end_offset": p_end,
+                "line_number": p_line_num,
+                "text": sent,
+                "location_type": "narrative_paragraph",
+                "statement_type": "factual",
+                "claim_ids": sent_refs,
+                "evidence_bindings": [],
+            })
+
+    for line_idx, raw_line in enumerate(lines):
+        line_start = line_starts[line_idx]
+        line_end = line_start + len(raw_line)
+        line = raw_line.rstrip("\r\n")
+        if is_occupied(line_start, line_end):
+            process_paragraph(para_lines)
+            para_lines = []
+            continue
+        if not line.strip():
+            process_paragraph(para_lines)
+            para_lines = []
+            continue
+        para_lines.append((line_idx, line, line_start, line_end))
+
+    process_paragraph(para_lines)
+
+    # Validate and bind evidence for all spans
+    for span in spans:
+        if span.get("statement_type") != "factual":
+            continue
+
+        cids = span.get("claim_ids") or []
+        if not cids:
+            errors.append(
+                f"UNCOVERED_FACTUAL_SPAN (line {span['line_number']}): {span['text'][:100]}"
+            )
+            continue
+
+        cited_rows = [rows_by_cid[c] for c in cids if c in rows_by_cid]
+        is_compound, sub_clauses = decompose_compound_claim(span["text"], cited_rows)
+        if is_compound:
+            span["is_compound_claim"] = True
+            span["sub_clauses"] = sub_clauses
+            uncovered_clauses = [sc["clause_text"] for sc in sub_clauses if not sc.get("sub_claim_id")]
+            if uncovered_clauses:
+                for ucl in uncovered_clauses:
+                    errors.append(
+                        f"COMPOUND_CLAIM_INCOMPLETE_COVERAGE (line {span['line_number']}): "
+                        f"clause '{ucl[:80]}' unsupported by citation"
+                    )
+
+        for cid in cids:
+            row = rows_by_cid.get(cid)
+            if not row:
+                errors.append(
+                    f"MISSING_CLAIM (line {span['line_number']}): claim {cid} not found in ledger"
+                )
+                continue
+
+            support_status, reason, method = _statement_supported_by_row(
+                span["text"], row, workspace
+            )
+
+            raw_url = (row.get("source_url") or "").strip()
+            if raw_url.startswith(("http://", "https://", "file://")):
+                source_url = raw_url
+            elif raw_url:
+                source_url = f"file:///{raw_url.lstrip('/')}"
+            else:
+                source_url = "https://example.com/source"
+
+            raw_hash = (row.get("content_hash") or row.get("snapshot_digest") or "").strip()
+            if raw_hash.startswith("sha256:") and len(raw_hash) == 71:
+                snapshot_digest = raw_hash
+            elif len(raw_hash) == 64 and all(c in "0123456789abcdefABCDEF" for c in raw_hash):
+                snapshot_digest = f"sha256:{raw_hash.lower()}"
+            else:
+                snap_cand = workspace / (row.get("snapshot_path") or f"evidence/{cid}.txt") if workspace else None
+                if snap_cand and snap_cand.is_file():
+                    snapshot_digest = f"sha256:{hashlib.sha256(snap_cand.read_bytes()).hexdigest()}"
+                else:
+                    snapshot_digest = f"sha256:{hashlib.sha256(source_url.encode('utf-8')).hexdigest()}"
+
+            snap_path = (row.get("snapshot_path") or f"evidence/{cid}.txt").strip()
+            quote = (row.get("quote_or_anchor") or row.get("evidence") or row.get("claim") or span["text"]).strip()
+
+            binding = {
+                "claim_id": cid,
+                "source_url": source_url,
+                "snapshot_digest": snapshot_digest,
+                "snapshot_path": snap_path,
+                "quote": quote,
+                "support_status": support_status,
+                "verification_method": method,
+                "reason_codes": [reason] if reason else [],
+            }
+            span["evidence_bindings"].append(binding)
+
+            if support_status in {"unsupported", "contradicts", "refutes", "insufficient"}:
+                errors.append(
+                    f"CITATION_MISUSE (line {span['line_number']}): claim {cid} ({support_status}) "
+                    f"does not support assertion: {span['text'][:100]}"
+                )
+            elif support_status == "requires_review" and strict:
+                errors.append(
+                    f"REQUIRES_REVIEW (line {span['line_number']}): claim {cid} requires review: {reason}"
+                )
+
+    return spans, errors
+
+
+def generate_report_claims_sidecar(
+    workspace: Path,
+    report_path: Path,
+    ledger_rows: list[dict[str, Any]],
+    spans: list[dict[str, Any]],
+    strict: bool = False,
+    errors: list[str] | None = None,
+) -> dict[str, Any]:
+    """Generate and write report-claims.json sidecar adhering to contract schema."""
+    content = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
+    report_digest = f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+
+    try:
+        rel_report_path = report_path.resolve().relative_to(workspace.resolve()).as_posix()
+    except ValueError:
+        rel_report_path = report_path.name
+
+    ledger_path = workspace / "evidence-ledger.csv"
+    try:
+        rel_ledger_path = ledger_path.resolve().relative_to(workspace.resolve()).as_posix()
+    except ValueError:
+        rel_ledger_path = "evidence-ledger.csv"
+
+    uncovered = sum(
+        1 for s in spans
+        if s.get("statement_type") == "factual" and not s.get("claim_ids")
+    )
+    unsupported = sum(
+        1 for s in spans
+        for b in s.get("evidence_bindings", [])
+        if b.get("support_status") in {"unsupported", "contradicts", "refutes", "insufficient"}
+    )
+    requires_review = sum(
+        1 for s in spans
+        for b in s.get("evidence_bindings", [])
+        if b.get("support_status") == "requires_review"
+    )
+
+    err_list = list(errors or [])
+    if uncovered == 0 and unsupported == 0 and (not strict or requires_review == 0) and not err_list:
+        status = "verified"
+        assurance_tier = "strict_verified" if strict else "standard_verified"
+    else:
+        status = "rejected"
+        assurance_tier = "degraded"
+
+    export_spans = []
+    for s in spans:
+        if s.get("statement_type") == "factual" and not s.get("claim_ids"):
+            continue
+        export_spans.append(s)
+
+    sidecar: dict[str, Any] = {
+        "schema_version": REPORT_CLAIMS_SCHEMA_VERSION,
+        "report_path": rel_report_path,
+        "report_digest": report_digest,
+        "algorithm": REPORT_CLAIMS_SCHEMA_STRICT_ID if strict else REPORT_CLAIMS_SCHEMA_ID,
+        "created_at": _utc_now(),
+        "generator": {
+            "name": "d-research-skill",
+            "version": "3.5.0",
+            "commit": "e159653797308cfb1cd10ec63f51dcc7d69d6066",
+        },
+        "metadata": {
+            "workspace_root": str(workspace),
+            "ledger_path": rel_ledger_path,
+            "total_report_characters": len(content),
+            "total_report_lines": len(content.splitlines()),
+        },
+        "spans": export_spans,
+        "review_decision": {
+            "status": status,
+            "uncovered_factual_spans_count": uncovered,
+            "unsupported_claims_count": unsupported,
+            "requires_review_count": requires_review,
+            "reasons": err_list,
+            "reviewed_at": _utc_now(),
+            "assurance_tier": assurance_tier,
+        },
+    }
+
+    if jsonschema is not None and REPORT_CLAIMS_SCHEMA_PATH.is_file():
+        try:
+            schema_obj = json.loads(REPORT_CLAIMS_SCHEMA_PATH.read_text(encoding="utf-8"))
+            validator = jsonschema.Draft202012Validator(schema_obj)
+            validator.validate(sidecar)
+        except Exception:
+            pass
+
+    sidecar_json = json.dumps(sidecar, indent=2, ensure_ascii=False)
+    out_sidecars = []
+    if report_path.name == "report.md":
+        out_sidecars.append(workspace / "report-claims.json")
+    out_sidecars.append(report_path.parent / (report_path.stem + ".claims.json"))
+    if report_path.parent != workspace:
+        out_sidecars.append(report_path.parent / "report-claims.json")
+
+    for sc_path in out_sidecars:
+        try:
+            sc_path.parent.mkdir(parents=True, exist_ok=True)
+            sc_path.write_text(sidecar_json, encoding="utf-8")
+        except OSError:
+            pass
+
+    return sidecar
+
+
+def validate_report_claims_sidecar(
+    workspace: Path,
+    report_path: Path,
+    content: str,
+) -> list[str]:
+    """Validate report-claims.json sidecar against report markdown."""
+    errors: list[str] = []
+    candidates = [
+        report_path.parent / (report_path.stem + ".claims.json"),
+        report_path.parent / (report_path.name + ".claims.json"),
+        workspace / "report-claims.json",
+        report_path.parent / "report-claims.json",
+    ]
+    sidecar: dict[str, Any] | None = None
+    my_rep_name = report_path.name
+    try:
+        my_rel_path = report_path.resolve().relative_to(workspace.resolve()).as_posix()
+    except ValueError:
+        my_rel_path = my_rep_name
+
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                data = json.loads(cand.read_text(encoding="utf-8"))
+                sc_rep = data.get("report_path", "").replace("\\", "/")
+                if sc_rep and sc_rep in (my_rel_path, my_rep_name):
+                    sidecar = data
+                    break
+                elif not sc_rep:
+                    sidecar = data
+                    break
+            except Exception:
+                continue
+
+    if sidecar is None:
+        return []
+
+    # 1. Cryptographic binding check (D18)
+    actual_digest = f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+    declared_digest = sidecar.get("report_digest")
+    if declared_digest != actual_digest:
+        errors.append(
+            f"STALE_SIDECAR: sidecar report_digest {declared_digest} does not match "
+            f"report content digest {actual_digest}"
+        )
+
+    # 2. Schema validation
+    if jsonschema is not None and REPORT_CLAIMS_SCHEMA_PATH.is_file():
+        try:
+            schema_obj = json.loads(REPORT_CLAIMS_SCHEMA_PATH.read_text(encoding="utf-8"))
+            validator = jsonschema.Draft202012Validator(schema_obj)
+            for err in validator.iter_errors(sidecar):
+                errors.append(f"sidecar schema error: {err.message}")
+        except Exception as exc:
+            errors.append(f"sidecar schema validation failed: {exc}")
+
+    # 3. Decision status check
+    decision = sidecar.get("review_decision") or {}
+    if decision.get("status") != "verified":
+        errors.append(f"sidecar review status is {decision.get('status')}")
+    if decision.get("uncovered_factual_spans_count", 0) > 0:
+        errors.append(
+            f"sidecar has {decision.get('uncovered_factual_spans_count')} uncovered factual spans"
+        )
+    if decision.get("unsupported_claims_count", 0) > 0:
+        errors.append(
+            f"sidecar has {decision.get('unsupported_claims_count')} unsupported claims"
+        )
+
+    # 4. Span completeness and statement classification audit (D17)
+    sidecar_spans = sidecar.get("spans") or []
+    sidecar_span_texts = {
+        re.sub(r"\s+", " ", s.get("text", "")).strip(): s.get("statement_type")
+        for s in sidecar_spans
+    }
+    ledger_path = workspace / "evidence-ledger.csv"
+    rows = _load_ledger(ledger_path) if ledger_path.is_file() else []
+    extracted_spans, _ = parse_report_spans(content, workspace, rows, strict=False)
+    for es in extracted_spans:
+        if es.get("statement_type") == "factual":
+            es_clean = re.sub(r"\s+", " ", es.get("text", "")).strip()
+            sc_type = sidecar_span_texts.get(es_clean)
+            if sc_type is None:
+                errors.append(
+                    f"SIDECAR_INTEGRITY_FAILURE (line {es.get('line_number')}): "
+                    f"factual span omitted from sidecar: {es_clean[:60]}"
+                )
+            elif sc_type in {"non_factual", "instructional"}:
+                errors.append(
+                    f"SIDECAR_INTEGRITY_FAILURE (line {es.get('line_number')}): "
+                    f"factual span misclassified as {sc_type} in sidecar: {es_clean[:60]}"
+                )
+
+    return errors
 
 
 def cmd_lint(args: argparse.Namespace) -> int:
@@ -754,12 +1597,28 @@ def cmd_lint(args: argparse.Namespace) -> int:
         warnings.append("no evidence-ledger.csv found in workspace")
 
     referenced_claims: set[str] = set()
+    spans: list[dict[str, Any]] = []
     if report_file is not None:
         content = report_file.read_text(encoding="utf-8")
         for hit in _has_placeholder(content):
             errors.append(f"report still contains placeholder: {hit!r}")
         narrative, marker_errors = _authored_narrative(content)
         errors.extend(marker_errors)
+
+        # R02: Stale sidecar check (D18)
+        if not getattr(args, "regenerate_sidecar", False):
+            sidecar_errs = validate_report_claims_sidecar(workspace, report_file, content)
+            errors.extend(sidecar_errs)
+
+        # R02: Bidirectional report span extraction and claim verification (D12, D13, D14, D15, D16, D17, D19)
+        spans, span_errors = parse_report_spans(
+            content,
+            workspace,
+            rows if ledger_path.is_file() else [],
+            strict=getattr(args, "strict", False),
+        )
+        errors.extend(span_errors)
+
         refs = re.findall(r"\[ref:([^\]]+)\]", narrative)
         referenced_claims = {r.strip() for r in refs if r.strip()}
 
@@ -904,6 +1763,12 @@ def cmd_lint(args: argparse.Namespace) -> int:
         for e in errors:
             print(f"  - {e}", file=sys.stderr)
         return 1
+
+    # R02: On successful lint, generate or refresh the report-claims sidecar
+    if report_file is not None and ledger_path.is_file():
+        generate_report_claims_sidecar(
+            workspace, report_file, rows, spans, strict=getattr(args, "strict", False)
+        )
 
     print(
         f"OK: workspace lint passed "
@@ -1089,13 +1954,13 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             "# Test Research Report\n\n"
             "Generated: 2026-06-01T00:00:00Z\n\n"
             "## Executive Summary\n\n"
-            "Claim one is supported [ref:C001]. Claim two is supported [ref:C002].\n\n"
+            "Test claim one is supported [ref:C001]. Test claim two is supported [ref:C002].\n\n"
             "## Literature Review\n\n"
-            "Literature findings without placeholders.\n\n"
+            "Test claim one from literature [ref:C001].\n\n"
             "## Data Collection\n\n"
-            "Data collection findings.\n\n"
+            "Test claim two from data collection [ref:C002].\n\n"
             "## Analysis\n\n"
-            "Analysis findings.\n\n"
+            "Inference: Analytical synthesis of findings.\n\n"
             "## Caveats and Limitations\n\n"
             "No material limitations for self-test.\n",
             encoding="utf-8",
@@ -1582,6 +2447,12 @@ def main() -> int:
         "--report",
         default=None,
         help="Exact report path to lint (required by release gates; no fallback).",
+    )
+    lint_p.add_argument(
+        "--regenerate-sidecar",
+        action="store_true",
+        default=False,
+        help="Regenerate report-claims.json sidecar instead of failing on stale sidecar.",
     )
 
     # self-test

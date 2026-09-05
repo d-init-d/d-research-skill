@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d-research.local/contracts/v1/report-claims.schema.json",
+  "title": "Report Claims and Verification Sidecar Schema",
+  "description": "Authoritative contract for versioned report claims sidecar (report-claims.json). Captures bidirectional mappings between report text spans and evidence ledger claims, snapshot bindings, cryptographic digests, and independent evaluator review decisions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "report_path",
+    "report_digest",
+    "algorithm",
+    "created_at",
+    "generator",
+    "spans",
+    "review_decision"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "SemVer of this sidecar specification (e.g. 1.0.0)."
+    },
+    "report_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative POSIX-style path from workspace root to the target rendered report markdown file."
+    },
+    "report_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Cryptographic SHA-256 digest of the exact UTF-8 byte content of the report file."
+    },
+    "algorithm": {
+      "type": "string",
+      "enum": [
+        "d-research-report-claims/v1",
+        "d-research-report-claims/v1-strict"
+      ],
+      "description": "Identifier and version of the extraction and span-resolution algorithm."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp when this sidecar was extracted and compiled."
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "commit"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Generator component name (e.g., d-research-skill, report_render.py)."
+        },
+        "version": {
+          "type": "string",
+          "description": "Package or module version."
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,64}$",
+          "description": "Git commit SHA of the generator implementation."
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional metadata including research question, workspace identifier, or run options.",
+      "properties": {
+        "workspace_root": { "type": "string" },
+        "ledger_path": { "type": "string" },
+        "ledger_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "total_report_characters": { "type": "integer", "minimum": 0 },
+        "total_report_lines": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "spans": {
+      "type": "array",
+      "description": "Ordered collection of discrete text spans parsed from narrative, tables, captions, and footnotes.",
+      "items": {
+        "$ref": "#/$defs/ReportSpan"
+      }
+    },
+    "review_decision": {
+      "$ref": "#/$defs/ReviewDecision"
+    }
+  },
+  "$defs": {
+    "ReportSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "span_id",
+        "start_offset",
+        "end_offset",
+        "text",
+        "location_type",
+        "statement_type",
+        "claim_ids",
+        "evidence_bindings"
+      ],
+      "properties": {
+        "span_id": {
+          "type": "string",
+          "pattern": "^span:[0-9a-zA-Z_-]+$",
+          "description": "Unique stable identifier for this text span within the report sidecar."
+        },
+        "start_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-based character start offset in the UTF-8 decoded report document."
+        },
+        "end_offset": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "0-based character end offset (exclusive) in the UTF-8 decoded report document."
+        },
+        "line_number": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based starting line number in the source markdown report for diagnostic tracing."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Verbatim text string extracted between start_offset and end_offset."
+        },
+        "location_type": {
+          "type": "string",
+          "enum": [
+            "narrative_paragraph",
+            "table_cell",
+            "table_caption",
+            "footnote",
+            "heading",
+            "metadata_comment",
+            "code_block"
+          ],
+          "description": "Document structural element containing this span."
+        },
+        "statement_type": {
+          "type": "string",
+          "enum": [
+            "factual",
+            "inference",
+            "non_factual",
+            "instructional"
+          ],
+          "description": "Epistemic classification: factual assertions require evidence binding; inferences require disclosure; non_factual/instructional must be verified structurally."
+        },
+        "claim_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^C[0-9]{3,}$"
+          },
+          "description": "Ledger claim identifiers referenced by or associated with this span. Must be non-empty if statement_type is factual."
+        },
+        "is_compound_claim": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if span contains multiple distinct factual assertions requiring multi-clause decomposition."
+        },
+        "sub_clauses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["clause_text", "sub_claim_id"],
+            "properties": {
+              "clause_text": { "type": "string" },
+              "sub_claim_id": { "type": "string", "pattern": "^C[0-9]{3,}$" }
+            }
+          },
+          "description": "Decomposed sub-clauses when is_compound_claim is true."
+        },
+        "evidence_bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceBinding"
+          },
+          "description": "Collection of cryptographic and snapshot bindings anchoring this span's claims to underlying evidence."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "statement_type": { "const": "factual" } }
+          },
+          "then": {
+            "properties": {
+              "claim_ids": { "minItems": 1 },
+              "evidence_bindings": { "minItems": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "EvidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "source_url",
+        "snapshot_digest",
+        "snapshot_path",
+        "quote",
+        "support_status",
+        "verification_method"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "pattern": "^C[0-9]{3,}$",
+          "description": "Target claim identifier in the evidence ledger."
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Source canonical URI or local file URI."
+        },
+        "snapshot_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Cryptographic SHA-256 digest of the raw snapshot artifact."
+        },
+        "snapshot_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative workspace path to the immutable snapshot file on disk."
+        },
+        "snapshot_offsets": {
+          "type": "object",
+          "required": ["start_offset", "end_offset"],
+          "properties": {
+            "start_offset": { "type": "integer", "minimum": 0 },
+            "end_offset": { "type": "integer", "minimum": 1 }
+          },
+          "description": "Byte or character offsets inside snapshot where verbatim quote is anchored."
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Exact excerpt from the source snapshot supporting the assertion."
+        },
+        "support_status": {
+          "type": "string",
+          "enum": [
+            "supports",
+            "refutes",
+            "contradicts",
+            "insufficient",
+            "requires_review"
+          ],
+          "description": "Classification result produced by the evaluator verification engine."
+        },
+        "verification_method": {
+          "type": "string",
+          "enum": [
+            "exact_quote_offset",
+            "normalized_span",
+            "semantic_adjudication",
+            "unverified_legacy"
+          ],
+          "description": "Mechanism used to verify adherence of quote to snapshot and claim to quote."
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Diagnostic codes emitted during classification (e.g. NUMBER_MISMATCH, NEGATION_INVERTED)."
+        }
+      }
+    },
+    "ReviewDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "uncovered_factual_spans_count",
+        "unsupported_claims_count",
+        "reasons",
+        "reviewed_at",
+        "assurance_tier"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "rejected",
+            "requires_review",
+            "degraded_assurance"
+          ],
+          "description": "Aggregate gate review decision."
+        },
+        "uncovered_factual_spans_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of factual spans in report that have no valid claim/evidence binding. Must be 0 for verified status."
+        },
+        "unsupported_claims_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of claims whose evidence binding failed verification. Must be 0 for verified status."
+        },
+        "requires_review_count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of spans requiring secondary human or oracle adjudication."
+        },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Structured explanation of non-zero rejection or review flags."
+        },
+        "reviewer": {
+          "type": "object",
+          "properties": {
+            "entity": { "type": "string" },
+            "role": { "type": "string", "enum": ["independent_evaluator", "cli_gate", "human_expert"] },
+            "signature": { "type": "string" }
+          },
+          "description": "Independent reviewer identity, isolated from the authoring agent."
+        },
+        "reviewed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp of adjudication."
+        },
+        "assurance_tier": {
+          "type": "string",
+          "enum": [
+            "strict_verified",
+            "standard_verified",
+            "requires_review",
+            "degraded"
+          ],
+          "description": "Final assurance tier granted to the report artifact."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "verified" } }
+          },
+          "then": {
+            "properties": {
+              "uncovered_factual_spans_count": { "const": 0 },
+              "unsupported_claims_count": { "const": 0 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

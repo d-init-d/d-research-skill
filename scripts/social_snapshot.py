@@ -1372,6 +1372,76 @@ _MOCK_LEMMY_JSON = {
 }
 
 
+OFFLINE_FIXTURE_HOSTS: frozenset[str] = frozenset({
+    # Tier A platforms
+    "www.reddit.com",
+    "reddit.com",
+    "news.ycombinator.com",
+    "ycombinator.com",
+    "hn.algolia.com",
+    "mastodon.social",
+    "bsky.app",
+    "bsky.social",
+    "public.api.bsky.app",
+    "lemmy.ml",
+    # Tier B platforms
+    "x.com",
+    "www.x.com",
+    "twitter.com",
+    "www.twitter.com",
+    "instagram.com",
+    "www.instagram.com",
+    "tiktok.com",
+    "www.tiktok.com",
+    "linkedin.com",
+    "www.linkedin.com",
+    "facebook.com",
+    "www.facebook.com",
+    "fb.com",
+    "youtube.com",
+    "www.youtube.com",
+    "youtu.be",
+    "threads.net",
+    "www.threads.net",
+    # Generic & archive
+    "example.com",
+    "www.example.com",
+    "web.archive.org",
+})
+
+
+def make_offline_fixture_resolver(
+    allowed_hosts: set[str] | frozenset[str] = OFFLINE_FIXTURE_HOSTS,
+    sentinel_ip: str = "8.8.8.8",
+) -> Callable[[str], list[str]]:
+    """Build a deterministic offline resolver for test harnesses.
+
+    Resolves known fixture hosts to a public sentinel IP without DNS queries.
+    Strictly preserves SSRF rejection for private/loopback/blocked addresses.
+    Rejects unknown hosts with 'unregistered_offline_host' without contacting network.
+    """
+    import ipaddress
+    import _ssrf_helpers as _ssrf
+
+    def _resolve(host: str) -> list[str]:
+        host_l = host.lower().rstrip(".")
+        if host_l in _ssrf.BLOCKED_HOSTNAMES or host_l.endswith(".localhost"):
+            raise ValueError(f"blocked hostname: {host_l}")
+        try:
+            literal = ipaddress.ip_address(host_l)
+            if _ssrf._is_non_public_ip(literal):
+                raise ValueError(f"non-public IP not allowed: {host_l}")
+            return [host_l]
+        except ValueError as exc:
+            if "non-public" in str(exc) or "not allowed" in str(exc) or "blocked" in str(exc):
+                raise
+        if host_l in allowed_hosts:
+            return [sentinel_ip]
+        raise ValueError(f"unregistered_offline_host: {host_l}")
+
+    return _resolve
+
+
 def self_test() -> int:
     """Offline self-test with mocked HTTP and subprocess."""
     import types
@@ -1385,19 +1455,7 @@ def self_test() -> int:
     # transport is mocked, so resolve only the known fixture hosts to a public
     # sentinel while preserving the production resolver for every other host.
     original_resolve_public_ips = ssrf_helpers.resolve_public_ips
-    fixture_hosts = {
-        "www.reddit.com",
-        "hn.algolia.com",
-        "mastodon.social",
-        "public.api.bsky.app",
-        "lemmy.ml",
-    }
-
-    def mock_resolve_public_ips(host: str) -> list[str]:
-        if host.lower().rstrip(".") in fixture_hosts:
-            return ["8.8.8.8"]
-        return original_resolve_public_ips(host)
-
+    mock_resolve_public_ips = make_offline_fixture_resolver(OFFLINE_FIXTURE_HOSTS)
     ssrf_helpers.resolve_public_ips = mock_resolve_public_ips
 
     # --- Monkey-patch urllib.request.urlopen ---
