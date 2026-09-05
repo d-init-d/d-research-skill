@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import math
 import sys
 from pathlib import Path
@@ -522,6 +523,325 @@ def recompute_empirical_pilot_metrics(
         "beats_baseline": beats_baseline,
         "empirical_improvement": "established_within_scope" if beats_baseline else "not_established",
         "assurance_status": "calibrated" if (beats_baseline and n >= 30) else "uncalibrated",
+    }
+
+
+def audit_run_authenticity(candidate_output: dict[str, Any]) -> dict[str, Any]:
+    """Audit whether a candidate run is genuine or fabricated/synthetic (CR05, VEV01–VEV03)."""
+    if not isinstance(candidate_output, dict) or not candidate_output:
+        return {
+            "is_authentic": False,
+            "classification": "empty_or_malformed",
+            "reason": "RUN_OUTPUT_EMPTY_OR_NOT_DICT",
+            "is_valid_run": False,
+        }
+
+    # Check for synthetic generator marker or revoked provenance
+    if (
+        candidate_output.get("is_synthetic") is True
+        or candidate_output.get("generator") == "synthetic_benchmark_generator"
+        or candidate_output.get("provenance") == "synthetic_oracle"
+    ):
+        return {
+            "is_authentic": False,
+            "classification": "synthetic_generated",
+            "reason": "REVOKED_SYNTHETIC_GENERATOR_OUTPUT",
+            "is_valid_run": False,
+        }
+
+    # Check for fabricated constant telemetry (Finding CR05)
+    telem = candidate_output.get("telemetry")
+    if isinstance(telem, dict):
+        if (
+            telem.get("token_count") == 890
+            and telem.get("execution_time_ms") == 2340.0
+            and telem.get("tool_calls_count") == 3
+        ):
+            return {
+                "is_authentic": False,
+                "classification": "fabricated_constant_telemetry",
+                "reason": "FABRICATED_CONSTANT_TELEMETRY_DETECTED",
+                "is_valid_run": False,
+            }
+
+    # Check for unexecuted summary run (VEV02)
+    output_text = candidate_output.get("output_text") or candidate_output.get("report_markdown") or ""
+    has_substantive = bool(output_text.strip() or candidate_output.get("claims") or candidate_output.get("blocker_reason"))
+    if not has_substantive and candidate_output.get("declared_summary"):
+        return {
+            "is_authentic": False,
+            "classification": "unexecuted_summary_run",
+            "reason": "UNEXECUTED_SUMMARY_WITHOUT_ACTIVITY",
+            "is_valid_run": False,
+        }
+
+    return {
+        "is_authentic": True,
+        "classification": "genuine_candidate_execution",
+        "reason": None,
+        "is_valid_run": True,
+    }
+
+
+def parse_telemetry_v2(raw_telemetry: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Parse telemetry adhering to VEV03: null + reason for missing metrics, detects fabrication."""
+    if not isinstance(raw_telemetry, dict) or not raw_telemetry:
+        return {
+            "token_count": None,
+            "execution_time_ms": None,
+            "tool_calls_count": None,
+            "bytes_read": None,
+            "is_measured": False,
+            "reason": "telemetry_unmeasured_or_unavailable",
+            "fabrication_detected": False,
+        }
+
+    # Check for revoked synthetic generator constant telemetry
+    if (
+        raw_telemetry.get("token_count") == 890
+        and raw_telemetry.get("execution_time_ms") == 2340.0
+        and raw_telemetry.get("tool_calls_count") == 3
+    ):
+        return {
+            "token_count": None,
+            "execution_time_ms": None,
+            "tool_calls_count": None,
+            "bytes_read": None,
+            "is_measured": False,
+            "reason": "FABRICATED_CONSTANT_TELEMETRY_REVOKED",
+            "fabrication_detected": True,
+        }
+
+    token_count = raw_telemetry.get("token_count")
+    if token_count is None or not isinstance(token_count, int) or isinstance(token_count, bool) or token_count < 0:
+        p_tokens = None
+        token_reason = "tokens_unmeasured"
+    else:
+        p_tokens = token_count
+        token_reason = None
+
+    exec_time = raw_telemetry.get("execution_time_ms")
+    if exec_time is None or not isinstance(exec_time, (int, float)) or isinstance(exec_time, bool) or exec_time < 0:
+        p_time = None
+        time_reason = "latency_unmeasured"
+    else:
+        p_time = float(exec_time)
+        time_reason = None
+
+    tool_calls = raw_telemetry.get("tool_calls_count")
+    if tool_calls is None or not isinstance(tool_calls, int) or isinstance(tool_calls, bool) or tool_calls < 0:
+        p_tools = None
+        tool_reason = "tool_calls_unmeasured"
+    else:
+        p_tools = tool_calls
+        tool_reason = None
+
+    raw_bytes = raw_telemetry.get("bytes_read")
+    p_bytes = int(raw_bytes) if isinstance(raw_bytes, int) and not isinstance(raw_bytes, bool) and raw_bytes >= 0 else None
+
+    has_any = (p_tokens is not None or p_time is not None or p_tools is not None or p_bytes is not None)
+    reasons = [r for r in [token_reason, time_reason, tool_reason] if r is not None]
+
+    return {
+        "token_count": p_tokens,
+        "execution_time_ms": p_time,
+        "tool_calls_count": p_tools,
+        "bytes_read": p_bytes,
+        "is_measured": has_any,
+        "reason": "; ".join(reasons) if reasons else None,
+        "fabrication_detected": False,
+    }
+
+
+def detect_oracle_contamination(
+    candidate_output: dict[str, Any], oracle_entry: dict[str, Any]
+) -> dict[str, Any]:
+    """Detect if candidate run accessed oracle ground-truth channels (CR05, VEV04)."""
+    if not isinstance(candidate_output, dict) or not isinstance(oracle_entry, dict):
+        return {"is_contaminated": False, "reason": None, "repartition_required": False}
+
+    raw_str = json.dumps(candidate_output, ensure_ascii=False).lower()
+    oracle_indicators = [
+        "ground_truth_oracle.json",
+        "oracle/ground_truth",
+        "oracle_canary",
+        "oracle_answer",
+        "isolated_oracle",
+    ]
+    for ind in oracle_indicators:
+        if ind in raw_str:
+            return {
+                "is_contaminated": True,
+                "contamination_type": "ORACLE_METADATA_REFERENCE",
+                "reason": f"Direct reference to oracle artifacts: {ind}",
+                "repartition_required": True,
+            }
+
+    canary = oracle_entry.get("oracle_canary") or oracle_entry.get("secret_fingerprint")
+    if canary and str(canary).lower() in raw_str:
+        return {
+            "is_contaminated": True,
+            "contamination_type": "ORACLE_CANARY_LEAKAGE",
+            "reason": "Oracle canary token discovered in candidate submission",
+            "repartition_required": True,
+        }
+
+    return {
+        "is_contaminated": False,
+        "contamination_type": None,
+        "reason": None,
+        "repartition_required": False,
+    }
+
+
+def verify_isolation_boundary(run_metadata: dict[str, Any]) -> dict[str, Any]:
+    """Verify execution isolation boundary between candidate and oracle (VEV05)."""
+    if not isinstance(run_metadata, dict):
+        return {
+            "is_strictly_isolated": False,
+            "isolation_level": "unknown",
+            "reason": "MISSING_RUN_METADATA",
+            "independent_evaluation_permitted": False,
+        }
+
+    iso_type = str(run_metadata.get("isolation_type", "")).lower()
+    shared_memory = run_metadata.get("shared_memory", False)
+    shared_context = run_metadata.get("shared_context", False)
+
+    if shared_memory or shared_context or iso_type in {"shared_context", "directory_only", "ids_only"}:
+        return {
+            "is_strictly_isolated": False,
+            "isolation_level": "directory_separated_only",
+            "reason": "SHARED_CONTEXT_OR_MEMORY_DETECTED",
+            "independent_evaluation_permitted": False,
+        }
+
+    if iso_type in {"process_isolated", "container_isolated", "air_gapped_sandbox"}:
+        return {
+            "is_strictly_isolated": True,
+            "isolation_level": iso_type,
+            "reason": None,
+            "independent_evaluation_permitted": True,
+        }
+
+    return {
+        "is_strictly_isolated": False,
+        "isolation_level": iso_type or "unspecified",
+        "reason": "ISOLATION_LEVEL_NOT_STRICT",
+        "independent_evaluation_permitted": False,
+    }
+
+
+def verify_held_out_repetitions(repetitions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Verify that the 3 required held-out repetitions represent unique executions (VEV07)."""
+    if not isinstance(repetitions, list) or len(repetitions) == 0:
+        return {
+            "valid_repetitions_count": 0,
+            "has_required_repetitions": False,
+            "duplicate_detected": False,
+            "reason": "EMPTY_REPETITIONS_LIST",
+        }
+
+    activity_ids: set[str] = set()
+    run_hashes: set[str] = set()
+    timestamps: set[str] = set()
+    duplicates: list[int] = []
+
+    for idx, run in enumerate(repetitions):
+        act_id = run.get("activity_id") or run.get("run_id")
+        ts = run.get("timestamp") or run.get("execution_timestamp")
+        content_str = json.dumps(
+            {k: v for k, v in run.items() if k not in {"repetition_index", "run_number"}},
+            sort_keys=True,
+        )
+        h = hashlib.sha256(content_str.encode("utf-8")).hexdigest()
+
+        if act_id and act_id in activity_ids:
+            duplicates.append(idx)
+        if h in run_hashes:
+            duplicates.append(idx)
+        if ts and ts in timestamps:
+            duplicates.append(idx)
+
+        if act_id:
+            activity_ids.add(act_id)
+        run_hashes.add(h)
+        if ts:
+            timestamps.add(ts)
+
+    duplicate_detected = len(duplicates) > 0
+    unique_runs_count = len(run_hashes)
+
+    return {
+        "valid_repetitions_count": unique_runs_count,
+        "total_submitted": len(repetitions),
+        "has_required_repetitions": (unique_runs_count >= 3),
+        "duplicate_detected": duplicate_detected,
+        "duplicate_indices": sorted(set(duplicates)),
+        "reason": "DUPLICATE_EXECUTION_IDENTITIES_DETECTED" if duplicate_detected else None,
+    }
+
+
+def independent_recompute_score(
+    per_task_results: list[dict[str, Any]],
+    total_registered: int,
+    over_refusal_penalty: float = 0.0,
+) -> dict[str, Any]:
+    """Independently recompute benchmark metrics directly from raw per-task evaluation items (VEV11)."""
+    if total_registered <= 0:
+        raise ValueError("total_registered must be > 0")
+
+    completed_count = sum(1 for r in per_task_results if r.get("task_completed"))
+    completion_rate = completed_count / total_registered
+
+    avg_citation = sum(float(r.get("citation_correctness", 0.0)) for r in per_task_results) / total_registered
+    avg_coverage = sum(float(r.get("important_claim_coverage", 0.0)) for r in per_task_results) / total_registered
+    avg_contradiction = sum(float(r.get("contradiction_handling", 0.0)) for r in per_task_results) / total_registered
+    avg_freshness = sum(float(r.get("freshness_date_correctness", 0.0)) for r in per_task_results) / total_registered
+    avg_blocker = sum(float(r.get("blocker_honesty", 0.0)) for r in per_task_results) / total_registered
+
+    raw_mean_score = sum(float(r.get("score", 0.0)) for r in per_task_results) / total_registered
+    penalized_score = max(0.0, raw_mean_score - over_refusal_penalty)
+
+    return {
+        "denominator": total_registered,
+        "completed_tasks_count": completed_count,
+        "completion_rate": round(completion_rate, 4),
+        "citation_correctness": round(avg_citation, 4),
+        "important_claim_coverage": round(avg_coverage, 4),
+        "contradiction_handling": round(avg_contradiction, 4),
+        "freshness_date_correctness": round(avg_freshness, 4),
+        "blocker_honesty": round(avg_blocker, 4),
+        "raw_mean_score": round(raw_mean_score, 4),
+        "over_refusal_penalty": round(over_refusal_penalty, 4),
+        "overall_score": round(penalized_score, 4),
+    }
+
+
+def determine_benchmark_verdict(
+    summary: dict[str, Any], target_score: float = 0.85
+) -> dict[str, Any]:
+    """Evaluate whether benchmark run achieved target score or requires honest insufficient verdict (VEV12)."""
+    overall_score = float(summary.get("overall_score", 0.0))
+    missing_count = int(summary.get("missing_tasks_count", 0))
+
+    if summary.get("status") in {"not_run", "unverified"} or missing_count > 0 or overall_score < target_score:
+        return {
+            "verdict": "insufficient_evidence",
+            "empirical_improvement": "not_established",
+            "meets_target": False,
+            "target_score": target_score,
+            "actual_score": overall_score,
+            "notes": "Score below threshold or tasks unexecuted; reporting honest insufficient status without adjusting rubric",
+        }
+
+    return {
+        "verdict": "target_achieved",
+        "empirical_improvement": "established_within_scope",
+        "meets_target": True,
+        "target_score": target_score,
+        "actual_score": overall_score,
+        "notes": "Genuine execution met objective criteria",
     }
 
 
