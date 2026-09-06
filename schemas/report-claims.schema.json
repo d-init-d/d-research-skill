@@ -59,8 +59,8 @@
         },
         "commit": {
           "type": "string",
-          "pattern": "^[0-9a-f]{7,64}$",
-          "description": "Git commit SHA of the generator implementation."
+          "pattern": "^(?:[0-9a-fA-F]{3,64}|unknown)$",
+          "description": "Git commit SHA of the generator implementation or 'unknown' for git-less distribution."
         }
       }
     },
