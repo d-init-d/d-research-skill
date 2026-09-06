@@ -763,6 +763,75 @@ _HYPOTHETICAL_RE = re.compile(
     r"(?i)\b(?:if|hypothetically|supposing|allegations?\s+that|rumors?\s+that|unconfirmed|whether|claims?\s+that)\b"
 )
 
+_REFUTATION_PREFIX_PATTERNS = [
+    re.compile(r"(?i)\b(?:assertion|claim|statement|premise|hypothesis|rumor|allegation|finding|proposition)\s+(?:is|was|are|were)\s+(?:false|untrue|incorrect|wrong|unfounded|baseless|fake|a\s+lie|disproven|refuted|debunked|denied)\b"),
+    re.compile(r"(?i)\b(?:the\s+following|this)\s+(?:assertion|claim|statement|premise|proposition)\s+(?:is|was)\s+(?:false|untrue|incorrect|not\s+true|wrong)\b"),
+    re.compile(r"(?i)\b(?:is|was|are|were)\s+(?:false|untrue|incorrect|wrong|fake|unfounded|baseless)\s*[:\-\u2014]"),
+    re.compile(r"(?i)\b(?:falsely|erroneously|incorrectly|misleadingly)\s+(?:claim|claimed|claims|assert|asserted|asserts|state|stated|states|alleged|alleges|reported)\b"),
+    re.compile(r"(?i)\b(?:refut(?:es|ed|ing)?|debunk(?:s|ed|ing)?|deni(?:es|ed|ing)?|disprov(?:es|ed|ing)?|reject(?:s|ed|ing)?)\b[^.!?\n]{0,40}\b(?:the\s+claim|that|assertion)\b"),
+    re.compile(r"(?i)(?:khẳng\s+định|nhận\s+định|tuyên\s+bố|mệnh\s+đề|thông\s+tin)[^.!?\n]{0,60}(?:sai|không\s+đúng|bị\s+bác\s+bỏ|vô\s+căn\s+cứ|bịa\s+đặt)"),
+    re.compile(r"(?i)(?:bác\s+bỏ|phủ\s+nhận)[^.!?\n]{0,40}(?:khẳng\s+định|tuyên\s+bố|thông\s+tin|rằng)"),
+]
+
+_REFUTATION_CONTRAST_PATTERNS = [
+    re.compile(r"(?i)\b(?:in\s+fact|actually|the\s+reality\s+is|on\s+the\s+contrary|trên\s+thực\s+tế|thực\s+tế\s+là)\b[^.!?\n]{0,80}\b(?:not|never|is\s+not|was\s+not|insecure|failed|không)\b"),
+    re.compile(r"(?i)\b(?:contrary\s+to\s+(?:claims?|assertions?|popular\s+belief))\b"),
+]
+
+
+def _detect_context_refutation(
+    source_text: str, quote: str, statement: str
+) -> tuple[bool, str]:
+    """RV3-01: Detect whether surrounding context in source text refutes or negates the quote/statement."""
+    if not source_text:
+        return False, ""
+
+    search_targets = [q for q in [quote.strip(), statement.strip()] if len(q) >= 4]
+    if not search_targets:
+        return False, ""
+
+    src_lower = source_text.lower()
+    for target in search_targets:
+        target_clean = re.sub(r"\[ref:[^\]]+\]", "", target).strip().lower()
+        if not target_clean:
+            continue
+
+        start = 0
+        while True:
+            idx = src_lower.find(target_clean, start)
+            if idx == -1:
+                break
+
+            w_start = max(0, idx - 250)
+            w_end = min(len(source_text), idx + len(target_clean) + 250)
+            window = source_text[w_start:w_end]
+            prefix_window = source_text[w_start:idx]
+            suffix_window = source_text[idx + len(target_clean):w_end]
+
+            for pat in _REFUTATION_PREFIX_PATTERNS:
+                if pat.search(prefix_window) or pat.search(window):
+                    return True, "source_context_refutes_claim"
+
+            for pat in _REFUTATION_CONTRAST_PATTERNS:
+                if pat.search(suffix_window) or pat.search(window):
+                    return True, "source_context_refutes_claim"
+
+            t_neg = bool(_NEGATION_RE.search(target_clean))
+            if not t_neg:
+                t_words = [
+                    w for w in re.findall(r"[a-z0-9\u00C0-\u1EF9]{4,}", target_clean)
+                    if w not in {"that", "with", "this", "from", "have", "been", "were"}
+                ]
+                if t_words:
+                    last_word = t_words[-1]
+                    neg_pattern = rf"\b(?:not|never)\s+{re.escape(last_word)}\b|\b(?:is|was|are|were)\s+not\s+{re.escape(last_word)}\b|\b(?:un|in|non-?){re.escape(last_word)}\b"
+                    if re.search(neg_pattern, window, re.IGNORECASE):
+                        return True, "source_context_refutes_claim"
+
+            start = idx + len(target_clean)
+
+    return False, ""
+
 
 def _extract_versions(text: str) -> set[str]:
     return set(_VERSION_RE.findall(text or ""))
@@ -1068,6 +1137,18 @@ def classify_claim_evidence(
             "supports_claim": False,
             "contradicts_claim": True,
             "reason": "negation_inversion",
+        }
+
+    # RV3-01: Context refutation check on evidence or quote
+    refuted_ev, ref_reason_ev = _detect_context_refutation(evidence or quote_raw, quote_raw or claim, claim)
+    if refuted_ev:
+        return {
+            "status": "contradicts",
+            "source_exists": bool(source_url),
+            "source_relevant": True,
+            "supports_claim": False,
+            "contradicts_claim": True,
+            "reason": ref_reason_ev,
         }
 
     # D08: Hypothetical or refuted context in evidence

@@ -246,3 +246,68 @@ def test_vdr11_quote_in_refutation_context():
     res = quality_eval.classify_claim_evidence(claim, evidence, row)
     assert res["status"] in {"contradicts", "refutes", "insufficient", "requires_review"}
     assert res.get("supports_claim") is False
+
+
+def test_vdr21_snapshot_context_refutation_rejection():
+    """VDR21 (RV3-01): Quote exists in source snapshot but context explicitly refutes it.
+
+    Strict lint and sidecar must reject with CITATION_MISUSE / degraded assurance.
+    """
+    import report_render
+
+    statement = "The server is secure."
+    source = "The following assertion is FALSE: The server is secure. In fact, the server is not secure."
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        (ws / "evidence").mkdir()
+        (ws / "evidence/C001.txt").write_text(source, encoding="utf-8")
+        row = {
+            "claim_id": "C001",
+            "claim": statement,
+            "evidence": statement,
+            "quote_or_anchor": statement,
+            "source_url": "https://example.com/advisory",
+            "snapshot_path": "evidence/C001.txt",
+            "content_hash": f"sha256:{hashlib.sha256(source.encode()).hexdigest()}",
+            "confidence": "high",
+        }
+        report = f"# Report\n\n{statement} [ref:C001]\n"
+        (ws / "report.md").write_text(report, encoding="utf-8")
+
+        status, reason, method = report_render._statement_supported_by_row(statement, row, ws)
+        assert status == "contradicts"
+        assert reason == "source_context_refutes_claim"
+
+        spans, errors = report_render.parse_report_spans(report, ws, [row], strict=True)
+        assert any("CITATION_MISUSE" in e for e in errors)
+        sidecar = report_render.generate_report_claims_sidecar(
+            ws, ws / "report.md", [row], spans, strict=True, errors=errors
+        )
+        assert sidecar["review_decision"]["status"] == "rejected"
+        assert sidecar["review_decision"]["assurance_tier"] == "degraded"
+
+
+def test_vdr22_vietnamese_refutation_rejection():
+    """VDR22 (RV3-01 VI): Vietnamese source context explicitly refuting claim."""
+    import report_render
+
+    statement = "Hệ thống bảo mật tuyệt đối."
+    source = "Khẳng định sau đây là hoàn toàn sai: Hệ thống bảo mật tuyệt đối. Thực tế là hệ thống có lỗ hổng."
+    with tempfile.TemporaryDirectory() as td:
+        ws = Path(td)
+        (ws / "evidence").mkdir()
+        (ws / "evidence/C002.txt").write_text(source, encoding="utf-8")
+        row = {
+            "claim_id": "C002",
+            "claim": statement,
+            "evidence": statement,
+            "quote_or_anchor": statement,
+            "source_url": "https://example.com/vi-advisory",
+            "snapshot_path": "evidence/C002.txt",
+            "content_hash": f"sha256:{hashlib.sha256(source.encode('utf-8')).hexdigest()}",
+            "confidence": "high",
+        }
+        status, reason, method = report_render._statement_supported_by_row(statement, row, ws)
+        assert status == "contradicts"
+        assert reason == "source_context_refutes_claim"
+

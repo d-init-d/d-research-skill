@@ -824,6 +824,76 @@ def _is_non_factual_text(text: str, section_heading: str) -> bool:
     return False
 
 
+_REFUTATION_PREFIX_PATTERNS = [
+    re.compile(r"(?i)\b(?:assertion|claim|statement|premise|hypothesis|rumor|allegation|finding|proposition)\s+(?:is|was|are|were)\s+(?:false|untrue|incorrect|wrong|unfounded|baseless|fake|a\s+lie|disproven|refuted|debunked|denied)\b"),
+    re.compile(r"(?i)\b(?:the\s+following|this)\s+(?:assertion|claim|statement|premise|proposition)\s+(?:is|was)\s+(?:false|untrue|incorrect|not\s+true|wrong)\b"),
+    re.compile(r"(?i)\b(?:is|was|are|were)\s+(?:false|untrue|incorrect|wrong|fake|unfounded|baseless)\s*[:\-\u2014]"),
+    re.compile(r"(?i)\b(?:falsely|erroneously|incorrectly|misleadingly)\s+(?:claim|claimed|claims|assert|asserted|asserts|state|stated|states|alleged|alleges|reported)\b"),
+    re.compile(r"(?i)\b(?:refut(?:es|ed|ing)?|debunk(?:s|ed|ing)?|deni(?:es|ed|ing)?|disprov(?:es|ed|ing)?|reject(?:s|ed|ing)?)\b[^.!?\n]{0,40}\b(?:the\s+claim|that|assertion)\b"),
+    re.compile(r"(?i)(?:khẳng\s+định|nhận\s+định|tuyên\s+bố|mệnh\s+đề|thông\s+tin)[^.!?\n]{0,60}(?:sai|không\s+đúng|bị\s+bác\s+bỏ|vô\s+căn\s+cứ|bịa\s+đặt)"),
+    re.compile(r"(?i)(?:bác\s+bỏ|phủ\s+nhận)[^.!?\n]{0,40}(?:khẳng\s+định|tuyên\s+bố|thông\s+tin|rằng)"),
+]
+
+_REFUTATION_CONTRAST_PATTERNS = [
+    re.compile(r"(?i)\b(?:in\s+fact|actually|the\s+reality\s+is|on\s+the\s+contrary|trên\s+thực\s+tế|thực\s+tế\s+là)\b[^.!?\n]{0,80}\b(?:not|never|is\s+not|was\s+not|insecure|failed|không)\b"),
+    re.compile(r"(?i)\b(?:contrary\s+to\s+(?:claims?|assertions?|popular\s+belief))\b"),
+]
+
+
+def _detect_context_refutation(
+    source_text: str, quote: str, statement: str
+) -> tuple[bool, str]:
+    """RV3-01: Detect whether surrounding context in source text refutes or negates the quote/statement."""
+    if not source_text:
+        return False, ""
+
+    search_targets = [q for q in [quote.strip(), statement.strip()] if len(q) >= 4]
+    if not search_targets:
+        return False, ""
+
+    src_lower = source_text.lower()
+    for target in search_targets:
+        target_clean = re.sub(r"\[ref:[^\]]+\]", "", target).strip().lower()
+        if not target_clean:
+            continue
+
+        start = 0
+        while True:
+            idx = src_lower.find(target_clean, start)
+            if idx == -1:
+                break
+
+            w_start = max(0, idx - 250)
+            w_end = min(len(source_text), idx + len(target_clean) + 250)
+            window = source_text[w_start:w_end]
+            prefix_window = source_text[w_start:idx]
+            suffix_window = source_text[idx + len(target_clean):w_end]
+
+            for pat in _REFUTATION_PREFIX_PATTERNS:
+                if pat.search(prefix_window) or pat.search(window):
+                    return True, "source_context_refutes_claim"
+
+            for pat in _REFUTATION_CONTRAST_PATTERNS:
+                if pat.search(suffix_window) or pat.search(window):
+                    return True, "source_context_refutes_claim"
+
+            t_neg = bool(_NEGATION_RE.search(target_clean))
+            if not t_neg:
+                t_words = [
+                    w for w in re.findall(r"[a-z0-9\u00C0-\u1EF9]{4,}", target_clean)
+                    if w not in {"that", "with", "this", "from", "have", "been", "were"}
+                ]
+                if t_words:
+                    last_word = t_words[-1]
+                    neg_pattern = rf"\b(?:not|never)\s+{re.escape(last_word)}\b|\b(?:is|was|are|were)\s+not\s+{re.escape(last_word)}\b|\b(?:un|in|non-?){re.escape(last_word)}\b"
+                    if re.search(neg_pattern, window, re.IGNORECASE):
+                        return True, "source_context_refutes_claim"
+
+            start = idx + len(target_clean)
+
+    return False, ""
+
+
 def _statement_supported_by_row(
     statement: str,
     row: dict[str, Any],
@@ -859,6 +929,11 @@ def _statement_supported_by_row(
         clean_snap_toks = _normalize_tokens(snap_text)
         clean_quote_toks = _normalize_tokens(row_quote)
         is_locator = bool(re.match(r"^(?:page|p\.|line|l\.|section|sec\.|xpath:|css:|selector:|#|\.|\S+\.(?:png|jpg|jpeg|pdf))\b", row_quote, re.I))
+
+        # RV3-01: Quote and statement must not be situated in a refuting/denying context in source
+        is_refuted, ref_reason = _detect_context_refutation(snap_text, row_quote, clean_s)
+        if is_refuted:
+            return "contradicts", ref_reason, "source_snapshot"
 
         # 1. Quote must actually exist in the decoded snapshot text
         if clean_quote_toks and not is_locator and clean_quote_toks not in clean_snap_toks:
@@ -998,6 +1073,9 @@ def _statement_supported_by_row(
 
     # Quote support check (short quotes must not prove longer claims with ungrounded assertions)
     if clean_tok_q and not is_locator_quote:
+        refuted_ev, ref_reason_ev = _detect_context_refutation(row_evidence, row_quote, clean_s) if snap_text is None else (False, "")
+        if refuted_ev:
+            return "contradicts", ref_reason_ev, "normalized_span"
         if clean_tok_s == clean_tok_q or clean_tok_s in clean_tok_q:
             if snap_text is not None and clean_tok_s not in clean_snap_toks:
                 return "contradicts", "statement_not_found_in_snapshot", "source_snapshot"
@@ -1012,6 +1090,9 @@ def _statement_supported_by_row(
 
     # Evidence support check
     if clean_tok_e:
+        refuted_ev, ref_reason_ev = _detect_context_refutation(row_evidence, row_quote, clean_s) if snap_text is None else (False, "")
+        if refuted_ev:
+            return "contradicts", ref_reason_ev, "normalized_span"
         if clean_tok_s == clean_tok_e or clean_tok_s in clean_tok_e:
             if snap_text is not None and clean_tok_s not in clean_snap_toks:
                 return "contradicts", "statement_not_found_in_snapshot", "source_snapshot"
