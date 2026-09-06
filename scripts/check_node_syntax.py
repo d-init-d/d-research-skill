@@ -27,6 +27,12 @@ def _candidates(args: list[str]) -> list[Path]:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            getattr(sys.stdout, "reconfigure")(encoding="utf-8", errors="replace")
+            getattr(sys.stderr, "reconfigure")(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     targets = _candidates(sys.argv[1:])
     if not targets:
         print("no .mjs files to check")

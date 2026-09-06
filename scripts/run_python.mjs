@@ -41,7 +41,9 @@ for (const [command, prefixArgs] of candidates) {
     continue;
   }
 
+  const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
   const result = spawnSync(command, [...prefixArgs, ...scriptArgs], {
+    env,
     stdio: 'inherit',
     shell: false,
     windowsHide: true,
