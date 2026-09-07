@@ -56,7 +56,7 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 52 deep-dive guides, including investigative tiers, scoped person OSINT, cross-platform social classification, verified self-exposure, leak-derived lead handling, research intake, evidence ledgers, academic/systematic review, extraction, execution gates, frontier search, and reproducibility guidance, plus `references/i18n/` refusal templates (en, vi).
+- `references/` — 53 deep-dive guides, including investigative tiers, scoped person OSINT, cross-platform social classification, verified self-exposure, leak-derived lead handling, research intake, evidence ledgers, academic/systematic review, extraction, execution gates, frontier search, and reproducibility guidance, plus `references/i18n/` refusal templates (en, vi).
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: the v3.3 evidence ledger with 37 columns, investigation scope, screening/search logs, data dictionary, API request log, citation library, PRISMA flow, Frictionless Data Package, research-plan schema, frontier ledger, coverage map, and register vocab log.
@@ -280,7 +280,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
 │   └── translation.md                    # new — machine-translation adapter
 │
-├── references/                           # 52 deep-dive guides
+├── references/                           # 53 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources

@@ -6,13 +6,13 @@
     "contract_role": "frozen_candidate",
     "promotes_to": "3.4.1",
     "counts": {
-      "references_markdown": 52,
+      "references_markdown": 53,
       "adapters_markdown": 9,
       "examples_markdown": 9,
-      "scripts_python": 40,
+      "scripts_python": 41,
       "scripts_node_top_level": 9,
       "scripts_node_lib": 7,
-      "scripts_total": 56,
+      "scripts_total": 57,
       "templates_files": 18,
       "evidence_ledger_columns": 37
     },
@@ -51,8 +51,8 @@
       "references/config-reference.md"
     ],
     "readme_markers": [
-      "`references/` — 52 deep-dive guides",
-      "# 52 deep-dive guides",
+      "`references/` — 53 deep-dive guides",
+      "# 53 deep-dive guides",
       "37 columns",
       "55 small, self-contained files"
     ],
@@ -378,8 +378,13 @@
         "label": "Atomic fact",
         "target": "`references/fact-verification.md`"
       },
-      "labels": ["atomic fact", "verify one fact"],
-      "intake_labels": ["atomic_fact"],
+      "labels": [
+        "atomic fact",
+        "verify one fact"
+      ],
+      "intake_labels": [
+        "atomic_fact"
+      ],
       "reference": "references/fact-verification.md"
     },
     {
@@ -389,8 +394,13 @@
         "label": "Social post archive",
         "target": "`references/social-media-archival.md`"
       },
-      "labels": ["social post", "archive post"],
-      "intake_labels": ["public_social_post"],
+      "labels": [
+        "social post",
+        "archive post"
+      ],
+      "intake_labels": [
+        "public_social_post"
+      ],
       "reference": "references/social-media-archival.md"
     },
     {
@@ -400,8 +410,13 @@
         "label": "Cross-platform social research",
         "target": "`references/social-source-research.md`"
       },
-      "labels": ["cross-platform social", "social claims"],
-      "intake_labels": ["social_cross_platform"],
+      "labels": [
+        "cross-platform social",
+        "social claims"
+      ],
+      "intake_labels": [
+        "social_cross_platform"
+      ],
       "reference": "references/social-source-research.md"
     },
     {
@@ -411,8 +426,15 @@
         "label": "Scoped person OSINT",
         "target": "`references/person-aggregation.md`"
       },
-      "labels": ["named person", "public role", "scoped person OSINT"],
-      "intake_labels": ["person_osint_scoped", "person_public_role"],
+      "labels": [
+        "named person",
+        "public role",
+        "scoped person OSINT"
+      ],
+      "intake_labels": [
+        "person_osint_scoped",
+        "person_public_role"
+      ],
       "reference": "references/person-aggregation.md"
     },
     {
@@ -422,8 +444,13 @@
         "label": "Investigative OSINT / threat intelligence",
         "target": "`references/investigative-research.md`"
       },
-      "labels": ["investigative OSINT", "threat intelligence"],
-      "intake_labels": ["investigative_osint"],
+      "labels": [
+        "investigative OSINT",
+        "threat intelligence"
+      ],
+      "intake_labels": [
+        "investigative_osint"
+      ],
       "reference": "references/investigative-research.md"
     },
     {
@@ -433,8 +460,13 @@
         "label": "Verified self-exposure audit",
         "target": "`references/self-exposure-audit.md`"
       },
-      "labels": ["self exposure", "breach exposure audit"],
-      "intake_labels": ["self_exposure_audit"],
+      "labels": [
+        "self exposure",
+        "breach exposure audit"
+      ],
+      "intake_labels": [
+        "self_exposure_audit"
+      ],
       "reference": "references/self-exposure-audit.md"
     },
     {
@@ -444,7 +476,10 @@
         "label": "Leak reporting / authorized corpus",
         "target": "`references/leaked-data-handling.md`"
       },
-      "labels": ["leak reporting", "authorized breach corpus"],
+      "labels": [
+        "leak reporting",
+        "authorized breach corpus"
+      ],
       "intake_labels": [],
       "reference": "references/leaked-data-handling.md"
     },
@@ -455,8 +490,13 @@
         "label": "Semantic corpus query",
         "target": "`references/semantic-retrieval.md`"
       },
-      "labels": ["semantic corpus", "find claims like"],
-      "intake_labels": ["large_corpus_semantic"],
+      "labels": [
+        "semantic corpus",
+        "find claims like"
+      ],
+      "intake_labels": [
+        "large_corpus_semantic"
+      ],
       "reference": "references/semantic-retrieval.md"
     },
     {
@@ -466,8 +506,13 @@
         "label": "Broad multi-source research",
         "target": "`references/workflow-routes.md`"
       },
-      "labels": ["broad research", "multi-source synthesis"],
-      "intake_labels": ["broad_research"],
+      "labels": [
+        "broad research",
+        "multi-source synthesis"
+      ],
+      "intake_labels": [
+        "broad_research"
+      ],
       "reference": "references/workflow-routes.md"
     },
     {
@@ -477,8 +522,13 @@
         "label": "Due diligence / red flags",
         "target": "intake `due_diligence_or_investigation`"
       },
-      "labels": ["due diligence", "red flags"],
-      "intake_labels": ["due_diligence_or_investigation"],
+      "labels": [
+        "due diligence",
+        "red flags"
+      ],
+      "intake_labels": [
+        "due_diligence_or_investigation"
+      ],
       "reference": "references/research-intake.md"
     },
     {
@@ -488,8 +538,14 @@
         "label": "Policy / standards / RFC",
         "target": "intake `policy_or_standards_analysis`"
       },
-      "labels": ["policy", "standards", "RFC"],
-      "intake_labels": ["policy_or_standards_analysis"],
+      "labels": [
+        "policy",
+        "standards",
+        "RFC"
+      ],
+      "intake_labels": [
+        "policy_or_standards_analysis"
+      ],
       "reference": "references/research-intake.md"
     },
     {
@@ -499,8 +555,14 @@
         "label": "Creative / cultural",
         "target": "intake `creative_or_cultural_research`"
       },
-      "labels": ["creative", "cultural", "reception"],
-      "intake_labels": ["creative_or_cultural_research"],
+      "labels": [
+        "creative",
+        "cultural",
+        "reception"
+      ],
+      "intake_labels": [
+        "creative_or_cultural_research"
+      ],
       "reference": "references/research-intake.md"
     },
     {
@@ -510,8 +572,13 @@
         "label": "Technical research",
         "target": "`references/source-discovery.md`, `references/workflow-routes.md`"
       },
-      "labels": ["technical research", "software investigation"],
-      "intake_labels": ["technical_research"],
+      "labels": [
+        "technical research",
+        "software investigation"
+      ],
+      "intake_labels": [
+        "technical_research"
+      ],
       "references": [
         "references/source-discovery.md",
         "references/workflow-routes.md"
@@ -524,8 +591,13 @@
         "label": "Market / competitor",
         "target": "`references/source-discovery.md`, `references/source-quality-rubric.md`"
       },
-      "labels": ["market research", "competitor analysis"],
-      "intake_labels": ["market_competitor"],
+      "labels": [
+        "market research",
+        "competitor analysis"
+      ],
+      "intake_labels": [
+        "market_competitor"
+      ],
       "references": [
         "references/source-discovery.md",
         "references/source-quality-rubric.md"
@@ -538,8 +610,14 @@
         "label": "Legal / government / financial",
         "target": "`references/specialized-domains.md`"
       },
-      "labels": ["legal", "government", "financial"],
-      "intake_labels": ["legal_government_financial"],
+      "labels": [
+        "legal",
+        "government",
+        "financial"
+      ],
+      "intake_labels": [
+        "legal_government_financial"
+      ],
       "reference": "references/specialized-domains.md"
     },
     {
@@ -549,8 +627,14 @@
         "label": "Medical / safety",
         "target": "`references/specialized-domains.md`, `references/source-quality-rubric.md`"
       },
-      "labels": ["medical", "safety", "high stakes"],
-      "intake_labels": ["medical_or_safety"],
+      "labels": [
+        "medical",
+        "safety",
+        "high stakes"
+      ],
+      "intake_labels": [
+        "medical_or_safety"
+      ],
       "references": [
         "references/specialized-domains.md",
         "references/source-quality-rubric.md"
@@ -563,8 +647,14 @@
         "label": "Dataset collection",
         "target": "`references/data-extraction-toolbox.md`, `references/data-processing-pipeline.md`"
       },
-      "labels": ["dataset", "crawl extraction"],
-      "intake_labels": ["dataset_collection", "structured_extraction"],
+      "labels": [
+        "dataset",
+        "crawl extraction"
+      ],
+      "intake_labels": [
+        "dataset_collection",
+        "structured_extraction"
+      ],
       "references": [
         "references/data-extraction-toolbox.md",
         "references/data-processing-pipeline.md"
@@ -577,8 +667,13 @@
         "label": "Academic / literature",
         "target": "`references/academic-research-protocol.md`, `references/citation-management.md`"
       },
-      "labels": ["academic", "literature review"],
-      "intake_labels": ["academic_review"],
+      "labels": [
+        "academic",
+        "literature review"
+      ],
+      "intake_labels": [
+        "academic_review"
+      ],
       "references": [
         "references/academic-research-protocol.md",
         "references/citation-management.md"
@@ -591,8 +686,13 @@
         "label": "Systematic / PRISMA",
         "target": "`references/systematic-review-protocol.md`"
       },
-      "labels": ["systematic review", "PRISMA"],
-      "intake_labels": ["systematic_review"],
+      "labels": [
+        "systematic review",
+        "PRISMA"
+      ],
+      "intake_labels": [
+        "systematic_review"
+      ],
       "reference": "references/systematic-review-protocol.md"
     },
     {
@@ -602,8 +702,12 @@
         "label": "Single URL",
         "target": "`references/browser-first-crawl.md`, `references/anti-bot-fallback.md`"
       },
-      "labels": ["specific URL"],
-      "intake_labels": ["public_url_analysis"],
+      "labels": [
+        "specific URL"
+      ],
+      "intake_labels": [
+        "public_url_analysis"
+      ],
       "references": [
         "references/browser-first-crawl.md",
         "references/anti-bot-fallback.md"
@@ -616,8 +720,12 @@
         "label": "API collection",
         "target": "`references/api-access-workflow.md`"
       },
-      "labels": ["API collection"],
-      "intake_labels": ["api_or_database"],
+      "labels": [
+        "API collection"
+      ],
+      "intake_labels": [
+        "api_or_database"
+      ],
       "reference": "references/api-access-workflow.md"
     },
     {
@@ -627,7 +735,10 @@
         "label": "Large-scale (100+)",
         "target": "`references/large-scale-collection.md`"
       },
-      "labels": ["large-scale", "100+"],
+      "labels": [
+        "large-scale",
+        "100+"
+      ],
       "intake_labels": [],
       "reference": "references/large-scale-collection.md"
     },
@@ -638,8 +749,13 @@
         "label": "Monitoring / change detection",
         "target": "`references/monitoring-change-detection.md`"
       },
-      "labels": ["monitoring", "change detection"],
-      "intake_labels": ["monitoring_change"],
+      "labels": [
+        "monitoring",
+        "change detection"
+      ],
+      "intake_labels": [
+        "monitoring_change"
+      ],
       "reference": "references/monitoring-change-detection.md"
     },
     {
@@ -649,8 +765,13 @@
         "label": "Visualization / rendered report",
         "target": "`references/data-visualization.md`, `references/report-generation.md`"
       },
-      "labels": ["visualization", "rendered report"],
-      "intake_labels": ["visualization_report"],
+      "labels": [
+        "visualization",
+        "rendered report"
+      ],
+      "intake_labels": [
+        "visualization_report"
+      ],
       "references": [
         "references/data-visualization.md",
         "references/report-generation.md"
@@ -663,8 +784,14 @@
         "label": "Multilingual / Vietnamese",
         "target": "`references/multilingual-research.md`, `references/vietnamese-source-discovery.md`"
       },
-      "labels": ["multilingual", "Vietnamese"],
-      "intake_labels": ["multilingual_local", "vietnamese_local"],
+      "labels": [
+        "multilingual",
+        "Vietnamese"
+      ],
+      "intake_labels": [
+        "multilingual_local",
+        "vietnamese_local"
+      ],
       "references": [
         "references/multilingual-research.md",
         "references/vietnamese-source-discovery.md"
@@ -677,8 +804,14 @@
         "label": "Thin recall / jargon",
         "target": "`references/register-and-jargon-expansion.md`"
       },
-      "labels": ["jargon", "vernacular", "thin recall"],
-      "intake_labels": ["register_jargon_recall"],
+      "labels": [
+        "jargon",
+        "vernacular",
+        "thin recall"
+      ],
+      "intake_labels": [
+        "register_jargon_recall"
+      ],
       "reference": "references/register-and-jargon-expansion.md"
     },
     {
@@ -688,7 +821,10 @@
         "label": "Evidence gaps",
         "target": "`references/frontier-search.md`"
       },
-      "labels": ["evidence gaps", "frontier"],
+      "labels": [
+        "evidence gaps",
+        "frontier"
+      ],
       "intake_labels": [],
       "reference": "references/frontier-search.md"
     },
@@ -698,8 +834,13 @@
         "kind": "text_anchor",
         "anchor": "**Long-horizon outer loop:**"
       },
-      "labels": ["long-horizon", "research plan"],
-      "intake_labels": ["long_horizon"],
+      "labels": [
+        "long-horizon",
+        "research plan"
+      ],
+      "intake_labels": [
+        "long_horizon"
+      ],
       "reference": "references/research-plan-protocol.md"
     }
   ],
