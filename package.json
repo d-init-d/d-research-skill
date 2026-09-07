@@ -157,7 +157,7 @@
     "schema_version": 1,
     "algorithm": "sha256",
     "file_count": 224,
-    "paths_sha256": "sha256:e6eacc3444b04cff2fef98bded410875fb588eda8633e4a0b286a6cf7c4f3269"
+    "paths_sha256": "sha256:c16281fb33bf1da268c3fcfbf8777effc33505132fea27ff2c7df1c61bd271fb"
   },
   "dependencies": {
     "playwright": "1.61.1"
