@@ -17,6 +17,7 @@ Stdlib-only. Subcommands:
 """
 from __future__ import annotations
 
+
 import argparse
 import copy
 import contextlib
@@ -37,6 +38,15 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+import importlib.util as _import_util
+
+_grounding_spec = _import_util.spec_from_file_location("d_research_source_grounding", Path(__file__).with_name("source_grounding.py"))
+if _grounding_spec is None or _grounding_spec.loader is None:
+    raise ImportError("local source grounding module unavailable")
+_grounding_module = _import_util.module_from_spec(_grounding_spec)
+_grounding_spec.loader.exec_module(_grounding_module)
+assess_source_context = _grounding_module.assess_source_context
+_detect_context_refutation = _grounding_module.detect_context_refutation
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -779,60 +789,6 @@ _REFUTATION_CONTRAST_PATTERNS = [
 ]
 
 
-def _detect_context_refutation(
-    source_text: str, quote: str, statement: str
-) -> tuple[bool, str]:
-    """RV3-01: Detect whether surrounding context in source text refutes or negates the quote/statement."""
-    if not source_text:
-        return False, ""
-
-    search_targets = [q for q in [quote.strip(), statement.strip()] if len(q) >= 4]
-    if not search_targets:
-        return False, ""
-
-    src_lower = source_text.lower()
-    for target in search_targets:
-        target_clean = re.sub(r"\[ref:[^\]]+\]", "", target).strip().lower()
-        if not target_clean:
-            continue
-
-        start = 0
-        while True:
-            idx = src_lower.find(target_clean, start)
-            if idx == -1:
-                break
-
-            w_start = max(0, idx - 250)
-            w_end = min(len(source_text), idx + len(target_clean) + 250)
-            window = source_text[w_start:w_end]
-            prefix_window = source_text[w_start:idx]
-            suffix_window = source_text[idx + len(target_clean):w_end]
-
-            for pat in _REFUTATION_PREFIX_PATTERNS:
-                if pat.search(prefix_window) or pat.search(window):
-                    return True, "source_context_refutes_claim"
-
-            for pat in _REFUTATION_CONTRAST_PATTERNS:
-                if pat.search(suffix_window) or pat.search(window):
-                    return True, "source_context_refutes_claim"
-
-            t_neg = bool(_NEGATION_RE.search(target_clean))
-            if not t_neg:
-                t_words = [
-                    w for w in re.findall(r"[a-z0-9\u00C0-\u1EF9]{4,}", target_clean)
-                    if w not in {"that", "with", "this", "from", "have", "been", "were"}
-                ]
-                if t_words:
-                    last_word = t_words[-1]
-                    neg_pattern = rf"\b(?:not|never)\s+{re.escape(last_word)}\b|\b(?:is|was|are|were)\s+not\s+{re.escape(last_word)}\b|\b(?:un|in|non-?){re.escape(last_word)}\b"
-                    if re.search(neg_pattern, window, re.IGNORECASE):
-                        return True, "source_context_refutes_claim"
-
-            start = idx + len(target_clean)
-
-    return False, ""
-
-
 def _extract_versions(text: str) -> set[str]:
     return set(_VERSION_RE.findall(text or ""))
 
@@ -960,6 +916,7 @@ def classify_claim_evidence(
         }
 
     # D05/D10: Snapshot validation if snapshot file or path is specified
+    snap_raw = snapshot_bytes
     resolved_snap_path = snapshot_path or row.get("snapshot_path")
     if resolved_snap_path:
         snap_file = Path(resolved_snap_path)
@@ -1020,6 +977,20 @@ def classify_claim_evidence(
                 "contradicts_claim": False,
                 "reason": "quote_not_in_snapshot",
             }
+
+    if snap_raw is not None:
+        actual_digest = "sha256:" + hashlib.sha256(snap_raw).hexdigest()
+        expected_digest = row.get("content_hash") or row.get("snapshot_digest")
+        if expected_digest and actual_digest != "sha256:" + str(expected_digest).removeprefix("sha256:"):
+            return {"status": "unsupported", "supports_claim": False, "contradicts_claim": False,
+                    "source_exists": True, "source_relevant": False, "reason": "snapshot_digest_mismatch"}
+        source_text = snap_raw.decode("utf-8", errors="replace")
+        grounding = assess_source_context(source_text, claim)
+        if grounding.status != "supports":
+            return {"status": grounding.status, "supports_claim": False,
+                    "contradicts_claim": grounding.status == "contradicts",
+                    "source_exists": True, "source_relevant": bool(grounding.excerpt),
+                    "reason": grounding.reason}
 
     # D10: Unopened URL rejection
     if row.get("snapshot_status") == "unopened":

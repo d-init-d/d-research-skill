@@ -1,0 +1,90 @@
+"""Conservative literal grounding with sentence-local source context.
+
+This is a text checker, not an entailment model. Ambiguous attribution and
+paraphrases require independent semantic review; a matching quote alone is not
+proof that the source asserts it. Decisions never use candidate grading fields.
+"""
+from __future__ import annotations
+
+import re
+import unicodedata
+from typing import NamedTuple
+
+
+class Grounding(NamedTuple):
+    status: str
+    reason: str
+    excerpt: str
+
+
+def normalize(text: str) -> str:
+    text = unicodedata.normalize("NFKC", text).casefold()
+    text = text.translate(str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'"}))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _sentences(text: str) -> list[str]:
+    # Retain attribution preceding a colon and quotes enclosing a sentence.
+    return [s.strip() for s in re.split(r'(?<=[.!?])\s+(?=[^"\'])|[\r\n]+', text) if s.strip()]
+
+
+def assess_source_context(source: str, statement: str) -> Grounding:
+    """Return literal support, contradiction, or an explicit review route.
+
+    No arbitrary character window: an unrelated entity in an adjacent sentence
+    cannot negate a claim. Normalization precedes both locating and interpreting
+    spans, preventing whitespace and Unicode from bypassing context checks.
+    """
+    claim = normalize(re.sub(r"\[C\d+\]", "", statement)).strip(' .!?"\'')
+    if not claim:
+        return Grounding("requires_review", "empty_claim", "")
+    pattern = re.compile(r"(?<!\w)" + re.escape(claim) + r"(?!\w)")
+    decisions: list[Grounding] = []
+    sentences = _sentences(normalize(source))
+    for index, sentence in enumerate(sentences):
+        for match in pattern.finditer(sentence):
+            prefix = sentence[:match.start()].strip(' \"\'')
+            suffix = sentence[match.end():].strip(' .!?\"\'')
+            context = prefix + " " + suffix
+            previous = sentences[index-1] if index else ""
+            following = sentences[index+1] if index+1 < len(sentences) else ""
+            if re.search(r"\b(?:following|next) (?:statement|claim|assertion)\b", previous):
+                context += " " + previous
+            if re.match(r"(?:this|that|the preceding|the previous) (?:statement|claim|assertion)\b", following):
+                context += " " + following
+            if re.search(r"\b(?:false|myth|untrue|incorrect|debunked|refuted|disproved|misleading)\b|không đúng|\bsai\b|bác bỏ", context):
+                # Negated metalinguistic claims need a reader, not a second regex inference.
+                if re.search(r"\b(?:not|isn't|wasn't)\s+(?:false|incorrect|a myth)\b", context):
+                    decisions.append(Grounding("requires_review", "ambiguous_source_context", sentence))
+                else:
+                    decisions.append(Grounding("contradicts", "source_context_refutes_claim", sentence))
+            elif prefix and not suffix and re.fullmatch(r"[\w .-]+\b(?:confirmed|verified|documented|validated)(?: that)?", prefix) and not re.search(r"\b(?:not|never|no|if|whether|allegedly)\b", prefix):
+                decisions.append(Grounding("supports", "literal_source_assertion", sentence))
+            elif prefix or suffix:
+                decisions.append(Grounding("requires_review", "attributed_or_qualified_source_span", sentence))
+            elif sentence.strip().startswith(('"', "'")):
+                decisions.append(Grounding("requires_review", "unattributed_source_quote", sentence))
+            else:
+                decisions.append(Grounding("supports", "literal_source_assertion", sentence))
+    # A same-entity negated proposition is a conflict; other entities are ignored.
+    opposite = re.sub(r"\b(is|are|was|were|can|will|has|have)\s+", r"\1 not ", claim, count=1)
+    if " not " in claim:
+        opposite = claim.replace(" not ", " ", 1)
+    if opposite != claim:
+        for sentence in sentences:
+            proposition = re.sub(r"^(?:however|in fact|actually)[,:]?\s+", "", sentence)
+            if proposition.strip(' .!?"\'') == opposite:
+                decisions.append(Grounding("contradicts", "same_entity_opposite_assertion", sentence))
+    statuses = {d.status for d in decisions}
+    if "contradicts" in statuses:
+        return next(d for d in decisions if d.status == "contradicts")
+    if "requires_review" in statuses:
+        return next(d for d in decisions if d.status == "requires_review")
+    if decisions:
+        return decisions[0]
+    return Grounding("requires_review", "semantic_paraphrase_requires_review", "")
+
+
+def detect_context_refutation(source: str, quote: str, statement: str) -> tuple[bool, str]:
+    result = assess_source_context(source, statement or quote)
+    return result.status == "contradicts", result.reason if result.status == "contradicts" else ""

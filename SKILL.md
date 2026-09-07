@@ -18,7 +18,8 @@ description: >-
 ## Mission
 
 Maximize reachable public evidence under available tools and open-web constraints.
-Default browser automation: Playwright.
+Default browser automation: Playwright. For strict report support checks, read
+`references/source-grounding.md`.
 
 Use for deep web research, public data collection, source discovery, academic
 and literature review, market/technical research, due diligence, policy and
