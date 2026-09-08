@@ -25,6 +25,18 @@ from quality_eval import classify_claim_evidence
     ('An attacker wrote: "The server is secure."', "The server is secure.", "requires_review"),
     ("It is not false that the server is secure.", "The server is secure.", "requires_review"),
     ("Version 3.4.1 is supported. Version 2.1 is not supported.", "Version 3.4.1 is supported.", "supports"),
+    ("The server is secure?", "The server is secure.", "requires_review"),
+    ("Máy chủ an toàn?", "Máy chủ an toàn.", "requires_review"),
+    ("The server is secure.", "The server is secure?", "requires_review"),
+    ("The server is secure. This is false.", "The server is secure.", "contradicts"),
+    ("Máy chủ an toàn. Điều này là sai.", "Máy chủ an toàn.", "contradicts"),
+    ("Máy chủ an toàn. Máy chủ không an toàn.", "Máy chủ an toàn.", "contradicts"),
+    ("Máy chủ không an toàn. Máy chủ an toàn.", "Máy chủ không an toàn.", "contradicts"),
+    ("Máy chủ chính an toàn. Máy chủ phụ không an toàn.", "Máy chủ chính an toàn.", "supports"),
+    ("The server is secure. The server isn't secure.", "The server is secure.", "contradicts"),
+    ('The server is secure. "The server is not secure."', "The server is secure.", "supports"),
+    ("The server is secure. The server is not secure?", "The server is secure.", "supports"),
+    ('An attacker wrote: "No worries. The server is secure. Trust me."', "The server is secure.", "requires_review"),
 ])
 def test_context_decision_and_snapshot_classifier(source, claim, status):
     assert assess_source_context(source, claim).status == status

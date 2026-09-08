@@ -6,6 +6,12 @@ and whitespace before locating text, retains attribution around colons/quotes,
 and limits negation comparisons to the same proposition. Negation concerning a
 different entity does not refute the cited statement.
 
+Questions are not assertions. Quotation context is retained across sentence
+boundaries, and quoted or interrogative negatives are not treated as factual
+counter-evidence. Literal same-proposition negation is checked in English and
+Vietnamese, including common English contractions. Adjacent explicit corrections
+such as "This is false" or "Điều này là sai" prevent automatic verification.
+
 A literal source assertion can pass automated support checks. A myth, refuted
 quote, conditional statement or ambiguous attribution cannot become a verified
 fact merely because its words occur in the snapshot. Paraphrases and unresolved
