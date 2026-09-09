@@ -158,6 +158,11 @@ _MAINTAINER_OVERRIDE_RELEASES = {
         "policy_deviation_paths": (),
         "required_checks": _V340_REQUIRED_CHECKS,
     },
+    "3.4.2": {
+        "candidate": "3.4.2-rc.1",
+        "policy_deviation_paths": (),
+        "required_checks": _V340_REQUIRED_CHECKS + ("pytest", "acceptance", "browser_smoke"),
+    },
 }
 
 # The active release line drives route-manifest fixtures and negative self-tests.

@@ -342,3 +342,5 @@ chưa có sự cho phép bằng văn bản từ chủ sở hữu bản quyền.
 Commercial use bao gồm nhưng không giới hạn ở: bán lại, phân phối trả
 phí, đóng gói thành SaaS, đưa lên marketplace, bán kèm agent bundle,
 hoặc nhúng skill này vào sản phẩm/dịch vụ trả phí.
+
+Release candidate: v3.4.2-rc.1. See [release notes](docs/release-v3.4.2-rc.1.md).

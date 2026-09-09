@@ -858,3 +858,5 @@ redistribution, SaaS packaging, marketplace distribution, paid agent
 bundles, or embedding this skill in a paid product or service.
 
 The copyright holder may offer separate commercial licenses on request.
+
+Release candidate: v3.4.2-rc.1. See [release notes](docs/release-v3.4.2-rc.1.md).

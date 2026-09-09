@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.4.2-rc.1] - 2026-09-09
+
+Release candidate for the source-grounding and report-integrity upgrade.
+
+## [3.4.2] - 2026-09-09
+
+- Bind report claims to actual source snapshot bytes and reject contradicted support in strict mode.
+- Improve English/Vietnamese questions, negation, multi-sentence quotation context, and conservative review fallback.
+- Harden report block integrity, numerical sign validation, and benchmark runner provenance.
+- Improve hermetic fixtures, Windows UTF-8 output, package portability, and adversarial regression coverage.
+- Preserve existing routes and ledger formats; stricter evidence checks can reject previously accepted unsupported reports.
+
+See [release notes](docs/release-v3.4.2.md) for upgrade instructions and assurance limits.
+
+
 ## [3.4.1] - 2026-07-28
 
 Stable production promotion of the signed `v3.4.1-rc.2` candidate. This patch
@@ -1358,7 +1373,7 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.4.2-rc.1...HEAD
 [3.4.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1
 [3.4.1-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1-rc.2
 [3.4.1-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1-rc.1
@@ -1383,3 +1398,6 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
 [3.0.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.0.0
 [2.1.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v2.1.0
 [2.0.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v2.0.0
+
+[3.4.2-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.2-rc.1
+[3.4.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.2
