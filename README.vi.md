@@ -57,12 +57,7 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
-v3.4.1 là bản stable hiện tại. Bản này mô tả chính xác capability lưu trữ và
-mutation API có ủy quyền đã tồn tại từ v3.4.0, thêm regression gate ngăn tài
-liệu quay lại assertion read-only tuyệt đối, và làm mocked social snapshot test
-ổn định trên DNS bị lọc. Không command, option, route, schema, default hay thao
-tác được hỗ trợ nào bị loại bỏ. Xem
-[`docs/release-v3.4.1.md`](docs/release-v3.4.1.md).
+v3.4.2 là bản stable hiện tại. Bản này kiểm tra báo cáo trực tiếp với nguồn, cải thiện xử lý câu hỏi/phủ định tiếng Anh và tiếng Việt, và củng cố khả năng kiểm thử tái lập. Các route và định dạng ledger hiện có vẫn được hỗ trợ; khẳng định mơ hồ hoặc bị nguồn bác bỏ có thể cần xem xét hoặc không qua chế độ kiểm tra nghiêm ngặt. Xem [release notes](docs/release-v3.4.2.md).
 
 v3.4.0 là bản stable trước đó và là một bản mở rộng khả năng theo nguyên tắc
 monotonic: mọi command, route, độ rộng ledger và default không-config đã được
@@ -186,7 +181,7 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 Paste đoạn này vào Claude Code, OpenCode, Cursor, Windsurf hoặc agent bạn dùng:
 
 ```text
-Install D Research v3.4.1 from the GitHub Release runtime artifact into
+Install D Research v3.4.2 from the GitHub Release runtime artifact into
 .agents/skills/d-research. Do not clone the repository. Download both the
 runtime .tar.gz and its .sha256 file, verify SHA-256 before extraction, keep
 the skill read-only by default, and run npm run self-test:runtime when
@@ -212,7 +207,7 @@ runtime, thay destination bằng đường dẫn tương ứng trong bảng.
 Với Bash:
 
 ```bash
-version=3.4.1
+version=3.4.2
 base="https://github.com/d-init-d/d-research-skill/releases/download/v${version}"
 mkdir -p .agents/skills
 test ! -e .agents/skills/d-research || { echo 'destination already exists' >&2; exit 1; }
@@ -226,7 +221,7 @@ test -f .agents/skills/d-research/SKILL.md
 Với PowerShell:
 
 ```powershell
-$Version = '3.4.1'
+$Version = '3.4.2'
 $Base = "https://github.com/d-init-d/d-research-skill/releases/download/v$Version"
 $Archive = "d-research-$Version-runtime.tar.gz"
 New-Item -ItemType Directory -Force .agents/skills | Out-Null
@@ -244,7 +239,7 @@ Artifact `runtime` là payload cài đặt theo allowlist: không mang CI, relea
 evidence, hostile eval fixture hay sub-skill testing chỉ dành cho developer.
 Package metadata đã project chỉ quảng bá command đóng kín trong artifact. Nếu
 cần toàn bộ bề mặt dành
-cho contributor/auditor, dùng `d-research-3.4.1-full.tar.gz`. Profile
+cho contributor/auditor, dùng `d-research-3.4.2-full.tar.gz`. Profile
 `full` (alias `source`) vẫn là bản đầy đủ capability; `runtime` chỉ là lựa chọn
 cài đặt sạch bổ sung, không thay thế bản source.
 
@@ -343,4 +338,4 @@ Commercial use bao gồm nhưng không giới hạn ở: bán lại, phân phố
 phí, đóng gói thành SaaS, đưa lên marketplace, bán kèm agent bundle,
 hoặc nhúng skill này vào sản phẩm/dịch vụ trả phí.
 
-Release candidate: v3.4.2-rc.1. See [release notes](docs/release-v3.4.2-rc.1.md).
+Release: v3.4.2. See [release notes](docs/release-v3.4.2.md).
