@@ -287,12 +287,13 @@ Tampered ledgers with stale HMAC sidecars must fail every release gate.
 
 Scripts under `scripts/` are optional. Key entry points:
 
-- Browser: `scripts/playwright_probe.mjs`, `scripts/playwright_extract.mjs`, `scripts/playwright_crawl.mjs`
-- Plan/report: `scripts/research_plan.py`, `scripts/report_render.py`, `scripts/evidence_ledger.py`
+- Browser: `scripts/browser_interaction.mjs`, `scripts/playwright_probe.mjs`, `scripts/playwright_extract.mjs`, `scripts/playwright_crawl.mjs`
+- Plan/report: `scripts/research_plan.py`, `scripts/report_render.py`, `scripts/evidence_ledger.py`, `scripts/fast_evaluator.py`
+- Controller/reconciliation: `scripts/research_controller.py`, `scripts/reconciliation.py`, `scripts/lineage_tracker.py`
 - Investigation policy: `scripts/investigation_policy.py`
 - Network: `scripts/api_fetch.mjs`, `scripts/web_search.mjs`, `scripts/http_cache.py`
 - Academic: `scripts/citation_export.py`, `scripts/citation_render.py`, `scripts/citation_resolver.py`
-- Social/archive: `scripts/social_snapshot.py`, `scripts/wayback.py`
+- Social/archive: `scripts/social_adapters.py`, `scripts/social_snapshot.py`, `scripts/wayback.py`
 - Quality: `scripts/score_source.py`, `scripts/run_dogfood.py`, `scripts/check_contract.py`
 
 Full inventory: `references/script-inventory.md`.

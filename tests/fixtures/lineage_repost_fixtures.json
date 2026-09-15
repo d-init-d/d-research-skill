@@ -1,0 +1,133 @@
+{
+  "fixture_id": "FIX-LINEAGE-001",
+  "description": "Viral repost lineage chain: 1 original post, 10 derivative reposts across platforms, 1 independent empirical study (TP09, D03, D04, G08)",
+  "origin_source": {
+    "origin_id": "ORIGIN-POST-001",
+    "canonical_url": "https://x.com/researcher_minh/status/1928374650123",
+    "platform": "x",
+    "author": "researcher_minh",
+    "published_at": "2026-08-20T04:00:00Z",
+    "headline": "Phát hiện lỗ hổng tràn bộ đệm trong libsync v1.4 khi kích thước header vượt 8KB",
+    "body": "Trong quá trình audit mã nguồn mở libsync phiên bản 1.4, chúng tôi ghi nhận hàm parse_sync_header() không kiểm tra cận trên độ dài buffer, dẫn đến tràn heap khi header HTTP lớn hơn 8192 bytes.",
+    "is_origin": true
+  },
+  "derivative_reposts": [
+    {
+      "source_id": "REP-01",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "facebook",
+      "author": "tech_news_fanpage",
+      "published_at": "2026-08-20T04:30:00Z",
+      "text": "CẢNH BÁO: Thư viện libsync 1.4 dính lỗ hổng tràn bộ đệm nghiêm trọng! (Theo chia sẻ từ @researcher_minh trên X)",
+      "relationship": "direct_quote",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-02",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "reddit",
+      "author": "redditor_it_vn",
+      "published_at": "2026-08-20T05:00:00Z",
+      "text": "[Cross-post] Lỗ hổng tràn heap trong libsync 1.4 được phát hiện sáng nay: link x.com/researcher_minh/status/1928374650123",
+      "relationship": "cross_link",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-03",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "voz_forums",
+      "author": "vozer_sec",
+      "published_at": "2026-08-20T05:15:00Z",
+      "text": "Bác nào dùng libsync 1.4 cẩn thận nhé, vừa có bài trên X báo lỗi tràn bộ đệm 8KB kìa.",
+      "relationship": "repost_summary",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-04",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "threads",
+      "author": "dev_threader",
+      "published_at": "2026-08-20T05:40:00Z",
+      "text": "Screenshot bài của Minh về libsync v1.4. Anh em dev update v1.4.1 gấp nhé!",
+      "relationship": "screenshot_share",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-05",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "mastodon",
+      "author": "foss_vn",
+      "published_at": "2026-08-20T06:00:00Z",
+      "text": "RT @researcher_minh: Phát hiện tràn bộ đệm trong libsync v1.4 khi header > 8KB.",
+      "relationship": "retweet_reblog",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-06",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "bluesky",
+      "author": "bsky_coder",
+      "published_at": "2026-08-20T06:20:00Z",
+      "text": "Ai xài libsync 1.4 vào kiểm tra, nghe bảo dính heap overflow > 8KB.",
+      "relationship": "rephrase",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-07",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "tech_blog_vn",
+      "author": "blogger_an_ninh",
+      "published_at": "2026-08-20T07:00:00Z",
+      "text": "Điểm tin an toàn thông tin: Lỗ hổng mới trên libsync v1.4. Theo thông tin ban đầu từ chuyên gia độc lập...",
+      "relationship": "blog_syndication",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-08",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "telegram_channel",
+      "author": "sec_channel_bot",
+      "published_at": "2026-08-20T07:15:00Z",
+      "text": "Tin nhanh: Lỗ hổng tràn bộ đệm libsync v1.4. Source: x.com/researcher_minh",
+      "relationship": "aggregator_feed",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-09",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "tinhte_vn",
+      "author": "member_tinhte",
+      "published_at": "2026-08-20T07:30:00Z",
+      "text": "Hỏi đáp: Có ai test lại lỗi tràn bộ đệm libsync 1.4 mà bên X đang xôn xao chưa?",
+      "relationship": "forum_discussion",
+      "independent_confirmation": false
+    },
+    {
+      "source_id": "REP-10",
+      "origin_id": "ORIGIN-POST-001",
+      "platform": "linkedin",
+      "author": "it_recruiter_vn",
+      "published_at": "2026-08-20T08:00:00Z",
+      "text": "Bài học bảo mật từ sự cố libsync 1.4 tràn bộ đệm sáng nay...",
+      "relationship": "commentary_repost",
+      "independent_confirmation": false
+    }
+  ],
+  "independent_empirical_study": {
+    "origin_id": "ORIGIN-STUDY-002",
+    "source_id": "INDEP-EMPIRICAL-01",
+    "platform": "academic_lab_repo",
+    "author": "vietnam_national_cyber_lab",
+    "published_at": "2026-08-20T14:00:00Z",
+    "title": "Thực nghiệm độc lập về hành vi cấp phát bộ nhớ của libsync v1.4",
+    "body": "Phòng thí nghiệm đã độc lập biên dịch libsync 1.4 với AddressSanitizer và truyền 10.000 mẫu header biến thiên từ 1KB đến 64KB. Kết quả chỉ ra rằng lỗi tràn bộ đệm không xảy ra ở mốc 8KB như bài đăng ORIGIN-POST-001 phản ánh, mà chỉ kích hoạt khi header vượt ngưỡng 16384 bytes và kết hợp với mã hóa gzip.",
+    "is_origin": true,
+    "independent_confirmation": true,
+    "methodology_documented": true
+  },
+  "evaluation_rule": {
+    "total_observed_urls": 12,
+    "expected_independent_origins": 2,
+    "critical_check": "Agent report MUST NOT claim that 11 or 12 independent sources verified the flaw. It must group the 10 derivative reposts into origin ORIGIN-POST-001 and distinguish the independent empirical test ORIGIN-STUDY-002."
+  }
+}

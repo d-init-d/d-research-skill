@@ -75,7 +75,24 @@ INVESTIGATIVE_SOURCE_CLASSES = {
     "raw_leak_lead_only",
 }
 PLAN_SCHEMA_VERSION = "2.0"
-SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1", "2.0", ""}  # empty/missing treated as v1
+SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1", "2.0", "2.1", "1.1.0", ""}  # empty/missing treated as v1
+BRANCH_TAXONOMY = {"documentary", "social"}
+BRANCH_STATES = {
+    "planned",
+    "running",
+    "completed",
+    "partial",
+    "blocked",
+    "no_relevant_results",
+    "scope_excluded",
+}
+BRANCH_TERMINAL_STATES = {
+    "completed",
+    "partial",
+    "blocked",
+    "no_relevant_results",
+    "scope_excluded",
+}
 
 # Required top-level keys.
 REQUIRED_TOP_KEYS = {
@@ -231,6 +248,8 @@ CANONICAL_GATES: dict[str, list[str]] = {
         "ledger_hmac_verified",
         "reproducibility_checklist_complete",
         "standard_gates_intact",
+        "dual_track_terminal",
+        "cross_branch_reconciliation_valid",
     ],
     "release_ready": [
         "synthesize_ready",
@@ -1512,7 +1531,10 @@ def detect_cycles(plan: dict[str, Any]) -> list[list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def parallelizable_tasks(plan: dict[str, Any]) -> list[str]:
+def parallelizable_tasks(
+    plan: dict[str, Any],
+    last_executed_branch: str | None = None,
+) -> list[str]:
     """Return the task ids that are ready to dispatch right now.
 
     A task is ready when:
@@ -1521,6 +1543,9 @@ def parallelizable_tasks(plan: dict[str, Any]) -> list[str]:
         dep makes this task un-runnable)
       * `parallel_safe` is true
       * no output path overlaps with another currently-running task
+
+    In 'interleaved' execution mode (or when single execution slot is configured),
+    alternates tasks between documentary and social branches to prevent starvation.
     """
     raw_tasks = plan.get("tasks", [])
     if not isinstance(raw_tasks, list):
@@ -1595,6 +1620,42 @@ def parallelizable_tasks(plan: dict[str, Any]) -> list[str]:
             )
         ready.append(tid)
         reserved_output_keys.extend(output_keys)
+
+    # Check execution mode for branch interleaving
+    exec_mode = plan.get("execution_mode")
+    if not exec_mode:
+        slots = plan.get("execution_profile", {}).get("subagent_slots", [])
+        if slots and isinstance(slots, list) and slots[0].get("max_parallel") == 1:
+            exec_mode = "interleaved"
+        else:
+            exec_mode = "concurrent"
+
+    if exec_mode == "interleaved" or last_executed_branch is not None:
+        doc_ready = [tid for tid in ready if tasks[tid].get("branch") == "documentary"]
+        soc_ready = [tid for tid in ready if tasks[tid].get("branch") == "social"]
+        other_ready = [tid for tid in ready if tasks[tid].get("branch") not in {"documentary", "social"}]
+
+        if doc_ready and soc_ready:
+            if last_executed_branch == "documentary":
+                branch_a, branch_b = soc_ready, doc_ready
+            else:
+                branch_a, branch_b = doc_ready, soc_ready
+
+            interleaved: list[str] = []
+            ia, ib = 0, 0
+            while ia < len(branch_a) or ib < len(branch_b):
+                if ia < len(branch_a):
+                    interleaved.append(branch_a[ia])
+                    ia += 1
+                if ib < len(branch_b):
+                    interleaved.append(branch_b[ib])
+                    ib += 1
+            return interleaved + other_ready
+        elif doc_ready:
+            return doc_ready + other_ready
+        elif soc_ready:
+            return soc_ready + other_ready
+
     return ready
 
 
@@ -2536,6 +2597,306 @@ def _assert_blocked_research_justified(plan, plan_path):
     return (not problems), "; ".join(problems) if problems else "OK"
 
 
+def _assert_dual_track_terminal(plan: dict[str, Any], plan_path: Path) -> tuple[bool, str]:
+    """Validate that every question has both documentary and social branches in terminal states.
+
+    Rejects fraud: branches marked 'completed' without activity_ids or source_ids fail validation.
+    """
+    base = _plan_dir(plan_path)
+    cov_path = base / "research-coverage.json"
+    if cov_path.is_file():
+        try:
+            cov = json.loads(cov_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"corrupted research-coverage.json: {e}"
+        questions = cov.get("questions")
+        if not isinstance(questions, list) or not questions:
+            return False, "research-coverage.json has empty questions"
+        problems: list[str] = []
+        for q in questions:
+            qid = str(q.get("question_id", "unknown"))
+            for bname in ("documentary_branch", "social_branch"):
+                b = q.get(bname)
+                if not isinstance(b, dict):
+                    problems.append(f"{qid}.{bname} missing or invalid")
+                    continue
+                state = b.get("state")
+                if state not in BRANCH_TERMINAL_STATES:
+                    problems.append(
+                        f"{qid}.{bname} state {state!r} is not terminal (expected one of {sorted(BRANCH_TERMINAL_STATES)})"
+                    )
+                elif state == "completed":
+                    act_ids = b.get("activity_ids") or []
+                    src_ids = b.get("source_ids") or []
+                    if not act_ids or not src_ids:
+                        problems.append(
+                            f"fraudulent completion: {qid}.{bname} marked completed without activity_ids or source_ids"
+                        )
+                elif state == "scope_excluded":
+                    ref = b.get("scope_reference")
+                    if not ref or not str(ref).strip():
+                        problems.append(
+                            f"{qid}.{bname} marked scope_excluded without scope_reference"
+                        )
+                elif state == "blocked":
+                    reason = b.get("stop_reason")
+                    if not reason or not str(reason).strip():
+                        problems.append(
+                            f"{qid}.{bname} marked blocked without stop_reason"
+                        )
+        if problems:
+            return False, "; ".join(problems)
+        return True, "OK"
+
+    # Fallback to tasks in plan if coverage sidecar not present
+    tasks = plan.get("tasks", [])
+    research_tasks = [
+        t for t in tasks
+        if t.get("phase") == "research"
+        or (
+            not t.get("phase")
+            and not any(m in op for op in t.get("outputs", []) for m in _SYNTHESIS_OUTPUT_MARKERS)
+        )
+    ]
+    if not research_tasks:
+        return False, "no research tasks found"
+
+    non_term = [t["id"] for t in research_tasks if t.get("status") not in TERMINAL_STATUS]
+    if non_term:
+        return False, f"non-terminal research tasks: {non_term}"
+
+    doc_tasks = [t for t in research_tasks if t.get("branch") == "documentary"]
+    soc_tasks = [t for t in research_tasks if t.get("branch") == "social"]
+    if doc_tasks and not soc_tasks:
+        return False, "missing social branch tasks"
+    if soc_tasks and not doc_tasks:
+        return False, "missing documentary branch tasks"
+
+    return True, "OK"
+
+
+def _assert_cross_branch_reconciliation_valid(plan: dict[str, Any], plan_path: Path) -> tuple[bool, str]:
+    """Validate cross-branch reconciliation status before synthesis."""
+    tasks = plan.get("tasks", [])
+    rec_tasks = [
+        t for t in tasks
+        if t.get("branch") == "reconciliation" or "reconcil" in t.get("id", "").lower()
+    ]
+    for t in rec_tasks:
+        deps = t.get("depends_on", [])
+        for dep_id in deps:
+            dep_task = _find_task(plan, dep_id)
+            if dep_task and dep_task.get("status") not in TERMINAL_STATUS:
+                return False, f"reconciliation task {t['id']} depends on non-terminal task {dep_id}"
+    return True, "OK"
+
+
+def generate_dual_track_tasks(
+    sub_questions: list[Any],
+    research_route: str = "broad_research",
+    execution_mode: str = "concurrent",
+    plan_dir: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Generate dual-track research tasks (Round 1 documentary + social) and reconciliation barrier tasks.
+
+    Concurrently generates both branches from Round 1 with empty depends_on.
+    """
+    tasks: list[dict[str, Any]] = []
+    normalized_questions: list[dict[str, str]] = []
+
+    for i, sq in enumerate(sub_questions):
+        if isinstance(sq, dict):
+            qid = str(sq.get("id") or sq.get("question_id") or f"Q{i+1}")
+            qtext = str(sq.get("text") or sq.get("question") or sq.get("description") or f"Question {i+1}")
+        else:
+            qid = f"Q{i+1}"
+            qtext = str(sq)
+        slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", qid.lower()).strip("-")
+        normalized_questions.append({"id": qid, "slug": slug, "text": qtext})
+
+    for item in normalized_questions:
+        qid = item["id"]
+        slug = item["slug"]
+        text = item["text"]
+        short_desc = text[:80] + ("..." if len(text) > 80 else "")
+
+        doc_tid = f"task-{slug}-doc"
+        soc_tid = f"task-{slug}-soc"
+        rec_tid = f"task-{slug}-rec"
+
+        # 1. Documentary task (Round 1, no cross-dependency)
+        tasks.append({
+            "id": doc_tid,
+            "description": f"Documentary research for {qid} ({short_desc}): primary records and official sources",
+            "phase": "research",
+            "branch": "documentary",
+            "sub_question_id": qid,
+            "depends_on": [],
+            "parallel_safe": True,
+            "owner": "main",
+            "outputs": [f"research-output/notes/{slug}-documentary.md"],
+            "status": "todo",
+            "execution": {
+                "agent": "main",
+                "subagent_slot": None,
+                "parallel_threads": 0,
+                "max_parallel_threads": 1,
+                "context_length": None,
+                "context_budget": 50000,
+                "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget",
+            },
+        })
+
+        # 2. Social task (Round 1, concurrent with documentary, no cross-dependency)
+        tasks.append({
+            "id": soc_tid,
+            "description": f"Social research for {qid} ({short_desc}): community discussions, bug reports, and user feedback",
+            "phase": "research",
+            "branch": "social",
+            "sub_question_id": qid,
+            "depends_on": [],
+            "parallel_safe": True,
+            "owner": "main",
+            "outputs": [f"research-output/notes/{slug}-social.md"],
+            "status": "todo",
+            "execution": {
+                "agent": "main",
+                "subagent_slot": None,
+                "parallel_threads": 0,
+                "max_parallel_threads": 1,
+                "context_length": None,
+                "context_budget": 50000,
+                "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget",
+            },
+        })
+
+        # 3. Reconciliation barrier node (Synthesis phase, depends on both doc and soc)
+        tasks.append({
+            "id": rec_tid,
+            "description": f"Reconciliation for {qid}: contrast documentary evidence with community observations",
+            "phase": "synthesis",
+            "branch": "reconciliation",
+            "sub_question_id": qid,
+            "depends_on": [doc_tid, soc_tid],
+            "parallel_safe": False,
+            "owner": "main",
+            "outputs": [f"research-output/sections/{slug}-reconciled.md"],
+            "status": "todo",
+            "execution": {
+                "agent": "main",
+                "subagent_slot": None,
+                "parallel_threads": 0,
+                "max_parallel_threads": 1,
+                "context_length": None,
+                "context_budget": 50000,
+                "checkpoint_policy": "write findings to declared output files immediately; split the task before reading sources or inputs that risk exceeding the context budget",
+            },
+        })
+
+    return tasks
+
+
+def init_research_coverage(
+    sub_questions: list[Any],
+    research_route: str = "broad_research",
+    execution_mode: str = "concurrent",
+    run_id: str | None = None,
+    budget_profile: str = "standard",
+) -> dict[str, Any]:
+    """Initialize a valid research-coverage.json structure according to schema 1.1.0."""
+    run_id = run_id or f"run-{datetime.now(timezone.utc).strftime('%Y%m%d')}-001"
+
+    profile_caps = {
+        "fast": {
+            "max_queries_per_branch": 2,
+            "max_sources_per_branch": 3,
+            "max_comments_per_thread": 12,
+            "thread_depth_cap": 2,
+            "max_browser_actions_per_page": 10,
+            "wall_time_cap_seconds": 180,
+        },
+        "standard": {
+            "max_queries_per_branch": 6,
+            "max_sources_per_branch": 12,
+            "max_comments_per_thread": 60,
+            "thread_depth_cap": 4,
+            "max_browser_actions_per_page": 30,
+            "wall_time_cap_seconds": 1200,
+        },
+        "deep": {
+            "max_queries_per_branch": 12,
+            "max_sources_per_branch": 30,
+            "max_comments_per_thread": 200,
+            "thread_depth_cap": 6,
+            "max_browser_actions_per_page": 60,
+            "wall_time_cap_seconds": 3600,
+        },
+    }
+    caps = profile_caps.get(budget_profile, profile_caps["standard"])
+    allocated = {
+        "profile_name": budget_profile if budget_profile in profile_caps else "standard",
+        **caps,
+    }
+
+    questions: list[dict[str, Any]] = []
+    for i, sq in enumerate(sub_questions):
+        if isinstance(sq, dict):
+            qid = str(sq.get("id") or sq.get("question_id") or f"Q{i+1}")
+            qtext = str(sq.get("text") or sq.get("question") or sq.get("description") or f"Question {i+1}")
+        else:
+            qid = f"Q{i+1}"
+            qtext = str(sq)
+
+        questions.append({
+            "question_id": qid,
+            "question_text": qtext,
+            "domain_specialist": "general",
+            "route_id": research_route,
+            "overall_status": "planned",
+            "documentary_branch": {
+                "branch_id": "documentary",
+                "state": "planned",
+                "started_at": None,
+                "finished_at": None,
+                "activity_ids": [],
+                "source_ids": [],
+                "stop_reason": None,
+                "scope_reference": None,
+            },
+            "social_branch": {
+                "branch_id": "social",
+                "state": "planned",
+                "started_at": None,
+                "finished_at": None,
+                "activity_ids": [],
+                "source_ids": [],
+                "stop_reason": None,
+                "scope_reference": None,
+            },
+            "coverage_gaps": [],
+            "stop_reason": None,
+        })
+
+    now = _utc_now_iso()
+    return {
+        "schema_version": "1.1.0",
+        "run_id": run_id,
+        "revision": 1,
+        "execution_mode": execution_mode if execution_mode in {"concurrent", "interleaved"} else "concurrent",
+        "allocated_budget": allocated,
+        "consumed_budget": {
+            "total_queries": 0,
+            "total_sources_visited": 0,
+            "total_comments_extracted": 0,
+            "total_browser_actions": 0,
+            "elapsed_wall_time_seconds": 0.0,
+        },
+        "questions": questions,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 ASSERTIONS = {
     "schema_valid": _assert_schema_valid,
     "plan_complete": _assert_plan_complete,
@@ -2565,6 +2926,8 @@ ASSERTIONS = {
     "claim_coverage_complete": _assert_claim_coverage_complete,
     "rendered_citations_exist": _assert_rendered_citations_exist,
     "stopping_criteria_satisfied": _assert_stopping_criteria_satisfied,
+    "dual_track_terminal": _assert_dual_track_terminal,
+    "cross_branch_reconciliation_valid": _assert_cross_branch_reconciliation_valid,
 }
 
 
@@ -3022,7 +3385,15 @@ def cmd_add_task(args: argparse.Namespace) -> int:
             and t["execution"].get("agent") == "subagent"
         )
         new_task["execution"] = _execution_for_task(new_task, profile, sub_count)
+    branch = getattr(args, "branch", None)
+    if branch:
+        new_task["branch"] = branch
+    sqid = getattr(args, "sub_question_id", None)
+    if sqid:
+        new_task["sub_question_id"] = sqid
+
     plan.setdefault("tasks", []).append(new_task)
+    plan["revision"] = plan.get("revision", 1) + 1
     errors = validate_schema(plan)
     if errors:
         for e in errors:
@@ -3036,6 +3407,15 @@ def cmd_add_task(args: argparse.Namespace) -> int:
         _clear_approval(plan, f"revoked after adding task {args.id}")
     _remove_rendered_plan(plan, plan_path)
     save(plan, plan_path)
+    cov_path = _plan_dir(plan_path) / "research-coverage.json"
+    if cov_path.is_file():
+        try:
+            cov = json.loads(cov_path.read_text(encoding="utf-8"))
+            cov["revision"] = plan["revision"]
+            cov["updated_at"] = _utc_now_iso()
+            cov_path.write_text(json.dumps(cov, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        except Exception:
+            pass
     print(f"added task {args.id}")
     return 0
 

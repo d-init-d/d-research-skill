@@ -9,10 +9,10 @@
       "references_markdown": 53,
       "adapters_markdown": 9,
       "examples_markdown": 9,
-      "scripts_python": 41,
-      "scripts_node_top_level": 9,
+      "scripts_python": 46,
+      "scripts_node_top_level": 10,
       "scripts_node_lib": 7,
-      "scripts_total": 57,
+      "scripts_total": 63,
       "templates_files": 18,
       "evidence_ledger_columns": 37
     },
@@ -388,7 +388,13 @@
       "intake_labels": [
         "atomic_fact"
       ],
-      "reference": "references/fact-verification.md"
+      "reference": "references/fact-verification.md",
+      "primary_intent": "Verify a single factual proposition",
+      "documentary_scope": "Official records, primary sources, reference encyclopedias",
+      "social_scope": "Community corrections, debunking threads, eyewitness context",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "social_media_archival",
@@ -404,7 +410,13 @@
       "intake_labels": [
         "public_social_post"
       ],
-      "reference": "references/social-media-archival.md"
+      "reference": "references/social-media-archival.md",
+      "primary_intent": "Capture and analyze specific public social artifacts",
+      "documentary_scope": "Platform policies, author identity records, media context",
+      "social_scope": "Quoted posts, replies, reaction threads, lineage tracking",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "social_cross_platform",
@@ -420,7 +432,13 @@
       "intake_labels": [
         "social_cross_platform"
       ],
-      "reference": "references/social-source-research.md"
+      "reference": "references/social-source-research.md",
+      "primary_intent": "Analyze public discourse across platforms",
+      "documentary_scope": "News articles, press releases, corporate announcements",
+      "social_scope": "Cross-platform discussion threads (Reddit, X, forums, YT)",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "person_osint_scoped",
@@ -438,7 +456,13 @@
         "person_osint_scoped",
         "person_public_role"
       ],
-      "reference": "references/person-aggregation.md"
+      "reference": "references/person-aggregation.md",
+      "primary_intent": "Scoped public-interest background investigation",
+      "documentary_scope": "Official public registries, biographical directories, publications",
+      "social_scope": "Public conference talks, forum contributions, professional feedback",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "investigative_osint",
@@ -454,7 +478,13 @@
       "intake_labels": [
         "investigative_osint"
       ],
-      "reference": "references/investigative-research.md"
+      "reference": "references/investigative-research.md",
+      "primary_intent": "In-depth investigative verification of complex claims",
+      "documentary_scope": "Regulatory filings, court records, leaked datasets, company registers",
+      "social_scope": "Whistleblower accounts, employee community reviews, forum leads",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "self_exposure_audit",
@@ -470,7 +500,13 @@
       "intake_labels": [
         "self_exposure_audit"
       ],
-      "reference": "references/self-exposure-audit.md"
+      "reference": "references/self-exposure-audit.md",
+      "primary_intent": "Audit exposed public footprint for authorization",
+      "documentary_scope": "Privacy policies, data broker terms, public directory listings",
+      "social_scope": "Forum profile exposures, credential leak notices, social mentions",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": true,
+      "dual_track": true
     },
     {
       "id": "leaked_data_handling",
@@ -484,7 +520,13 @@
         "authorized breach corpus"
       ],
       "intake_labels": [],
-      "reference": "references/leaked-data-handling.md"
+      "reference": "references/leaked-data-handling.md",
+      "primary_intent": "Ethical handling & verification of public breach notices",
+      "documentary_scope": "Official breach notifications, regulatory incident logs",
+      "social_scope": "Security researcher discussions, breach disclosure threads",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "semantic_retrieval",
@@ -500,7 +542,13 @@
       "intake_labels": [
         "large_corpus_semantic"
       ],
-      "reference": "references/semantic-retrieval.md"
+      "reference": "references/semantic-retrieval.md",
+      "primary_intent": "Dense thematic retrieval across broad domain",
+      "documentary_scope": "Academic papers, trade whitepapers, policy briefs",
+      "social_scope": "Specialized forum knowledge bases, curated community FAQs",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "broad_research",
@@ -516,7 +564,13 @@
       "intake_labels": [
         "broad_research"
       ],
-      "reference": "references/workflow-routes.md"
+      "reference": "references/workflow-routes.md",
+      "primary_intent": "Comprehensive landscape assessment",
+      "documentary_scope": "Industry reports, government surveys, textbooks, peer reviews",
+      "social_scope": "Multi-community sentiment, real-world user perspectives",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "due_diligence_or_investigation",
@@ -532,7 +586,13 @@
       "intake_labels": [
         "due_diligence_or_investigation"
       ],
-      "reference": "references/research-intake.md"
+      "reference": "references/research-intake.md",
+      "primary_intent": "Corporate or entity background diligence",
+      "documentary_scope": "Commercial registries, litigation databases, financial audits",
+      "social_scope": "Customer complaints, employee forums (Glassdoor/Blind), discussions",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "policy_or_standards_analysis",
@@ -549,7 +609,13 @@
       "intake_labels": [
         "policy_or_standards_analysis"
       ],
-      "reference": "references/research-intake.md"
+      "reference": "references/research-intake.md",
+      "primary_intent": "Standard or regulatory analysis",
+      "documentary_scope": "Legal codes, RFCs, ISO standards, compliance guidelines",
+      "social_scope": "Practitioner interpretation threads, implementation hurdles",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "creative_or_cultural_research",
@@ -566,7 +632,13 @@
       "intake_labels": [
         "creative_or_cultural_research"
       ],
-      "reference": "references/research-intake.md"
+      "reference": "references/research-intake.md",
+      "primary_intent": "Cultural, artistic, or literary study",
+      "documentary_scope": "Historical archives, literary critiques, exhibition catalogs",
+      "social_scope": "Fan community discussions, reception history, local cultural lore",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "technical_research",
@@ -585,7 +657,13 @@
       "references": [
         "references/source-discovery.md",
         "references/workflow-routes.md"
-      ]
+      ],
+      "primary_intent": "Deep technical problem or architectural analysis",
+      "documentary_scope": "Official documentation, specifications, source code, bug trackers",
+      "social_scope": "Developer issue threads, workarounds, benchmark discussions",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "market_competitor",
@@ -604,7 +682,13 @@
       "references": [
         "references/source-discovery.md",
         "references/source-quality-rubric.md"
-      ]
+      ],
+      "primary_intent": "Market competitor analysis",
+      "documentary_scope": "Audited earnings, corporate press, market research studies",
+      "social_scope": "Product review forums, community feature comparisons, user gripes",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "legal_government_financial",
@@ -621,7 +705,13 @@
       "intake_labels": [
         "legal_government_financial"
       ],
-      "reference": "references/specialized-domains.md"
+      "reference": "references/specialized-domains.md",
+      "primary_intent": "Official legal/regulatory/tax verification",
+      "documentary_scope": "Gazettes, statutes, court opinions, tax authority rulings",
+      "social_scope": "Legal practitioner forums, public compliance question boards",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "medical_or_safety",
@@ -641,7 +731,13 @@
       "references": [
         "references/specialized-domains.md",
         "references/source-quality-rubric.md"
-      ]
+      ],
+      "primary_intent": "Medical, health, or safety analysis",
+      "documentary_scope": "Clinical trials, FDA/EMA alerts, peer-reviewed meta-analyses",
+      "social_scope": "Patient experiences, frontline clinical discussions (unverified)",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "dataset_collection",
@@ -661,7 +757,13 @@
       "references": [
         "references/data-extraction-toolbox.md",
         "references/data-processing-pipeline.md"
-      ]
+      ],
+      "primary_intent": "Structured public data harvesting",
+      "documentary_scope": "Data portals, statistical databases, open repositories",
+      "social_scope": "Community-maintained data lists, scraping discussion forums",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "academic_review",
@@ -680,7 +782,13 @@
       "references": [
         "references/academic-research-protocol.md",
         "references/citation-management.md"
-      ]
+      ],
+      "primary_intent": "Scholarly literature review",
+      "documentary_scope": "Journal databases (Crossref, DataCite, OpenAlex), monographs",
+      "social_scope": "Academic Twitter/Bluesky critique, PubPeer discussions",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "systematic_review",
@@ -696,7 +804,13 @@
       "intake_labels": [
         "systematic_review"
       ],
-      "reference": "references/systematic-review-protocol.md"
+      "reference": "references/systematic-review-protocol.md",
+      "primary_intent": "PRISMA-compliant systematic literature search",
+      "documentary_scope": "Controlled database queries (PubMed, IEEE, ACM, arXiv)",
+      "social_scope": "Grey literature discovery, community replication attempts",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "single_url",
@@ -714,7 +828,13 @@
       "references": [
         "references/browser-first-crawl.md",
         "references/anti-bot-fallback.md"
-      ]
+      ],
+      "primary_intent": "Inspect, verify, and contextualize a single web URL",
+      "documentary_scope": "Target page content, linked official references, author info",
+      "social_scope": "Discussion threads discussing the URL, reactions, corrections",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "api_collection",
@@ -729,7 +849,13 @@
       "intake_labels": [
         "api_or_database"
       ],
-      "reference": "references/api-access-workflow.md"
+      "reference": "references/api-access-workflow.md",
+      "primary_intent": "Harvest via documented public APIs",
+      "documentary_scope": "API documentation, endpoint schema, official developer portal",
+      "social_scope": "Developer forum usage patterns, API issue threads, rate limit tips",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "large_scale",
@@ -743,7 +869,13 @@
         "100+"
       ],
       "intake_labels": [],
-      "reference": "references/large-scale-collection.md"
+      "reference": "references/large-scale-collection.md",
+      "primary_intent": "Broad-horizon multi-query collection",
+      "documentary_scope": "Multi-agency repositories, broad web crawl data",
+      "social_scope": "Extensive social multi-platform harvest",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "monitoring_change",
@@ -759,7 +891,13 @@
       "intake_labels": [
         "monitoring_change"
       ],
-      "reference": "references/monitoring-change-detection.md"
+      "reference": "references/monitoring-change-detection.md",
+      "primary_intent": "Track evolving changes or updates over time",
+      "documentary_scope": "Official changelogs, web page revision diffs, RSS feeds",
+      "social_scope": "User reaction threads to changes, immediate rollout feedback",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "visualization_report",
@@ -778,7 +916,13 @@
       "references": [
         "references/data-visualization.md",
         "references/report-generation.md"
-      ]
+      ],
+      "primary_intent": "Synthesize research into tables and charts",
+      "documentary_scope": "Underlying tabular datasets, verified statistical series",
+      "social_scope": "Community reaction graphs, sentiment breakdown tables",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "multilingual",
@@ -798,7 +942,13 @@
       "references": [
         "references/multilingual-research.md",
         "references/vietnamese-source-discovery.md"
-      ]
+      ],
+      "primary_intent": "Research across linguistic boundaries",
+      "documentary_scope": "Local government gazettes, foreign language encyclopedias",
+      "social_scope": "Non-English forums, regional discussion boards, local idioms",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "register_jargon",
@@ -815,7 +965,13 @@
       "intake_labels": [
         "register_jargon_recall"
       ],
-      "reference": "references/register-and-jargon-expansion.md"
+      "reference": "references/register-and-jargon-expansion.md",
+      "primary_intent": "Analyze community jargon, slang, or terminology",
+      "documentary_scope": "Linguistic dictionaries, academic sociolinguistic papers",
+      "social_scope": "Slang origin forum posts, community vernacular usage threads",
+      "default_mode": "interleaved",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "frontier_search",
@@ -829,7 +985,13 @@
         "frontier"
       ],
       "intake_labels": [],
-      "reference": "references/frontier-search.md"
+      "reference": "references/frontier-search.md",
+      "primary_intent": "Adaptive graph exploration following evidence leads",
+      "documentary_scope": "Primary references, cited source documents, footnotes",
+      "social_scope": "Linked reply trees, recommended forum discussions, cross-posts",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     },
     {
       "id": "long_horizon",
@@ -844,7 +1006,13 @@
       "intake_labels": [
         "long_horizon"
       ],
-      "reference": "references/research-plan-protocol.md"
+      "reference": "references/research-plan-protocol.md",
+      "primary_intent": "Multi-stage autonomous deep research campaign",
+      "documentary_scope": "Comprehensive archival and documentary library",
+      "social_scope": "Multi-community longitudinal sentiment and feedback",
+      "default_mode": "concurrent",
+      "scope_exemption_allowed": false,
+      "dual_track": true
     }
   ],
   "required_skill_references": [
@@ -911,7 +1079,9 @@
       "ledger_validates",
       "ledger_hmac_verified",
       "reproducibility_checklist_complete",
-      "standard_gates_intact"
+      "standard_gates_intact",
+      "dual_track_terminal",
+      "cross_branch_reconciliation_valid"
     ],
     "release_ready": [
       "synthesize_ready",
@@ -922,6 +1092,25 @@
       "claim_coverage_complete",
       "stopping_criteria_satisfied",
       "standard_gates_intact"
+    ]
+  },
+  "dual_track_contract": {
+    "version": "1.1.0",
+    "mandatory_branches": [
+      "documentary",
+      "social"
+    ],
+    "starting_round": 1,
+    "disallowed_initial_cross_dependencies": true,
+    "reconciliation_required_before_synthesis": true,
+    "terminal_states": [
+      "planned",
+      "running",
+      "completed",
+      "partial",
+      "blocked",
+      "no_relevant_results",
+      "scope_excluded"
     ]
   }
 }
