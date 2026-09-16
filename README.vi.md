@@ -16,6 +16,7 @@ D Research biến research bằng agent từ kiểu "tìm nhanh rồi trả lờ
 |---|---|
 | Người dùng chính | AI agent, người vận hành agent, researcher, developer hoặc team cần kết quả research có nguồn và có thể kiểm tra lại. |
 | Cách truy cập | Read-only mặc định. Các thao tác lưu trữ hoặc mutation API do người dùng ủy quyền rõ ràng vẫn khả dụng qua command chuyên dụng hoặc `--intent archive\|mutation`. |
+| Cấu trúc research | Nhánh tài liệu/chính thống và nhánh social/community cùng bắt đầu từ vòng đầu; chạy song song thật khi runtime hỗ trợ, nếu không thì xen kẽ và ghi đúng chế độ. |
 | Đầu ra | Evidence ledger, citation file, bảng trích xuất, frontier ledger, coverage map, research plan, report, metadata tái lập. |
 | Kiểm chứng | Self-test offline, internal-reference check, dogfood bench 12 task, frontier bench 52 task / 26 class. |
 | Ranh giới an toàn | Không bypass login, paywall, captcha, rate limit, robots restriction hoặc access control. Nguồn bị chặn thì ghi blocker report. |
@@ -41,6 +42,10 @@ chưa có hệ thống vận hành riêng.
 Đây là **skill package**, không phải app, API server, crawler SaaS hay package Python. Agent đọc `SKILL.md` và làm theo workflow. Các file trong `references/`, `adapters/`, `templates/`, `examples/` và `scripts/` là tài liệu và helper để agent làm research nhất quán hơn.
 
 Các script trong `scripts/` là helper tùy chọn, nhỏ và dễ audit. Chúng hỗ trợ workflow nhưng không thay thế agent.
+
+Một nhánh chỉ được đánh dấu hoàn tất khi ID hoạt động và nguồn resolve tới log
+thực thi cùng capture có SHA-256 khớp. Search snippet, parser output, URL chưa
+đọc hoặc counter do evaluator tự ghi không được xem là bằng chứng đã research.
 
 ## Vòng đời research (v3.x)
 

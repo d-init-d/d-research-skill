@@ -5,7 +5,6 @@ test_lineage_and_claim_policy.py - Acceptance Tests for DRS-1.1 Package W08 (D01
 import json
 from pathlib import Path
 import sys
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
@@ -20,6 +19,21 @@ from lineage_tracker import (
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
+def _verified_evidence(source_id, lineage_id, source_url, source_kind="primary"):
+    return {
+        "source_id": source_id,
+        "activity_id": f"act-{source_id}",
+        "capture_id": f"cap-{source_id}",
+        "source_url": source_url,
+        "source_kind": source_kind,
+        "lineage_id": lineage_id,
+        "verification_status": "verified",
+        "supports_claim": True,
+        "content_hash": "sha256:" + "a" * 64,
+        "integrity_status": "live_intact",
+    }
+
+
 def test_d01_official_corporate_social_post():
     """Acceptance D01: Official corporate social post asserting claim X admitted under statement_made."""
     assessor = UnifiedClaimAssessor()
@@ -31,7 +45,15 @@ def test_d01_official_corporate_social_post():
         speaker_relationship="authorized_representative",
         content_origin="original",
         independent_origins=1,
-        integrity_status="live_intact"
+        integrity_status="live_intact",
+        evidence_records=[
+            _verified_evidence(
+                "SRC-OFFICIAL-01",
+                "LIN-OFFICIAL-01",
+                "https://official.example/releases/2.1.1",
+                "official",
+            )
+        ],
     )
 
     assert res.reporting_disposition == "main_findings"
@@ -86,7 +108,15 @@ def test_d05_community_lead_verified_by_primary_docs():
         speaker_relationship="firsthand",
         content_origin="original",
         independent_origins=1,
-        corroborating_doc_url="https://docs.lumen.example.com/v2.1/data-export"
+        corroborating_doc_url="https://docs.lumen.example.com/v2.1/data-export",
+        evidence_records=[
+            _verified_evidence(
+                "SRC-DOC-01",
+                "LIN-DOC-01",
+                "https://docs.lumen.example.com/v2.1/data-export",
+                "documentary",
+            )
+        ],
     )
 
     assert res.reporting_disposition == "main_findings"
@@ -119,7 +149,11 @@ def test_d06_unified_admission_policy_consistency():
         speaker_identity="verified_expert",
         speaker_relationship="firsthand",
         content_origin="original",
-        independent_origins=3
+        independent_origins=3,
+        evidence_records=[
+            _verified_evidence("SRC-01", "LIN-01", "https://one.example/finding"),
+            _verified_evidence("SRC-02", "LIN-02", "https://two.example/finding"),
+        ],
     )
     assert res_corrob.reporting_disposition == "main_findings"
     assert res_corrob.verification_state == "supported"
@@ -167,9 +201,30 @@ def test_d08_quote_embedded_in_negation_context():
         speaker_identity="official",
         speaker_relationship="authorized_representative",
         content_origin="original",
-        independent_origins=2
+        independent_origins=2,
+        evidence_records=[
+            _verified_evidence("SRC-NEG-01", "LIN-NEG-01", "https://one.example/denial"),
+            _verified_evidence("SRC-NEG-02", "LIN-NEG-02", "https://two.example/denial"),
+        ],
     )
 
     assert res.has_negation_context is True
     assert res.verification_state == "statement_confirmed"
     assert any("downgraded to statement_confirmed to preserve semantics" in r for r in res.reasons)
+
+
+def test_url_only_and_unresolved_origin_count_never_promote_claim():
+    assessor = UnifiedClaimAssessor()
+    result = assessor.assess_claim(
+        claim_id="CLM-UNREAD-URL",
+        claim_text="An audit-only event is confirmed.",
+        claim_kind="underlying_fact",
+        speaker_identity="unknown",
+        speaker_relationship="unknown",
+        content_origin="original",
+        independent_origins=99,
+        corroborating_doc_url="https://example.invalid/never-read-source",
+    )
+    assert result.verification_state == "unverified"
+    assert result.reporting_disposition == "non_official_unverified_leads"
+    assert result.independent_origin_count == 0

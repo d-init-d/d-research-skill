@@ -17,8 +17,7 @@ import re
 import sys
 import unicodedata
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -611,55 +610,55 @@ class VietnameseForumAdapter:
 PLATFORM_CAPABILITIES_SPEC = {
     "reddit": {
         "operations": ["read_post", "read_comments_tree", "search_community", "sort_comments"],
-        "backend": "playwright_browser_and_json",
+        "backend": "payload_parser_and_generic_browser_recipe",
         "auth_required": False,
         "fixture_tested": True,
-        "live_status": "available",
+        "live_status": "unverified_live",
         "depth_cap": 6,
         "rate_limit_per_min": 60
     },
     "hackernews": {
         "operations": ["read_item", "read_kids_tree", "search_algolia"],
-        "backend": "playwright_browser_and_api",
+        "backend": "payload_parser_and_generic_browser_recipe",
         "auth_required": False,
         "fixture_tested": True,
-        "live_status": "available",
+        "live_status": "unverified_live",
         "depth_cap": 6,
         "rate_limit_per_min": 120
     },
     "youtube": {
         "operations": ["read_metadata", "read_transcript_interactive", "read_top_comments"],
-        "backend": "playwright_browser",
+        "backend": "transcript_payload_parser_and_generic_browser_recipe",
         "auth_required": False,
         "fixture_tested": True,
-        "live_status": "available",
+        "live_status": "unverified_live",
         "depth_cap": 2,
         "rate_limit_per_min": 30
     },
     "vietnamese_forums": {
         "operations": ["browse_thread", "read_posts", "parse_pagination", "slang_expansion"],
-        "backend": "playwright_browser",
+        "backend": "html_payload_parser_and_generic_browser_recipe",
         "auth_required": False,
         "fixture_tested": True,
-        "live_status": "available",
+        "live_status": "unverified_live",
         "depth_cap": 3,
         "rate_limit_per_min": 40
     },
     "bluesky": {
         "operations": ["get_post_thread", "resolve_did"],
-        "backend": "public_api_and_browser",
+        "backend": "generic_public_api_or_browser_recipe",
         "auth_required": False,
         "fixture_tested": True,
-        "live_status": "available",
+        "live_status": "unverified_live",
         "depth_cap": 4,
         "rate_limit_per_min": 100
     },
     "mastodon": {
         "operations": ["get_status_context", "get_replies"],
-        "backend": "public_api_and_browser",
+        "backend": "generic_public_api_or_browser_recipe",
         "auth_required": False,
         "fixture_tested": True,
-        "live_status": "available",
+        "live_status": "unverified_live",
         "depth_cap": 4,
         "rate_limit_per_min": 100
     },
@@ -689,8 +688,15 @@ def get_platform_capability_matrix() -> Dict[str, Any]:
         "schema_version": "1.0",
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "total_platforms": len(PLATFORM_CAPABILITIES_SPEC),
-        "tier_a_available": ["reddit", "hackernews", "youtube", "vietnamese_forums", "bluesky", "mastodon"],
-        "tier_b_gated": ["x_twitter", "facebook"],
+        "fixture_verified": [
+            "reddit", "hackernews", "youtube", "vietnamese_forums", "bluesky", "mastodon"
+        ],
+        "live_verified": [],
+        "access_gated": ["x_twitter", "facebook"],
+        "capability_note": (
+            "Fixture/parser verification does not establish live platform access. "
+            "A live operation is supported only by evidence from that run."
+        ),
         "platforms": PLATFORM_CAPABILITIES_SPEC
     }
 

@@ -405,6 +405,7 @@ def validate_ledger(file: Path) -> int:
         has_record_type = "record_type" in active_fields
         has_policy_cols = active_fields == FIELDS_V3_3
         seen_ids: set[str] = set()
+        pending_social_corroboration: list[tuple[int, str]] = []
         for i, row in enumerate(reader, start=2):
             claim_id = row.get("claim_id", "").strip()
             if not claim_id:
@@ -688,25 +689,42 @@ def validate_ledger(file: Path) -> int:
                         and (row.get("content_hash") or "").strip()
                     )
                     notes_value = (row.get("notes") or "").strip().lower()
-                    if not (
+                    official_statement = (
                         speaker_identity in {"official", "verified_public_role"}
                         and speaker_relationship
                         in {"subject", "authorized_representative"}
                         and content_origin == "original"
                         and (direct_integrity or archive_integrity)
-                    ):
-                        errors.append(
-                            f"line {i}: social main_findings requires an official/"
-                            "verified subject or representative, original content, "
-                            "and intact hash-bound direct or archive evidence"
+                        and re.search(
+                            r"(?:^|;\s*)claim_kind=statement_made(?:;|$)",
+                            notes_value,
                         )
-                    if not re.search(
-                        r"(?:^|;\s*)claim_kind=statement_made(?:;|$)", notes_value
-                    ):
-                        errors.append(
-                            f"line {i}: social main_findings requires "
-                            "notes claim_kind=statement_made"
+                    )
+                    corroborated_match = re.search(
+                        r"(?:^|;\s*)corroborated_by=([a-z0-9_.:-]+)(?:;|$)",
+                        notes_value,
+                    )
+                    supported_community_fact = (
+                        content_origin == "original"
+                        and (direct_integrity or archive_integrity)
+                        and re.search(
+                            r"(?:^|;\s*)claim_kind=underlying_fact(?:;|$)",
+                            notes_value,
                         )
+                        and re.search(
+                            r"(?:^|;\s*)verification_state=supported(?:;|$)",
+                            notes_value,
+                        )
+                        and corroborated_match is not None
+                    )
+                    if not (official_statement or supported_community_fact):
+                        errors.append(
+                            f"line {i}: social main_findings requires either a hash-bound "
+                            "official statement or a hash-bound community fact with "
+                            "verification_state=supported and corroborated_by=<claim_id>"
+                        )
+                    elif supported_community_fact and corroborated_match:
+                        pending_social_corroboration.append((i, corroborated_match.group(1)))
                 if (
                     content_origin in {"quote", "repost", "screenshot"}
                     or speaker_relationship == "repost"
@@ -842,6 +860,12 @@ def validate_ledger(file: Path) -> int:
                         errors.append(
                             f"line {i}: R3 retention_until exceeds the 30-day maximum"
                         )
+    for line_number, corroborating_claim_id in pending_social_corroboration:
+        if corroborating_claim_id not in seen_ids:
+            errors.append(
+                f"line {line_number}: corroborated_by references unknown claim_id "
+                f"{corroborating_claim_id}"
+            )
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

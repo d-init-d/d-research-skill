@@ -2,10 +2,8 @@
 test_reconciliation.py - Acceptance Tests for DRS-1.1 Package W09 (E03 - E06).
 """
 
-import json
 from pathlib import Path
 import sys
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
@@ -13,8 +11,6 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from reconciliation import (
     CrossBranchReconciler,
-    DiscrepancyPair,
-    TimelineEvent,
 )
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"

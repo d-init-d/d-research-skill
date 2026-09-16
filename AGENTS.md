@@ -20,11 +20,18 @@ Use `references/workflow-routes.md` as the narrative decision tree. Do not dispa
    cross-platform social, scoped-person, self-exposure, and single-URL branches
    override the broad workflow when their entry conditions hold; follow their
    branch-specific output contracts.
-3. For broad work, restate the goal; decompose questions/entities/aliases;
-   create the source map; fan out official, primary, dataset, recent, and
-   contradiction queries; probe browser-first; extract least-invasively; expand
-   within limits; maintain the evidence ledger; and search for contradictions.
-4. For more than 5 sub-questions, more than 50 sources, multi-context runtime,
+3. Start documentary and social/community evidence branches in round one for
+   every research route. Use real concurrent execution when slots exist;
+   otherwise interleave and label the mode honestly. Use Playwright for
+   relevant public dynamic pages in both branches, including replies,
+   pagination, corrections, and transcripts. Persist activity logs and
+   hash-bound captures; do not mark completion from non-empty IDs alone.
+4. For broad work, restate the goal; decompose questions/entities/aliases;
+   create both source maps; fan out official, primary, academic, dataset,
+   archive, community, thread, correction, recent, and contradiction queries;
+   extract least-invasively; expand within limits; maintain the evidence ledger;
+   and reconcile both branches claim by claim.
+5. For more than 5 sub-questions, more than 50 sources, multi-context runtime,
    or audit-grade output, wrap the route in `references/research-plan-protocol.md`.
    Create one schema-2.0 workspace, configure execution, render, pass
    `plan_ready`, approve, then pass `execute_ready` before any task starts.
@@ -32,13 +39,13 @@ Use `references/workflow-routes.md` as the narrative decision tree. Do not dispa
    HMAC via `D_RESEARCH_LEDGER_KEY`; `release_ready` additionally requires
    terminal synthesis tasks/outputs, exact report and citations, 100% authored
    claim coverage, and satisfied stopping criteria. Report the workspace path.
-5. For investigative tiers `R1`-`R4`, create and validate
+6. For investigative tiers `R1`-`R4`, create and validate
    `investigation-scope.json`, then bind it with `research_plan.py bind-policy`.
    Do not dispatch if `investigation_scope_valid` fails. Keep main findings,
    non-official/unverified leads, blocked/prohibited sources, and
    contradictions/unknowns separate.
-6. Before non-trivial synthesis, apply `references/execution-gates.md`. Do not claim completeness unless the relevant execution gates passed.
-7. Finish with `references/reproducibility-checklist.md`; render/lint planned
+7. Before non-trivial synthesis, apply `references/execution-gates.md`. Do not claim completeness unless the relevant execution gates passed.
+8. Finish with `references/reproducibility-checklist.md`; render/lint planned
    reports with `scripts/report_render.py` and score important sources with
    `scripts/score_source.py`.
 

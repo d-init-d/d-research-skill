@@ -11,12 +11,11 @@ Verifies:
 - A08: Monotonic revision increment on resume / incremental inquiry
 """
 
+import hashlib
 import json
-import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import sys
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
@@ -29,16 +28,81 @@ from research_plan import (
     init_research_coverage,
     parallelizable_tasks,
     _assert_dual_track_terminal,
-    _assert_cross_branch_reconciliation_valid,
-    BRANCH_TERMINAL_STATES,
 )
 from fast_evaluator import evaluate_fast
+
+
+def _write_execution_evidence(workspace: Path, branches=("documentary", "social")):
+    activity_paths = []
+    capture_paths = []
+    refs = {}
+    timestamp = "2026-09-16T00:00:00Z"
+    for branch in branches:
+        out_dir = workspace / f"{branch}-run"
+        capture_dir = out_dir / "captures"
+        capture_dir.mkdir(parents=True)
+        activity_id = f"act-{branch}-001"
+        capture_id = f"cap-{branch}-001"
+        source_id = f"src-{branch}-001"
+        payload = f"Observed {branch} evidence for Q1.\n".encode()
+        raw_ref = f"captures/{capture_id}.txt"
+        (out_dir / raw_ref).write_bytes(payload)
+        activity = {
+            "schema_version": "1.1.0",
+            "activity_id": activity_id,
+            "branch_id": branch,
+            "question_ids": ["Q1"],
+            "purpose": f"Read {branch} source",
+            "observed_state_ref": None,
+            "action_type": "navigate",
+            "target_locator": None,
+            "action_payload": {"url": f"https://example.test/{branch}"},
+            "started_at": timestamp,
+            "finished_at": timestamp,
+            "final_url": f"https://example.test/{branch}",
+            "outcome": "success",
+            "output_capture_ids": [capture_id],
+            "limitation": None,
+            "tool_details": {"engine": "test-fixture", "mode": "offline", "response_status": 200},
+        }
+        capture = {
+            "schema_version": "1.1.0",
+            "capture_id": capture_id,
+            "source_id": source_id,
+            "branch_id": branch,
+            "activity_id": activity_id,
+            "retrieved_at": timestamp,
+            "source_url": f"https://example.test/{branch}",
+            "final_url": f"https://example.test/{branch}",
+            "method": "test_fixture",
+            "bytes_hash": "sha256:" + hashlib.sha256(payload).hexdigest(),
+            "byte_length": len(payload),
+            "dom_locator": "main",
+            "raw_text_ref": raw_ref,
+            "screenshot_ref": None,
+            "extraction_limits": {
+                "truncated": False,
+                "items_extracted": 1,
+                "total_estimated": 1,
+                "truncation_reason": None,
+            },
+            "artifact_version": 1,
+        }
+        activity_path = out_dir / "activity-log.json"
+        capture_path = out_dir / "capture-records.json"
+        activity_path.write_text(json.dumps([activity]), encoding="utf-8")
+        capture_path.write_text(json.dumps([capture]), encoding="utf-8")
+        activity_paths.append(activity_path)
+        capture_paths.append(capture_path)
+        refs[branch] = {"activity_id": activity_id, "source_id": source_id}
+    return activity_paths, capture_paths, refs
 
 
 def test_a01_fast_fact_social_errata(tmp_path):
     """A01: Fast fact check queries official source and community errata; rejects fraudulent completion."""
     ws = tmp_path / "a01_fast_fact"
     ws.mkdir()
+    activity_logs, capture_records, _refs = _write_execution_evidence(ws)
     
     # 1. Run fast evaluator on an atomic fact
     cov = evaluate_fast(
@@ -46,6 +110,8 @@ def test_a01_fast_fact_social_errata(tmp_path):
         question="What is the official release date of Lumen 2.1?",
         workspace_dir=ws,
         execution_mode="interleaved",
+        activity_logs=activity_logs,
+        capture_records=capture_records,
     )
     
     assert cov["schema_version"] == "1.1.0"
@@ -83,6 +149,20 @@ def test_a01_fast_fact_social_errata(tmp_path):
     fraud_ok, fraud_detail = _assert_dual_track_terminal(plan, plan_file)
     assert fraud_ok is False
     assert "fraudulent completion" in fraud_detail.lower()
+
+
+def test_fast_evaluator_without_execution_evidence_stays_planned(tmp_path):
+    coverage = evaluate_fast(
+        route="atomic_fact",
+        question="UNIQUE-NO-SOURCES",
+        workspace_dir=tmp_path,
+    )
+    question = coverage["questions"][0]
+    assert question["overall_status"] == "planned"
+    assert question["documentary_branch"]["state"] == "planned"
+    assert question["social_branch"]["state"] == "planned"
+    assert coverage["consumed_budget"]["total_browser_actions"] == 0
+    assert not (tmp_path / "research-output" / "notes" / "q1-documentary.md").exists()
 
 
 def test_a02_multi_question_coverage():
@@ -129,6 +209,16 @@ def test_a03_concurrent_execution_overlap(tmp_path):
     t_start_s = t0 + timedelta(milliseconds=150)  # slightly later start
     t_end_d = t0 + timedelta(seconds=2)
     t_end_s = t0 + timedelta(seconds=3)
+    _activity_logs, _capture_records, refs = _write_execution_evidence(ws)
+    for branch, started_at, finished_at in (
+        ("documentary", t_start_d, t_end_d),
+        ("social", t_start_s, t_end_s),
+    ):
+        activity_path = ws / f"{branch}-run" / "activity-log.json"
+        records = json.loads(activity_path.read_text(encoding="utf-8"))
+        records[0]["started_at"] = started_at.isoformat().replace("+00:00", "Z")
+        records[0]["finished_at"] = finished_at.isoformat().replace("+00:00", "Z")
+        activity_path.write_text(json.dumps(records), encoding="utf-8")
 
     # Prove temporal overlap: max(start_d, start_s) < min(end_d, end_s)
     overlap_start = max(t_start_d, t_start_s)
@@ -168,8 +258,8 @@ def test_a03_concurrent_execution_overlap(tmp_path):
                     "state": "completed",
                     "started_at": t_start_d.isoformat().replace("+00:00", "Z"),
                     "finished_at": t_end_d.isoformat().replace("+00:00", "Z"),
-                    "activity_ids": ["act_doc_01"],
-                    "source_ids": ["src_doc_01"],
+                    "activity_ids": [refs["documentary"]["activity_id"]],
+                    "source_ids": [refs["documentary"]["source_id"]],
                     "stop_reason": "done",
                     "scope_reference": None,
                 },
@@ -178,8 +268,8 @@ def test_a03_concurrent_execution_overlap(tmp_path):
                     "state": "completed",
                     "started_at": t_start_s.isoformat().replace("+00:00", "Z"),
                     "finished_at": t_end_s.isoformat().replace("+00:00", "Z"),
-                    "activity_ids": ["act_soc_01"],
-                    "source_ids": ["src_soc_01"],
+                    "activity_ids": [refs["social"]["activity_id"]],
+                    "source_ids": [refs["social"]["source_id"]],
                     "stop_reason": "done",
                     "scope_reference": None,
                 },
@@ -260,12 +350,15 @@ def test_a05_single_url_social_bounded(tmp_path):
     """A05: Single URL evaluation stays strictly bounded within thread context without runaway account crawls."""
     ws = tmp_path / "a05_single_url"
     ws.mkdir()
+    activity_logs, capture_records, _refs = _write_execution_evidence(ws)
 
     cov = evaluate_fast(
         route="single_url",
         question="Analyze the release announcement at https://example.com/blog/lumen-2-1",
         workspace_dir=ws,
         execution_mode="interleaved",
+        activity_logs=activity_logs,
+        capture_records=capture_records,
     )
 
     assert cov["allocated_budget"]["profile_name"] == "fast"
@@ -279,12 +372,15 @@ def test_a06_user_corpus_restriction(tmp_path):
     """A06: User prompt restricting search to corpus transitions external branch to scope_excluded."""
     ws = tmp_path / "a06_corpus_only"
     ws.mkdir()
+    activity_logs, capture_records, _refs = _write_execution_evidence(ws, ("documentary",))
 
     cov = evaluate_fast(
         route="broad_research",
         question="Analyze policy implications --corpus-only",
         workspace_dir=ws,
         corpus_only=True,
+        activity_logs=activity_logs,
+        capture_records=capture_records,
     )
 
     q = cov["questions"][0]
@@ -338,14 +434,15 @@ def test_a08_revision_increment_on_resume(tmp_path):
     plan_file = ws / "research-plan.json"
     save_plan(plan, plan_file)
 
-    # Initial coverage is completed for Q1
+    # Initial coverage is completed for Q1 using resolvable execution evidence.
+    _activity_logs, _capture_records, refs = _write_execution_evidence(ws)
     cov = init_research_coverage(["Q1 Question"], run_id="run-a08")
     cov["questions"][0]["documentary_branch"]["state"] = "completed"
-    cov["questions"][0]["documentary_branch"]["activity_ids"] = ["act_1"]
-    cov["questions"][0]["documentary_branch"]["source_ids"] = ["src_1"]
+    cov["questions"][0]["documentary_branch"]["activity_ids"] = [refs["documentary"]["activity_id"]]
+    cov["questions"][0]["documentary_branch"]["source_ids"] = [refs["documentary"]["source_id"]]
     cov["questions"][0]["social_branch"]["state"] = "completed"
-    cov["questions"][0]["social_branch"]["activity_ids"] = ["act_2"]
-    cov["questions"][0]["social_branch"]["source_ids"] = ["src_2"]
+    cov["questions"][0]["social_branch"]["activity_ids"] = [refs["social"]["activity_id"]]
+    cov["questions"][0]["social_branch"]["source_ids"] = [refs["social"]["source_id"]]
     (ws / "research-coverage.json").write_text(json.dumps(cov), encoding="utf-8")
 
     ok1, _ = _assert_dual_track_terminal(plan, plan_file)

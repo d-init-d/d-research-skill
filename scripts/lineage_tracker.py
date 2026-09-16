@@ -10,15 +10,13 @@ and negation/refutation context preservation.
 from __future__ import annotations
 
 import argparse
-import datetime
-import hashlib
 import json
 import re
 import sys
 import unicodedata
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Tuple
+from urllib.parse import urlparse
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +231,29 @@ class UnifiedClaimAssessor:
     def __init__(self):
         self.negation_analyzer = NegationContextAnalyzer()
 
+    @staticmethod
+    def _verified_evidence(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Return evidence records that carry execution, capture, and integrity proof."""
+        verified: List[Dict[str, Any]] = []
+        for record in records:
+            content_hash = str(record.get("content_hash") or record.get("bytes_hash") or "")
+            source_url = str(record.get("source_url") or "")
+            parsed = urlparse(source_url)
+            if (
+                record.get("verification_status") == "verified"
+                and record.get("supports_claim") is True
+                and str(record.get("source_id") or "").strip()
+                and str(record.get("activity_id") or "").strip()
+                and str(record.get("capture_id") or "").strip()
+                and re.fullmatch(r"sha256:[0-9a-f]{64}", content_hash)
+                and parsed.scheme in {"http", "https"}
+                and bool(parsed.netloc)
+                and record.get("integrity_status")
+                in {"live_intact", "archive_snapshot", "intact"}
+            ):
+                verified.append(record)
+        return verified
+
     def assess_claim(
         self,
         claim_id: str,
@@ -245,9 +266,17 @@ class UnifiedClaimAssessor:
         integrity_status: str = "live_intact",
         data_sensitivity: str = "public",
         corroborating_doc_url: str = "",
-        is_official_silence_case: bool = False
+        is_official_silence_case: bool = False,
+        evidence_records: List[Dict[str, Any]] | None = None,
     ) -> ClaimAssessment:
         reasons: List[str] = []
+        verified_evidence = self._verified_evidence(evidence_records or [])
+        verified_lineages = {
+            str(record.get("lineage_id"))
+            for record in verified_evidence
+            if str(record.get("lineage_id") or "").strip()
+        }
+        verified_origin_count = len(verified_lineages)
 
         # Check negation context
         has_neg, neg_note = self.negation_analyzer.analyze(claim_text)
@@ -262,6 +291,16 @@ class UnifiedClaimAssessor:
         is_direct = speaker_relationship in {"subject", "authorized_representative"}
         is_original = content_origin == "original"
         is_stable = integrity_status in {"live_intact", "archive_snapshot", "intact"}
+        authoritative_evidence = [
+            record
+            for record in verified_evidence
+            if record.get("source_kind") in {"official", "primary", "documentary"}
+        ]
+        corroborating_evidence = [
+            record
+            for record in authoritative_evidence
+            if not corroborating_doc_url or record.get("source_url") == corroborating_doc_url
+        ]
 
         # Rule 1: Prohibited sensitivity
         if data_sensitivity in {"secret", "minor"}:
@@ -287,13 +326,14 @@ class UnifiedClaimAssessor:
             and is_direct
             and is_original
             and is_stable
+            and authoritative_evidence
         ):
             reporting_disp = "main_findings"
             verif_state = "statement_confirmed"
             reasons.append("Official authoritative source confirms that the statement was made")
 
         # Rule 3: Community lead verified against primary documentation (Acceptance D05)
-        elif corroborating_doc_url and is_stable:
+        elif corroborating_doc_url and is_stable and corroborating_evidence:
             reporting_disp = "main_findings"
             verif_state = "supported"
             reasons.append(f"Community lead corroborated by primary documentary source: {corroborating_doc_url}")
@@ -311,10 +351,12 @@ class UnifiedClaimAssessor:
             reasons.append("Official silence noted; social coverup allegations retained as unverified leads, not factual proof of coverup")
 
         # Rule 6: Multiple independent origins corroboration
-        elif independent_origins >= 2 and is_original and is_stable:
+        elif verified_origin_count >= 2 and is_original and is_stable:
             reporting_disp = "main_findings"
             verif_state = "supported"
-            reasons.append(f"Empirical claim supported by {independent_origins} distinct independent lineages")
+            reasons.append(
+                f"Empirical claim supported by {verified_origin_count} hash-verified independent lineages"
+            )
 
         else:
             reporting_disp = "non_official_unverified_leads"
@@ -335,7 +377,7 @@ class UnifiedClaimAssessor:
             speaker_identity=speaker_identity,
             speaker_relationship=speaker_relationship,
             content_origin=content_origin,
-            independent_origin_count=independent_origins,
+            independent_origin_count=verified_origin_count,
             has_negation_context=has_neg,
             negation_note=neg_note,
             reasons=reasons
@@ -364,6 +406,10 @@ def main() -> int:
     p_claim.add_argument("--origin", default="original")
     p_claim.add_argument("--independent-origins", type=int, default=1)
     p_claim.add_argument("--doc-url", default="")
+    p_claim.add_argument(
+        "--evidence-file",
+        help="JSON array of claim evidence records bound to activity/capture IDs and hashes",
+    )
 
     args = parser.parse_args()
 
@@ -376,6 +422,14 @@ def main() -> int:
         return 0
 
     if args.cmd == "assess-claim":
+        evidence_records: List[Dict[str, Any]] = []
+        if args.evidence_file:
+            with open(args.evidence_file, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if not isinstance(loaded, list) or not all(isinstance(item, dict) for item in loaded):
+                print("--evidence-file must contain a JSON array of objects", file=sys.stderr)
+                return 2
+            evidence_records = loaded
         assessor = UnifiedClaimAssessor()
         res = assessor.assess_claim(
             claim_id=args.claim_id,
@@ -385,7 +439,8 @@ def main() -> int:
             speaker_relationship=args.relationship,
             content_origin=args.origin,
             independent_origins=args.independent_origins,
-            corroborating_doc_url=args.doc_url
+            corroborating_doc_url=args.doc_url,
+            evidence_records=evidence_records,
         )
         print(json.dumps(res.to_dict(), indent=2, ensure_ascii=False))
         return 0

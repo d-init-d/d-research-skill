@@ -18,7 +18,6 @@ Flow:
 
 import csv
 import json
-import os
 import socket
 import subprocess
 import sys

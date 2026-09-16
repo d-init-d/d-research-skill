@@ -435,38 +435,56 @@ export class BrowserOperator {
       const inputSelector = targetLocator.inputSelector || targetLocator.selector || '#search-input';
       const submitSelector = targetLocator.submitSelector || '#search-submit';
       const query = payload.query || '';
+      const waitSelector = payload.waitSelector || targetLocator.waitSelector || '.result-card, .no-results';
 
       await this.page.fill(inputSelector, query, { timeout });
       await this.page.click(submitSelector, { timeout });
-      await this.page.waitForSelector('.result-card, .no-results', { timeout });
+      await this.page.waitForSelector(waitSelector, { timeout });
     } else if (actionType === 'filter') {
       const selectSelector = targetLocator.selectSelector || targetLocator.selector || '#filter-type';
       const applySelector = targetLocator.applySelector || '#apply-filter';
       const value = payload.value || 'final';
+      const waitSelector = payload.waitSelector || targetLocator.waitSelector || '.result-card, .no-results';
 
       await this.page.selectOption(selectSelector, value, { timeout });
       await this.page.click(applySelector, { timeout });
-      if (value === 'final') {
-        await this.page.waitForSelector('#result-doc_v20', { state: 'detached', timeout }).catch(() => {});
+      const detachedSelector = payload.detachedSelector || (value === 'final' ? '#result-doc_v20' : null);
+      if (detachedSelector) {
+        await this.page.waitForSelector(detachedSelector, { state: 'detached', timeout }).catch(() => {});
       }
-      await this.page.waitForSelector('.result-card, .no-results', { timeout });
+      await this.page.waitForSelector(waitSelector, { timeout });
     } else if (actionType === 'open') {
       const selector = targetLocator.selector || '.open-thread-btn';
       await this.page.click(selector, { timeout });
-      await this.page.waitForSelector('#thread-section:not(.hidden)', { timeout });
+      await this.page.waitForSelector(
+        payload.waitSelector || targetLocator.waitSelector || '#thread-section:not(.hidden)',
+        { timeout }
+      );
     } else if (actionType === 'expand') {
       const selector = targetLocator.selector || '#expand-post-btn';
       await this.page.click(selector, { timeout });
-      await this.page.waitForSelector('#expand-post-btn.hidden, #expand-post-btn', { state: 'hidden', timeout }).catch(() => {});
-      await this.page.waitForSelector('#post-body-container', { timeout });
+      const hiddenSelector = payload.hiddenSelector || targetLocator.hiddenSelector;
+      if (hiddenSelector) {
+        await this.page.waitForSelector(hiddenSelector, { state: 'hidden', timeout }).catch(() => {});
+      }
+      await this.page.waitForSelector(
+        payload.waitSelector || targetLocator.waitSelector || '#post-body-container',
+        { timeout }
+      );
     } else if (actionType === 'view_replies') {
       const selector = targetLocator.selector || '#view-replies-btn';
       await this.page.click(selector, { timeout });
-      await this.page.waitForSelector('#replies-container:not(.hidden) .comment-box', { timeout });
+      await this.page.waitForSelector(
+        payload.waitSelector || targetLocator.waitSelector || '#replies-container:not(.hidden) .comment-box',
+        { timeout }
+      );
     } else if (actionType === 'paginate') {
       const selector = targetLocator.selector || '#load-more-btn';
       await this.page.click(selector, { timeout });
-      await this.page.waitForSelector('#paged-comments-container .comment-box', { timeout });
+      await this.page.waitForSelector(
+        payload.waitSelector || targetLocator.waitSelector || '#paged-comments-container .comment-box',
+        { timeout }
+      );
     } else if (actionType === 'scroll') {
       const deltaY = payload.deltaY || 500;
       const selector = targetLocator.selector || null;
@@ -482,7 +500,10 @@ export class BrowserOperator {
     } else if (actionType === 'transcript') {
       const selector = targetLocator.selector || '#toggle-transcript-btn';
       await this.page.click(selector, { timeout });
-      await this.page.waitForSelector('#transcript-panel:not(.hidden) .transcript-line', { timeout });
+      await this.page.waitForSelector(
+        payload.waitSelector || targetLocator.waitSelector || '#transcript-panel:not(.hidden) .transcript-line',
+        { timeout }
+      );
     } else {
       throw new Error('Unsupported action type: ' + actionType);
     }

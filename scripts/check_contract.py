@@ -824,6 +824,7 @@ def check_versions(root: Path = ROOT) -> list[str]:
         "!examples/**/*.pyd",
         "references/**/*.md",
         "references/i18n/*.json",
+        "schemas/*.json",
         "scripts/*.py",
         "scripts/*.mjs",
         "scripts/lib/*.mjs",

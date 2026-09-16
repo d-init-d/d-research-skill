@@ -95,7 +95,7 @@ def test_live_tasks():
         assert len(t.get("features", [])) >= 2, f"Task {tid} features < 2"
         assert len(t.get("target_nuances", [])) >= 2, f"Task {tid} target_nuances < 2"
         
-    print(f"[PASS] live-tasks.json verified: 4 live tasks (2 vi, 2 en), live URL targets, access verified.")
+    print("[PASS] live-tasks.json verified: 4 live tasks (2 vi, 2 en), live URL targets, access verified.")
 
 def test_metric_rubric():
     path = BENCHMARK_DIR / "metric-rubric.json"
@@ -144,7 +144,7 @@ def test_metric_rubric():
     gap_ids = [g["type_id"] for g in gap_types]
     assert gap_ids == [f"GAP-{i:02d}" for i in range(1, 6)], f"Gap IDs mismatch: {gap_ids}"
     
-    print(f"[PASS] metric-rubric.json verified: 8 metrics, 6 critical failure rules, 3 improvement conditions, 5 gap types.")
+    print("[PASS] metric-rubric.json verified: 8 metrics, 6 critical failure rules, 3 improvement conditions, 5 gap types.")
 
 if __name__ == "__main__":
     try:

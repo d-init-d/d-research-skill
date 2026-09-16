@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 import re
 import sys
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
@@ -19,7 +18,6 @@ from social_adapters import (
     VietnameseForumAdapter,
     VietnameseSlangNormalizer,
     get_platform_capability_matrix,
-    PLATFORM_CAPABILITIES_SPEC,
 )
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -252,13 +250,15 @@ def test_c06_unobtainable_video_transcript():
 
 
 def test_c07_c08_platform_capability_matrix_and_bounds():
-    """Acceptance C07, C08: Capability matrix differentiates available vs blocked/auth-required."""
+    """Capability matrix distinguishes fixture parsing, live proof, and access gates."""
     matrix = get_platform_capability_matrix()
     assert matrix["schema_version"] == "1.0"
-    assert "reddit" in matrix["tier_a_available"]
-    assert "hackernews" in matrix["tier_a_available"]
-    assert "youtube" in matrix["tier_a_available"]
-    assert "x_twitter" in matrix["tier_b_gated"]
+    assert "reddit" in matrix["fixture_verified"]
+    assert "hackernews" in matrix["fixture_verified"]
+    assert "youtube" in matrix["fixture_verified"]
+    assert matrix["live_verified"] == []
+    assert "x_twitter" in matrix["access_gated"]
+    assert matrix["platforms"]["youtube"]["live_status"] == "unverified_live"
     assert matrix["platforms"]["x_twitter"]["auth_required"] is True
     assert matrix["platforms"]["x_twitter"]["live_status"] == "blocked_auth_required"
     assert matrix["platforms"]["reddit"]["depth_cap"] >= 4

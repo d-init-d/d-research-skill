@@ -23,6 +23,7 @@
     "!examples/**/*.pyd",
     "references/**/*.md",
     "references/i18n/*.json",
+    "schemas/*.json",
     "scripts/*.py",
     "scripts/*.mjs",
     "scripts/lib/*.mjs",
@@ -37,6 +38,12 @@
     "probe": "node scripts/playwright_probe.mjs",
     "extract": "node scripts/playwright_extract.mjs",
     "crawl": "node scripts/playwright_crawl.mjs",
+    "browser:interact": "node scripts/browser_interaction.mjs",
+    "research:fast": "node scripts/run_python.mjs scripts/fast_evaluator.py",
+    "research:controller": "node scripts/run_python.mjs scripts/research_controller.py",
+    "research:reconcile": "node scripts/run_python.mjs scripts/reconciliation.py",
+    "claim:assess": "node scripts/run_python.mjs scripts/lineage_tracker.py assess-claim",
+    "social:capabilities": "node scripts/run_python.mjs scripts/social_adapters.py capabilities",
     "ledger:init": "node scripts/run_python.mjs scripts/evidence_ledger.py init",
     "ledger:validate": "node scripts/run_python.mjs scripts/evidence_ledger.py validate",
     "api:fetch": "node scripts/api_fetch.mjs",
@@ -156,8 +163,8 @@
   "dResearchPackageManifest": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "file_count": 232,
-    "paths_sha256": "sha256:84178a5b1f74d232bbd5793f4a758e8556a0bfd25fbbe3698ed4d10ce43fea89"
+    "file_count": 241,
+    "paths_sha256": "sha256:b5d9a6b2c650e4bdbd53d3dad8567525a6c5ed819419fcfb97d43538fcb2d2d5"
   },
   "dependencies": {
     "playwright": "1.61.1"

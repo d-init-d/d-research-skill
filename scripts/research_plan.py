@@ -181,6 +181,11 @@ except ImportError:  # pragma: no cover - defensive fallback for unusual loaders
     ]
 EVIDENCE_LEDGER_HEADER = ",".join(EVIDENCE_LEDGER_FIELDS) + "\n"
 
+try:
+    from execution_evidence import BLOCKED_OUTCOMES, load_evidence_index
+except ImportError:  # pragma: no cover - package-style import fallback
+    from scripts.execution_evidence import BLOCKED_OUTCOMES, load_evidence_index
+
 CHECKLIST_CONTRACT_VERSION = "v1"
 CHECKLIST_TEMPLATE_PATH = (
     Path(__file__).resolve().parent.parent
@@ -2598,10 +2603,7 @@ def _assert_blocked_research_justified(plan, plan_path):
 
 
 def _assert_dual_track_terminal(plan: dict[str, Any], plan_path: Path) -> tuple[bool, str]:
-    """Validate that every question has both documentary and social branches in terminal states.
-
-    Rejects fraud: branches marked 'completed' without activity_ids or source_ids fail validation.
-    """
+    """Validate terminal branches against execution records and immutable captures."""
     base = _plan_dir(plan_path)
     cov_path = base / "research-coverage.json"
     if cov_path.is_file():
@@ -2612,7 +2614,13 @@ def _assert_dual_track_terminal(plan: dict[str, Any], plan_path: Path) -> tuple[
         questions = cov.get("questions")
         if not isinstance(questions, list) or not questions:
             return False, "research-coverage.json has empty questions"
-        problems: list[str] = []
+        evidence = load_evidence_index(base, coverage=cov)
+        problems: list[str] = [f"execution evidence: {error}" for error in evidence.errors]
+        authorizations = {
+            item.get("authorization_id"): item
+            for item in (cov.get("scope_authorizations") or [])
+            if isinstance(item, dict) and item.get("authorization_id")
+        }
         for q in questions:
             qid = str(q.get("question_id", "unknown"))
             for bname in ("documentary_branch", "social_branch"):
@@ -2632,62 +2640,136 @@ def _assert_dual_track_terminal(plan: dict[str, Any], plan_path: Path) -> tuple[
                         problems.append(
                             f"fraudulent completion: {qid}.{bname} marked completed without activity_ids or source_ids"
                         )
+                        continue
+                    branch = str(b.get("branch_id") or bname.removesuffix("_branch"))
+                    unresolved_activities = [
+                        activity_id
+                        for activity_id in act_ids
+                        if evidence.activity_for(str(activity_id), branch, qid) is None
+                    ]
+                    unresolved_sources = [
+                        source_id
+                        for source_id in src_ids
+                        if evidence.source_for(str(source_id), branch, qid) is None
+                    ]
+                    if unresolved_activities or unresolved_sources:
+                        problems.append(
+                            f"{qid}.{bname} has unresolved execution evidence: "
+                            f"activity_ids={unresolved_activities}, source_ids={unresolved_sources}"
+                        )
+                    successful = [
+                        evidence.activity_for(str(activity_id), branch, qid)
+                        for activity_id in act_ids
+                    ]
+                    if not any(item and item.get("outcome") == "success" for item in successful):
+                        problems.append(f"{qid}.{bname} completed without a successful activity")
+                elif state == "partial":
+                    reason = str(b.get("stop_reason") or "").strip()
+                    act_ids = b.get("activity_ids") or []
+                    branch = str(b.get("branch_id") or bname.removesuffix("_branch"))
+                    if not reason or not act_ids:
+                        problems.append(f"{qid}.{bname} partial without stop_reason and activity evidence")
+                    elif any(
+                        evidence.activity_for(str(activity_id), branch, qid) is None
+                        for activity_id in act_ids
+                    ):
+                        problems.append(f"{qid}.{bname} partial references unresolved activities")
                 elif state == "scope_excluded":
                     ref = b.get("scope_reference")
-                    if not ref or not str(ref).strip():
+                    auth_id = b.get("scope_authorization_id")
+                    authorization = authorizations.get(auth_id)
+                    branch = str(b.get("branch_id") or bname.removesuffix("_branch"))
+                    valid_authorization = (
+                        isinstance(authorization, dict)
+                        and authorization.get("requested_by") == "user"
+                        and branch in (authorization.get("applies_to") or [])
+                        and str(authorization.get("instruction_sha256", "")).startswith("sha256:")
+                        and authorization.get("kind")
+                        in {"pure_operation_exemption", "user_provided_corpus_only"}
+                    )
+                    if not ref or not str(ref).strip() or not valid_authorization:
                         problems.append(
-                            f"{qid}.{bname} marked scope_excluded without scope_reference"
+                            f"{qid}.{bname} scope_excluded without a bound user scope authorization"
                         )
                 elif state == "blocked":
                     reason = b.get("stop_reason")
-                    if not reason or not str(reason).strip():
+                    act_ids = b.get("activity_ids") or []
+                    branch = str(b.get("branch_id") or bname.removesuffix("_branch"))
+                    blocked_activities = [
+                        evidence.activity_for(str(activity_id), branch, qid)
+                        for activity_id in act_ids
+                    ]
+                    if (
+                        not reason
+                        or not str(reason).strip()
+                        or not blocked_activities
+                        or not any(
+                            item and item.get("outcome") in BLOCKED_OUTCOMES
+                            for item in blocked_activities
+                        )
+                    ):
                         problems.append(
-                            f"{qid}.{bname} marked blocked without stop_reason"
+                            f"{qid}.{bname} blocked without matching failed execution evidence"
+                        )
+                elif state == "no_relevant_results":
+                    reason = str(b.get("stop_reason") or "").strip()
+                    act_ids = b.get("activity_ids") or []
+                    branch = str(b.get("branch_id") or bname.removesuffix("_branch"))
+                    activities = [
+                        evidence.activity_for(str(activity_id), branch, qid)
+                        for activity_id in act_ids
+                    ]
+                    if (
+                        not reason
+                        or not activities
+                        or not any(item and item.get("outcome") == "success" for item in activities)
+                    ):
+                        problems.append(
+                            f"{qid}.{bname} no_relevant_results without successful query/probe evidence"
                         )
         if problems:
             return False, "; ".join(problems)
         return True, "OK"
 
-    # Fallback to tasks in plan if coverage sidecar not present
-    tasks = plan.get("tasks", [])
-    research_tasks = [
-        t for t in tasks
-        if t.get("phase") == "research"
-        or (
-            not t.get("phase")
-            and not any(m in op for op in t.get("outputs", []) for m in _SYNTHESIS_OUTPUT_MARKERS)
-        )
-    ]
-    if not research_tasks:
-        return False, "no research tasks found"
-
-    non_term = [t["id"] for t in research_tasks if t.get("status") not in TERMINAL_STATUS]
-    if non_term:
-        return False, f"non-terminal research tasks: {non_term}"
-
-    doc_tasks = [t for t in research_tasks if t.get("branch") == "documentary"]
-    soc_tasks = [t for t in research_tasks if t.get("branch") == "social"]
-    if doc_tasks and not soc_tasks:
-        return False, "missing social branch tasks"
-    if soc_tasks and not doc_tasks:
-        return False, "missing documentary branch tasks"
-
-    return True, "OK"
+    return False, "research-coverage.json with execution evidence is required"
 
 
 def _assert_cross_branch_reconciliation_valid(plan: dict[str, Any], plan_path: Path) -> tuple[bool, str]:
-    """Validate cross-branch reconciliation status before synthesis."""
+    """Require a real reconciliation barrier wired to both branch inputs.
+
+    At ``synthesize_ready`` the reconciliation task is expected to be pending;
+    when already marked done, its declared output must exist.
+    """
     tasks = plan.get("tasks", [])
     rec_tasks = [
         t for t in tasks
         if t.get("branch") == "reconciliation" or "reconcil" in t.get("id", "").lower()
     ]
+    if not rec_tasks:
+        return False, "no cross-branch reconciliation task found"
     for t in rec_tasks:
         deps = t.get("depends_on", [])
+        dep_tasks = [_find_task(plan, dep_id) for dep_id in deps]
+        dep_branches = {task.get("branch") for task in dep_tasks if task}
+        if not {"documentary", "social"} <= dep_branches:
+            return False, f"reconciliation task {t['id']} must depend on both branch tasks"
         for dep_id in deps:
             dep_task = _find_task(plan, dep_id)
-            if dep_task and dep_task.get("status") not in TERMINAL_STATUS:
+            if not dep_task:
+                return False, f"reconciliation task {t['id']} has missing dependency {dep_id}"
+            if dep_task.get("status") not in TERMINAL_STATUS:
                 return False, f"reconciliation task {t['id']} depends on non-terminal task {dep_id}"
+        outputs = t.get("outputs") or []
+        if not outputs:
+            return False, f"reconciliation task {t['id']} has no declared output"
+        if t.get("status") == "done":
+            missing: list[str] = []
+            for output in outputs:
+                resolved, _detail = _resolve_workspace_path(_plan_dir(plan_path), str(output))
+                if resolved is None or not resolved.is_file():
+                    missing.append(str(output))
+            if missing:
+                return False, f"reconciliation task {t['id']} missing outputs: {missing}"
     return True, "OK"
 
 
@@ -2862,6 +2944,7 @@ def init_research_coverage(
                 "source_ids": [],
                 "stop_reason": None,
                 "scope_reference": None,
+                "scope_authorization_id": None,
             },
             "social_branch": {
                 "branch_id": "social",
@@ -2872,6 +2955,7 @@ def init_research_coverage(
                 "source_ids": [],
                 "stop_reason": None,
                 "scope_reference": None,
+                "scope_authorization_id": None,
             },
             "coverage_gaps": [],
             "stop_reason": None,
@@ -2883,6 +2967,8 @@ def init_research_coverage(
         "run_id": run_id,
         "revision": 1,
         "execution_mode": execution_mode if execution_mode in {"concurrent", "interleaved"} else "concurrent",
+        "execution_evidence": {"activity_logs": [], "capture_records": [], "validation_errors": []},
+        "scope_authorizations": [],
         "allocated_budget": allocated,
         "consumed_budget": {
             "total_queries": 0,

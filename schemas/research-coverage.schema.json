@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d-research.local/contracts/v1/research-coverage.schema.json",
+  "title": "DRS-1.1 Dual-Track Research Coverage",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "revision",
+    "execution_mode",
+    "execution_evidence",
+    "scope_authorizations",
+    "allocated_budget",
+    "consumed_budget",
+    "questions",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.1.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "execution_mode": {"enum": ["concurrent", "interleaved"]},
+    "execution_evidence": {
+      "type": "object",
+      "required": ["activity_logs", "capture_records", "validation_errors"],
+      "properties": {
+        "activity_logs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "capture_records": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "validation_errors": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "scope_authorizations": {"type": "array", "items": {"$ref": "#/$defs/scope_authorization"}},
+    "allocated_budget": {"type": "object"},
+    "consumed_budget": {"type": "object"},
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/question"}
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "scope_authorization": {
+      "type": "object",
+      "required": ["authorization_id", "kind", "requested_by", "recorded_at", "instruction_sha256", "applies_to", "value"],
+      "properties": {
+        "authorization_id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["pure_operation_exemption", "user_provided_corpus_only"]},
+        "requested_by": {"const": "user"},
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "instruction_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "applies_to": {"type": "array", "items": {"enum": ["documentary", "social"]}},
+        "value": {"type": "string", "minLength": 1}
+      }
+    },
+    "branch": {
+      "type": "object",
+      "required": ["branch_id", "state", "activity_ids", "source_ids", "stop_reason", "scope_reference", "scope_authorization_id"],
+      "properties": {
+        "branch_id": {"enum": ["documentary", "social"]},
+        "state": {"enum": ["planned", "running", "completed", "partial", "blocked", "no_relevant_results", "scope_excluded"]},
+        "started_at": {"type": ["string", "null"], "format": "date-time"},
+        "finished_at": {"type": ["string", "null"], "format": "date-time"},
+        "activity_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "source_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "stop_reason": {"type": ["string", "null"]},
+        "scope_reference": {"type": ["string", "null"]},
+        "scope_authorization_id": {"type": ["string", "null"]}
+      }
+    },
+    "question": {
+      "type": "object",
+      "required": ["question_id", "question_text", "overall_status", "documentary_branch", "social_branch", "coverage_gaps"],
+      "properties": {
+        "question_id": {"type": "string", "minLength": 1},
+        "question_text": {"type": "string", "minLength": 1},
+        "overall_status": {"enum": ["planned", "running", "completed", "partial", "blocked", "scope_excluded"]},
+        "documentary_branch": {"$ref": "#/$defs/branch"},
+        "social_branch": {"$ref": "#/$defs/branch"},
+        "coverage_gaps": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

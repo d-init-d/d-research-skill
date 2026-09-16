@@ -24,6 +24,7 @@ plus six ready-to-register worker roles.
 |---|---|
 | Primary users | AI agents and agent operators who need source-backed research, public-data collection, literature review, fact verification, or long-horizon investigation workflows. |
 | Access model | Read-only by default. Explicit, user-authorized archival or API mutation operations remain available through dedicated commands or `--intent archive\|mutation`. |
+| Research shape | Documentary and social/community branches start in round one for every factual research route, with real concurrency where supported and honest interleaving elsewhere. |
 | Evidence model | Every meaningful claim should land in an evidence ledger with source, quote/value, access method, confidence, contradictions, provenance, and optional HMAC signature. |
 | Outputs | Evidence ledgers, citation files, extracted tables, frontier ledgers, coverage maps, research plans, reports, and reproducibility metadata. |
 | Verification | Offline self-tests, internal-reference checks, a 12-task regression bench, and a 52-task frontier bench covering 26 capability classes. |
@@ -50,6 +51,10 @@ run a live monitoring service without separate operational controls.
 This is **a skill package**, not a hosted crawler, SaaS product, Python package, or API service.
 
 An agent reads `SKILL.md` and follows the workflow. The repository ships instructions, adapter policies, reference playbooks, templates, examples, eval benches, and optional helper scripts. Those helper scripts are deliberately small, local, and auditable; they support the workflow but do not replace the agent.
+
+Completion is evidence-backed: coverage IDs must resolve to tool activity and
+hash-verified captures. Search snippets, parser output, URLs that were not read,
+and counters written by an evaluator do not prove that research occurred.
 
 Concretely, the repo contains:
 

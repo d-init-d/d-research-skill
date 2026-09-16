@@ -6,13 +6,13 @@
     "contract_role": "frozen_candidate",
     "promotes_to": "3.4.2",
     "counts": {
-      "references_markdown": 53,
+      "references_markdown": 54,
       "adapters_markdown": 9,
       "examples_markdown": 9,
-      "scripts_python": 46,
+      "scripts_python": 47,
       "scripts_node_top_level": 10,
       "scripts_node_lib": 7,
-      "scripts_total": 63,
+      "scripts_total": 64,
       "templates_files": 18,
       "evidence_ledger_columns": 37
     },

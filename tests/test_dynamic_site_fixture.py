@@ -4,7 +4,6 @@ and validating zero precomputed answer strings (W03.03, W03.04).
 """
 
 import subprocess
-import sys
 from pathlib import Path
 
 DYNAMIC_SITE_DIR = Path(__file__).parent / "fixtures" / "dynamic_site"

@@ -7,6 +7,7 @@
 - [Source roles](#source-roles)
 - [Promotion rules](#promotion-rules)
 - [Cross-platform workflow](#cross-platform-workflow)
+- [Browser and execution evidence](#browser-and-execution-evidence)
 - [Lineage and coordination](#lineage-and-coordination)
 - [Output sections](#output-sections)
 - [Boundaries](#boundaries)
@@ -84,11 +85,19 @@ Promote an item to main findings when one of these is true:
 - a non-social official or primary source independently supports the same
   material claim.
 
-The ledger promotion path is stricter than this narrative guidance: a social
-row under `main_findings` must carry `claim_kind=statement_made`, an intact
-hash-matched direct/API or archive capture, and an official/verified subject or
-authorized representative with original content. If any of those fields is
-missing, emit a lead and keep the item out of the main evidence summary.
+The ledger promotion path is stricter than this narrative guidance. A social
+row under `main_findings` must have an intact hash-bound direct or archive
+capture and satisfy one of two paths:
+
+- an official/verified subject or authorized representative, original content,
+  and `claim_kind=statement_made`; or
+- original community evidence with `claim_kind=underlying_fact`,
+  `verification_state=supported`, and `corroborated_by=<claim_id>` pointing to
+  another ledger claim.
+
+A URL, speaker label, or count of alleged independent origins is never enough.
+If the required execution and corroboration records are absent, emit a lead and
+keep the item out of the main evidence summary.
 
 Keep an item in `Non-official / unverified leads` when:
 
@@ -119,6 +128,33 @@ security exposure, precise location, minors, or leak-derived claims.
 9. Route the item to main findings, leads, redaction, or blocked output.
 10. Stop when new platforms add no independent evidence, not merely when they
     add no new URLs.
+
+## Browser and execution evidence
+
+Use Playwright on relevant public social/community pages whenever available.
+The goal is to reproduce the reading actions a careful researcher needs:
+
+1. open the original item rather than relying on a search snippet;
+2. expand truncated text and nested replies;
+3. paginate or load more within the bounded thread scope;
+4. inspect edits, corrections, community notes, timestamps, and author context;
+5. open transcript/caption panels for multimedia when publicly available;
+6. capture the precise container used for the claim and save its bytes/hash;
+7. record every interaction in `activity-log.json` and every source snapshot in
+   `capture-records.json`.
+
+Selectors and wait conditions are site-specific inputs to
+`scripts/browser_interaction.mjs`; fixture defaults are not claims of live
+platform support. A parser proves only that a supplied payload can be
+normalized. Report live capability per operation (discovery, thread reading,
+replies, pagination, transcript, authenticated read) and per observed run.
+
+Before marking a branch complete, run the execution-evidence checks used by
+`scripts/research_plan.py`: activity IDs must resolve to the correct question
+and branch; source IDs must resolve to captures linked to successful activity;
+raw artifacts must exist inside the workspace and match their declared SHA-256
+and byte length. Blocked and no-result states also require the corresponding
+probe/query activity record.
 
 Respect platform terms, public visibility, robots where crawling applies, and
 rate limits. Logged-in access is permitted only when the user lawfully
@@ -177,3 +213,4 @@ opinion without a defensible sampling method.
 - `references/person-aggregation.md`
 - `references/source-quality-rubric.md`
 - `references/evidence-ledger.md`
+- `references/platform-capabilities.md`

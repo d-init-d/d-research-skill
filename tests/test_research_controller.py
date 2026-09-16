@@ -11,7 +11,6 @@ Verifies:
 import json
 from pathlib import Path
 import sys
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
@@ -19,9 +18,6 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from research_controller import (
     ResearchController,
-    FrontierNode,
-    BudgetProfile,
-    ResearchMoveRecord,
     canonicalize_url,
 )
 

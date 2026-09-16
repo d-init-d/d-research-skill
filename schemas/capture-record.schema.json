@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d-research.local/contracts/v1/capture-record.schema.json",
+  "title": "DRS-1.1 Immutable Capture Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "capture_id",
+    "source_id",
+    "branch_id",
+    "activity_id",
+    "retrieved_at",
+    "source_url",
+    "final_url",
+    "method",
+    "bytes_hash",
+    "byte_length",
+    "dom_locator",
+    "raw_text_ref",
+    "screenshot_ref",
+    "extraction_limits",
+    "artifact_version"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.1.0"},
+    "capture_id": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "minLength": 1},
+    "branch_id": {"enum": ["documentary", "social"]},
+    "activity_id": {"type": "string", "minLength": 1},
+    "retrieved_at": {"type": "string", "format": "date-time"},
+    "source_url": {"type": "string", "format": "uri"},
+    "final_url": {"type": "string", "format": "uri"},
+    "method": {"type": "string", "minLength": 1},
+    "bytes_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "byte_length": {"type": "integer", "minimum": 0},
+    "dom_locator": {"type": ["string", "null"]},
+    "raw_text_ref": {"type": "string", "minLength": 1},
+    "screenshot_ref": {"type": ["string", "null"]},
+    "extraction_limits": {
+      "type": "object",
+      "required": ["truncated", "items_extracted", "total_estimated", "truncation_reason"],
+      "properties": {
+        "truncated": {"type": "boolean"},
+        "items_extracted": {"type": "integer", "minimum": 0},
+        "total_estimated": {"type": "integer", "minimum": 0},
+        "truncation_reason": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "artifact_version": {"type": "integer", "minimum": 1}
+  }
+}

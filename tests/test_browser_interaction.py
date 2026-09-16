@@ -13,7 +13,6 @@ Verifies:
 """
 
 import json
-import os
 import socket
 import subprocess
 import sys
@@ -28,15 +27,12 @@ BROWSER_SCRIPT = REPO_ROOT / "scripts" / "browser_interaction.mjs"
 
 # Find contracts directory
 def find_contracts_dir() -> Path:
-    candidates = [
-        REPO_ROOT.parent.parent / "audit-artifacts-social-v1" / "run-20260915-drs11-001" / "contracts",
-        REPO_ROOT.parent / "audit-artifacts-social-v1" / "run-20260915-drs11-001" / "contracts",
-        Path("D:/Downloads/Nâng cấp D Research và Aleph/audit-artifacts-social-v1/run-20260915-drs11-001/contracts"),
-    ]
-    for c in candidates:
-        if c.exists() and (c / "activity-log.schema.json").exists():
-            return c
-    raise FileNotFoundError("Could not find frozen contracts directory")
+    contracts = REPO_ROOT / "schemas"
+    if (contracts / "activity-log.schema.json").is_file() and (
+        contracts / "capture-record.schema.json"
+    ).is_file():
+        return contracts
+    raise FileNotFoundError("Packaged activity/capture schemas are missing")
 
 def get_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
