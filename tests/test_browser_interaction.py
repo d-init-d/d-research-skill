@@ -248,14 +248,20 @@ def test_b06_stale_locator_recovery(fixture_server, tmp_path):
         {"action": "expand", "locator": {"selector": "#non_existent_btn_selector_trigger_retry"}},
     ]
     res = run_node_operator(fixture_server, actions, out_dir)
-    # The runner exits cleanly without unhandled exception / crash
-    assert res.returncode == 0, f"B06 should not crash on stale locator:\n{res.stdout}\n{res.stderr}"
+    # The runner records the recoverable failure without an unhandled crash,
+    # while its exit code still tells callers that a requested action failed.
+    assert res.returncode != 0, (
+        f"B06 must report the failed action to its caller:\n{res.stdout}\n{res.stderr}"
+    )
+    assert "Artifacts saved to" in res.stdout
 
     acts = json.loads((out_dir / "activity-log.json").read_text(encoding="utf-8"))
     assert len(acts) >= 2
     # Second action attempted retries and completed with timeout/partial status
     assert acts[-1]["outcome"] in ("timeout", "partial")
     assert acts[-1]["limitation"] is not None
+    captures = json.loads((out_dir / "capture-records.json").read_text(encoding="utf-8"))
+    assert captures == []
 
 def test_c05_video_transcript_panel_resolution(fixture_server, tmp_path):
     """C05: Video transcript panel toggle captures timecoded cue at 01:42 resolving ambiguity."""
@@ -302,6 +308,12 @@ def test_ssrf_protection_and_secret_redaction(fixture_server, tmp_path):
     # Must be blocked by SSRF guard
     assert res.returncode != 0
     assert "blocked" in res.stdout or "blocked" in res.stderr
+    activity_log = out_dir / "activity-log.json"
+    assert activity_log.is_file(), "Blocked navigation must still persist execution evidence"
+    activities = json.loads(activity_log.read_text(encoding="utf-8"))
+    assert len(activities) == 1
+    assert activities[0]["outcome"] == "blocked"
+    assert activities[0]["output_capture_ids"] == []
 
     # Test self-test redaction suite
     res_self = subprocess.run(

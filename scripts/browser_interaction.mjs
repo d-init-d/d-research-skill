@@ -199,10 +199,9 @@ export class BrowserOperator {
           response_status: status,
         },
       };
-      this.activityLog.push(activity);
-
       // Step 2: Immediate post-navigation observe DOM
       const obs = await this.observeDom();
+      this.activityLog.push(activity);
       return { ok: activity.outcome === 'success', outcome: activity.outcome, finalUrl, title, status, obs, activity };
     } catch (err) {
       const finishedAt = new Date().toISOString();
@@ -525,6 +524,15 @@ export class BrowserOperator {
   async capture(containerSelector, metadata = {}) {
     const rawContent = await this.page.locator(containerSelector).innerText({ timeout: this.actionTimeout });
     const cleanText = redactSecretsInText(rawContent);
+    if (!cleanText.trim()) {
+      const message = 'Capture rejected: selected container contains no readable text';
+      const matchedAct = this.activityLog.find(a => a.activity_id === this.lastActivityId);
+      if (matchedAct && matchedAct.outcome === 'success') {
+        matchedAct.outcome = 'partial';
+        matchedAct.limitation = message;
+      }
+      throw new Error(message);
+    }
     const hash = crypto.createHash('sha256').update(Buffer.from(cleanText, 'utf8')).digest('hex');
     const byteLength = Buffer.byteLength(cleanText, 'utf8');
     const captureId = 'cap_' + crypto.randomBytes(6).toString('hex');
@@ -632,6 +640,49 @@ export async function selfTestBrowserInteraction() {
   if (redactedBearer.includes('mytoken456')) {
     throw new Error('Bearer redaction failed: ' + redactedBearer);
   }
+
+  // A page may navigate successfully and then replace its execution context
+  // before observation. The final log must contain one error record, not a
+  // contradictory success/error pair sharing the same activity ID.
+  const op = new BrowserOperator({ allowLoopback: true, branchId: 'social', questionIds: ['Q1'] });
+  op.page = {
+    goto: async () => ({ status: () => 200 }),
+    url: () => 'http://127.0.0.1:8769/redirected',
+    title: async () => 'Fixture',
+  };
+  op.observeDom = async () => {
+    throw new Error('Execution context was destroyed');
+  };
+  const result = await op.navigate('http://127.0.0.1:8769/start');
+  if (result.ok || op.activityLog.length !== 1 || op.activityLog[0].outcome !== 'error') {
+    throw new Error('Navigation observation failure produced contradictory activity records');
+  }
+
+  const emptyCapture = new BrowserOperator({ branchId: 'social', questionIds: ['Q1'] });
+  emptyCapture.page = {
+    locator: () => ({ innerText: async () => '   \n' }),
+    url: () => 'https://example.com/empty',
+  };
+  emptyCapture.lastActivityId = 'act_empty';
+  emptyCapture.activityLog.push({
+    activity_id: 'act_empty',
+    outcome: 'success',
+    limitation: null,
+  });
+  let emptyRejected = false;
+  try {
+    await emptyCapture.capture('body');
+  } catch (err) {
+    emptyRejected = /no readable text/.test(err.message);
+  }
+  if (
+    !emptyRejected ||
+    emptyCapture.captureRecords.length !== 0 ||
+    emptyCapture.activityLog[0].outcome !== 'partial' ||
+    !emptyCapture.activityLog[0].limitation
+  ) {
+    throw new Error('Empty text capture must not create source evidence');
+  }
   return true;
 }
 
@@ -682,26 +733,32 @@ async function main() {
     const nav = await op.navigate(url);
     if (!nav.ok) {
       console.error('Navigation failed or blocked: ' + nav.outcome);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     if (actionsJson) {
       const actions = JSON.parse(actionsJson);
       for (const act of actions) {
         console.log('Executing action ' + act.action + '...');
-        await op.executeAction(act.action, act.locator || {}, act.payload || {});
-        if (act.captureSelector) {
+        const actionResult = await op.executeAction(act.action, act.locator || {}, act.payload || {});
+        if (!actionResult.ok) {
+          process.exitCode = 1;
+        }
+        if (act.captureSelector && actionResult.ok) {
           console.log('Capturing ' + act.captureSelector + '...');
           await op.capture(act.captureSelector, act.metadata || {});
+        } else if (act.captureSelector) {
+          console.error('Capture skipped because action did not complete successfully.');
         }
       }
     }
 
+  } finally {
     if (outDir) {
       await op.saveArtifacts(outDir);
       console.log('Artifacts saved to ' + outDir);
     }
-  } finally {
     await op.close();
   }
 }

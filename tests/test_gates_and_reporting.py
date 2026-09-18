@@ -110,6 +110,31 @@ def test_completed_branch_with_nonexistent_ids_is_rejected(tmp_path):
     assert "unresolved execution evidence" in message
 
 
+def test_zero_byte_capture_cannot_complete_branch(tmp_path):
+    """A rendered shell with no readable text is not source evidence."""
+    activity_id, source_id = _write_gate_evidence(tmp_path, "documentary")
+    capture_path = tmp_path / "documentary-evidence" / "capture-records.json"
+    capture = json.loads(capture_path.read_text(encoding="utf-8"))[0]
+    raw_path = tmp_path / "documentary-evidence" / capture["raw_text_ref"]
+    raw_path.write_bytes(b"")
+    capture["byte_length"] = 0
+    capture["bytes_hash"] = "sha256:" + hashlib.sha256(b"").hexdigest()
+    capture_path.write_text(json.dumps([capture]), encoding="utf-8")
+
+    cov = init_research_coverage(["Q1: Test Question"])
+    branch = cov["questions"][0]["documentary_branch"]
+    branch["state"] = "completed"
+    branch["activity_ids"] = [activity_id]
+    branch["source_ids"] = [source_id]
+    (tmp_path / "research-coverage.json").write_text(json.dumps(cov), encoding="utf-8")
+    plan_path = tmp_path / "research-plan.json"
+    plan_path.write_text(json.dumps({"tasks": []}), encoding="utf-8")
+
+    ok, message = _assert_dual_track_terminal({"tasks": []}, plan_path)
+    assert ok is False
+    assert "no readable bytes" in message
+
+
 def test_f03_honest_limited_report_path_when_branch_blocked(tmp_path):
     """Acceptance F03: Allows terminal state 'blocked' with explicit stop_reason for honest limited report."""
     doc_activity, doc_source = _write_gate_evidence(tmp_path, "documentary")

@@ -217,10 +217,12 @@ def load_evidence_index(
                 index.errors.append(f"{prefix}: raw_text_ref is missing or escapes workspace")
             else:
                 payload = raw_path.read_bytes()
+                if not payload.strip():
+                    index.errors.append(f"{prefix}: capture contains no readable bytes")
                 actual_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
                 if actual_hash != str(record.get("bytes_hash", "")):
                     index.errors.append(f"{prefix}: bytes_hash mismatch")
-                if len(payload) != record.get("byte_length"):
+                if len(payload) != record.get("byte_length") or not record.get("byte_length"):
                     index.errors.append(f"{prefix}: byte_length mismatch")
             index.captures[capture_id] = record
             index.sources[source_id] = record
