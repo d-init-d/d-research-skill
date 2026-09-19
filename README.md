@@ -24,6 +24,7 @@ plus six ready-to-register worker roles.
 |---|---|
 | Primary users | AI agents and agent operators who need source-backed research, public-data collection, literature review, fact verification, or long-horizon investigation workflows. |
 | Access model | Read-only by default. Explicit, user-authorized archival or API mutation operations remain available through dedicated commands or `--intent archive\|mutation`. |
+| Research shape | Documentary and social/community branches start in round one for every factual research route, with real concurrency where supported and honest interleaving elsewhere. |
 | Evidence model | Every meaningful claim should land in an evidence ledger with source, quote/value, access method, confidence, contradictions, provenance, and optional HMAC signature. |
 | Outputs | Evidence ledgers, citation files, extracted tables, frontier ledgers, coverage maps, research plans, reports, and reproducibility metadata. |
 | Verification | Offline self-tests, internal-reference checks, a 12-task regression bench, and a 52-task frontier bench covering 26 capability classes. |
@@ -50,6 +51,10 @@ run a live monitoring service without separate operational controls.
 This is **a skill package**, not a hosted crawler, SaaS product, Python package, or API service.
 
 An agent reads `SKILL.md` and follows the workflow. The repository ships instructions, adapter policies, reference playbooks, templates, examples, eval benches, and optional helper scripts. Those helper scripts are deliberately small, local, and auditable; they support the workflow but do not replace the agent.
+
+Completion is evidence-backed: coverage IDs must resolve to tool activity and
+hash-verified captures. Search snippets, parser output, URLs that were not read,
+and counters written by an evaluator do not prove that research occurred.
 
 Concretely, the repo contains:
 
@@ -90,7 +95,11 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.4.2 is the current stable release. It strengthens source-bound report verification, improves English and Vietnamese grounding, and hardens reproducible validation. Existing routes and ledger formats remain available; ambiguous or contradicted claims may now require review or fail strict validation. See [release notes](docs/release-v3.4.2.md).
+v3.5.0-rc.1 is the current release candidate. It adds mandatory documentary
+and social branches, deep Playwright interaction, hash-bound execution
+evidence, and fail-closed coverage gates. v3.4.2 remains the current stable
+release while exact-SHA candidate verification runs. See the
+[v3.5.0-rc.1 release notes](docs/release-v3.5.0-rc.1.md).
 
 v3.4.0 is the previous stable monotonic capability expansion:
 existing commands, routes, ledger widths, and recorded no-config defaults
@@ -429,7 +438,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 Paste this into any LLM agent or IDE assistant (Claude Code, OpenCode, Cursor, Windsurf, etc.):
 
 ```text
-Install D Research v3.4.2 from the GitHub Release runtime artifact into
+Install D Research v3.5.0-rc.1 from the GitHub Release runtime artifact into
 .agents/skills/d-research. Do not clone the repository. Download both the
 runtime .tar.gz and its .sha256 file, verify SHA-256 before extraction, keep
 the skill read-only by default, and run npm run self-test:runtime when
@@ -461,7 +470,7 @@ Node/Python are available.
    closed inside the artifact. Bash:
 
 ```bash
-version=3.4.2
+version=3.5.0-rc.1
 base="https://github.com/d-init-d/d-research-skill/releases/download/v${version}"
 mkdir -p .agents/skills
 test ! -e .agents/skills/d-research || { echo 'destination already exists' >&2; exit 1; }
@@ -475,7 +484,7 @@ test -f .agents/skills/d-research/SKILL.md
    PowerShell:
 
 ```powershell
-$Version = '3.4.2'
+$Version = '3.5.0-rc.1'
 $Base = "https://github.com/d-init-d/d-research-skill/releases/download/v$Version"
 $Archive = "d-research-$Version-runtime.tar.gz"
 New-Item -ItemType Directory -Force .agents/skills | Out-Null
@@ -489,7 +498,7 @@ tar -xzf $Archive -C .agents/skills
 if (-not (Test-Path .agents/skills/d-research/SKILL.md)) { throw 'Skill entry point missing' }
 ```
 
-   Use `d-research-3.4.2-full.tar.gz` instead when you explicitly need the
+   Use `d-research-3.5.0-rc.1-full.tar.gz` instead when you explicitly need the
    complete contributor/auditor surface, including CI, evaluations, hostile
    fixtures, and release evidence. `full` (alias `source`) remains the
    capability-complete profile; `runtime` is an additional clean install
@@ -854,4 +863,5 @@ bundles, or embedding this skill in a paid product or service.
 
 The copyright holder may offer separate commercial licenses on request.
 
-Release: v3.4.2. See [release notes](docs/release-v3.4.2.md).
+Release candidate: v3.5.0-rc.1. See
+[release notes](docs/release-v3.5.0-rc.1.md).

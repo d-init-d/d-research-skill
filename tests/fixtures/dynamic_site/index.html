@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumen Community & Documentation Portal</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Cổng Tra Cứu Tài Liệu & Thảo Luận Cộng Đồng</h1>
+    <p class="tagline">Hệ thống tra cứu tương tác đa tầng</p>
+  </header>
+
+  <main>
+    <!-- Section 1: Search Form -->
+    <section id="search-section" class="panel">
+      <h2>1. Tìm Kiếm Thông Tin</h2>
+      <form id="search-form">
+        <label for="search-input">Nhập từ khóa tra cứu:</label>
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="Ví dụ: Lumen 2.1 release..." autocomplete="off">
+          <button type="submit" id="search-submit">Tìm kiếm</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Section 2: Filter Controls (Hidden until search is submitted) -->
+    <section id="filter-section" class="panel hidden">
+      <h2>2. Bộ Lọc Kết Quả</h2>
+      <div class="filter-group">
+        <label for="filter-type">Trạng thái phát hành:</label>
+        <select id="filter-type">
+          <option value="all">Tất cả phiên bản</option>
+          <option value="draft">Bản thảo (Draft)</option>
+          <option value="final">Bản chính thức (Final)</option>
+        </select>
+        <button type="button" id="apply-filter">Áp dụng bộ lọc</button>
+      </div>
+    </section>
+
+    <!-- Section 3: Search Results List -->
+    <section id="results-section" class="panel hidden">
+      <h2>3. Kết Quả Tra Cứu</h2>
+      <div id="results-container">
+        <!-- Results dynamically rendered by JS -->
+      </div>
+    </section>
+
+    <!-- Section 4: Interactive Thread Container (Hidden until a result is opened) -->
+    <section id="thread-section" class="panel hidden">
+      <h2>4. Nội Dung Thảo Luận Chi Tiết</h2>
+      <div id="thread-post">
+        <!-- Post content dynamically rendered -->
+      </div>
+      <div id="thread-actions">
+        <!-- Action buttons (Expand, View replies) -->
+      </div>
+      <div id="replies-container" class="hidden">
+        <!-- Replies dynamically loaded -->
+      </div>
+      <div id="pagination-controls" class="hidden">
+        <!-- Pagination / load more controls -->
+      </div>
+    </section>
+
+    <!-- Section 5: Video & Transcript Panel (Hidden until triggered) -->
+    <section id="media-section" class="panel hidden">
+      <h2>5. Video Giải Thích & Phụ Đề</h2>
+      <div class="video-mock">
+        <div class="video-placeholder">
+          <span class="video-title">Video Hướng Dẫn Cập Nhật Tính Năng</span>
+          <button type="button" id="toggle-transcript-btn">Xem phụ đề / Transcript</button>
+        </div>
+      </div>
+      <div id="transcript-panel" class="hidden">
+        <!-- Dynamic timecoded transcript lines rendered here -->
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>DRS-1.1 Test Fixture Server — Loopback Interactive Evaluation</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

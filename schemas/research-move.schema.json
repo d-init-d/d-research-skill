@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DRS-1.1 Research Move Record",
+  "type": "object",
+  "required": [
+    "move_id",
+    "question_id",
+    "branch_id",
+    "timestamp",
+    "source_ref",
+    "finding",
+    "gap",
+    "decision",
+    "next_action"
+  ],
+  "properties": {
+    "move_id": {
+      "type": "string",
+      "pattern": "^mv_[0-9a-f]{8}$"
+    },
+    "question_id": {
+      "type": "string",
+      "pattern": "^Q[0-9]+$"
+    },
+    "branch_id": {
+      "type": "string",
+      "enum": ["documentary", "social"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_ref": {
+      "type": "string"
+    },
+    "finding": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "Concise statement of empirical evidence observed."
+    },
+    "gap": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "What specific question or nuance remains unresolved."
+    },
+    "decision": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "Short assessment of credibility, scope, or divergence."
+    },
+    "next_action": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "Concrete follow-up action scheduled."
+    }
+  }
+}

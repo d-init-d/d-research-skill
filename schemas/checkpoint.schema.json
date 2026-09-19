@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DRS-1.1 Research Checkpoint Schema",
+  "type": "object",
+  "required": [
+    "checkpoint_id",
+    "schema_version",
+    "run_id",
+    "plan_revision",
+    "timestamp",
+    "profile_name",
+    "consumed_budget",
+    "branch_states",
+    "visited_keys",
+    "source_revisions",
+    "pending_frontier",
+    "active_cursors"
+  ],
+  "properties": {
+    "checkpoint_id": {
+      "type": "string",
+      "pattern": "^chk_[0-9a-f]{8}$"
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.1.0"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "plan_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile_name": {
+      "type": "string",
+      "enum": ["fast", "standard", "deep", "custom"]
+    },
+    "consumed_budget": {
+      "type": "object",
+      "required": [
+        "total_queries",
+        "total_sources_visited",
+        "total_comments_extracted",
+        "total_browser_actions",
+        "elapsed_wall_time_seconds"
+      ],
+      "properties": {
+        "total_queries": { "type": "integer" },
+        "total_sources_visited": { "type": "integer" },
+        "total_comments_extracted": { "type": "integer" },
+        "total_browser_actions": { "type": "integer" },
+        "elapsed_wall_time_seconds": { "type": "number" }
+      }
+    },
+    "branch_states": {
+      "type": "object",
+      "properties": {
+        "documentary": { "type": "string" },
+        "social": { "type": "string" }
+      }
+    },
+    "visited_keys": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "source_revisions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["content_hash", "captured_at"],
+        "properties": {
+          "content_hash": { "type": "string" },
+          "etag": { "type": ["string", "null"] },
+          "captured_at": { "type": "string" }
+        }
+      }
+    },
+    "pending_frontier": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "active_cursors": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

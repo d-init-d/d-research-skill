@@ -68,6 +68,24 @@ fetch-only → blocker). Never use it to bypass controls.
 
 Adapter policy: `references/tool-adapter-policy.md`.
 
+## Dual-track research default
+
+Start documentary and social/community discovery in round one for every
+research request. Documentary includes official, primary, academic, historical,
+archaeological, standards, and dataset sources as relevant. Social includes
+public posts, replies, corrections, issue discussions, specialist forums, and
+firsthand accounts. Run both concurrently with two host slots; otherwise
+interleave them and record `execution_mode=interleaved`.
+
+Only an explicit user corpus restriction or pure supporting operation may
+exclude a branch, and the exclusion must be bound in `research-coverage.json`.
+Before synthesis, resolve coverage IDs to activity/capture records and verify
+capture hashes. Use Playwright for relevant public pages in both branches;
+interact with dynamic UI to expose replies, pagination, corrections, and
+transcripts. Search snippets and parsers are discovery inputs. Record a blocker
+when lawful access fails. See `references/social-source-research.md` for depth
+and admission, and `references/platform-capabilities.md` for capability claims.
+
 ## Data access layers
 
 1. Web pages and files (browser/fetch)
@@ -164,20 +182,28 @@ Supporting operations: `references/wayback-archive.md`, `references/pdf-extracti
 1. Restate goal, entities, timeframe, geography, language, output, source constraints.
 2. Decompose (`references/topic-decomposition.md`): sub-questions, facets, aliases,
    source classes, stopping criteria.
-3. Source map (`references/source-discovery.md`): official, primary, papers, APIs,
-   datasets, archives.
-4. Query fanout (`references/query-patterns.md`): broad, exact, official, primary,
-   filetype, site, dataset, recent, contradiction; register variants when needed.
-5. Probe with browser-first access; classify access state; never force blocked pages.
+3. Create paired source maps: documentary (official, primary, papers, APIs,
+   datasets, archives) and social/community (original posts, replies,
+   corrections, issue threads, practitioner forums, firsthand reports).
+4. Start query fanout for both maps in round one (`references/query-patterns.md`):
+   broad, exact, official, primary, filetype, site, dataset, recent,
+   contradiction, platform, thread, reply, correction, and local-language
+   variants as relevant.
+5. Probe both branches with browser-first access; interact with dynamic UI when
+   needed, classify access state, and never force blocked pages.
 6. Extract least-invasively: public files → public APIs → static markup → rendered text.
 7. Expand via links/sitemaps/APIs within crawl limits; respect robots.
 8. Maintain the 37-column evidence ledger (`references/evidence-ledger.md`);
    classify social and non-official items by speaker, relationship, origin,
    lineage, discovery disposition, and reporting disposition; sign with
    `scripts/evidence_ledger.py sign` for long-horizon plans and audit-grade work.
-9. Contradiction pass; score sources (`references/source-quality-rubric.md`).
-10. Blocker reports (`references/blocker-report.md`) for unreachable tier-1 sources.
-11. Synthesize only after gates; use `references/final-report-template.md`.
+9. Reconcile the two branches claim by claim. Preserve agreements,
+   contradictions, silence, corrections, and unknowns without treating either
+   branch as inherently authoritative.
+10. Contradiction pass; score sources (`references/source-quality-rubric.md`).
+11. Blocker reports (`references/blocker-report.md`) for unreachable tier-1 sources.
+12. Synthesize only after execution evidence, dual-track, ledger, and report
+   gates pass; use `references/final-report-template.md`.
 
 Default crawl limits: depth 2, 30 pages/domain, 100 total, 1000 ms delay, robots true.
 
@@ -287,12 +313,13 @@ Tampered ledgers with stale HMAC sidecars must fail every release gate.
 
 Scripts under `scripts/` are optional. Key entry points:
 
-- Browser: `scripts/playwright_probe.mjs`, `scripts/playwright_extract.mjs`, `scripts/playwright_crawl.mjs`
-- Plan/report: `scripts/research_plan.py`, `scripts/report_render.py`, `scripts/evidence_ledger.py`
+- Browser/evidence: `scripts/browser_interaction.mjs`, `scripts/execution_evidence.py`, `scripts/playwright_probe.mjs`, `scripts/playwright_extract.mjs`, `scripts/playwright_crawl.mjs`
+- Plan/report: `scripts/research_plan.py`, `scripts/report_render.py`, `scripts/evidence_ledger.py`, `scripts/fast_evaluator.py`
+- Controller/reconciliation: `scripts/research_controller.py`, `scripts/reconciliation.py`, `scripts/lineage_tracker.py`
 - Investigation policy: `scripts/investigation_policy.py`
 - Network: `scripts/api_fetch.mjs`, `scripts/web_search.mjs`, `scripts/http_cache.py`
 - Academic: `scripts/citation_export.py`, `scripts/citation_render.py`, `scripts/citation_resolver.py`
-- Social/archive: `scripts/social_snapshot.py`, `scripts/wayback.py`
+- Social/archive: `scripts/social_adapters.py`, `scripts/social_snapshot.py`, `scripts/wayback.py`
 - Quality: `scripts/score_source.py`, `scripts/run_dogfood.py`, `scripts/check_contract.py`
 
 Full inventory: `references/script-inventory.md`.

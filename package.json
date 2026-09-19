@@ -1,6 +1,6 @@
 {
   "name": "d-research-skill-tools",
-  "version": "3.4.2",
+  "version": "3.5.0-rc.1",
   "description": "Browser-first deep research, data collection, and academic research skill for AI agents.",
   "type": "module",
   "license": "CC-BY-NC-4.0",
@@ -23,6 +23,7 @@
     "!examples/**/*.pyd",
     "references/**/*.md",
     "references/i18n/*.json",
+    "schemas/*.json",
     "scripts/*.py",
     "scripts/*.mjs",
     "scripts/lib/*.mjs",
@@ -37,6 +38,12 @@
     "probe": "node scripts/playwright_probe.mjs",
     "extract": "node scripts/playwright_extract.mjs",
     "crawl": "node scripts/playwright_crawl.mjs",
+    "browser:interact": "node scripts/browser_interaction.mjs",
+    "research:fast": "node scripts/run_python.mjs scripts/fast_evaluator.py",
+    "research:controller": "node scripts/run_python.mjs scripts/research_controller.py",
+    "research:reconcile": "node scripts/run_python.mjs scripts/reconciliation.py",
+    "claim:assess": "node scripts/run_python.mjs scripts/lineage_tracker.py assess-claim",
+    "social:capabilities": "node scripts/run_python.mjs scripts/social_adapters.py capabilities",
     "ledger:init": "node scripts/run_python.mjs scripts/evidence_ledger.py init",
     "ledger:validate": "node scripts/run_python.mjs scripts/evidence_ledger.py validate",
     "api:fetch": "node scripts/api_fetch.mjs",
@@ -156,8 +163,8 @@
   "dResearchPackageManifest": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "file_count": 226,
-    "paths_sha256": "sha256:89d47f7e751e0c10d452fc29bfc1e5c2f95a3b13082e7829063d27e198c6fd16"
+    "file_count": 242,
+    "paths_sha256": "sha256:cddb21245a7d6edfa6ec8d800693144232db306b67af091b8d7f87c87ffe4190"
   },
   "dependencies": {
     "playwright": "1.61.1"

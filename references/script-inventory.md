@@ -9,6 +9,13 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/playwright_probe.mjs`: classify a page, detect blockers, list links/files/tables, optionally screenshot, and fail closed on response, aggregate-network, request-count, or rendered-output limits
 - `scripts/playwright_extract.mjs`: extract visible text, tables, links, metadata, and files into bounded JSON or Markdown under the shared browser limits
 - `scripts/playwright_crawl.mjs`: bounded same-domain crawl with RFC 9309 percent-octet-aware robots matching, page manifests, and truthful structured incomplete output for page/domain/depth/network/output ceilings
+- `scripts/browser_interaction.mjs`: Playwright interaction/capture operator for dynamic public pages; selectors and wait conditions are caller-supplied, and every action/capture is persisted for audit
+- `scripts/execution_evidence.py`: resolve coverage IDs to activity/capture records, enforce branch/question bindings, workspace containment, byte length, and SHA-256 before completion gates pass
+- `scripts/fast_evaluator.py`: summarize supplied execution evidence for bounded routes; it leaves branches planned and exits non-zero when evidence is absent
+- `scripts/research_controller.py`: adaptive paired-branch frontier, bounded budgets, lineage-aware handoffs, move logs, and checkpoints
+- `scripts/social_adapters.py`: normalize supplied thread/transcript/forum payloads and report fixture capability without claiming live platform access
+- `scripts/lineage_tracker.py`: deduplicate origin lineages and assess claim admission only from hash-bound verified evidence records
+- `scripts/reconciliation.py`: pair initial claims, corrections, timing, and cross-branch discrepancies for synthesis
 - `scripts/evidence_ledger.py`: initialize and validate canonical 37-column investigative ledgers, preserve exact 14/19/22/23-column compatibility, and **HMAC-sign / verify** every active field
 - `scripts/investigation_policy.py`: initialize/check tiered `R0`-`R4` scopes, bind time-bounded authorization attestations to canonical scope hashes, and classify social/non-official source disposition
 - `scripts/api_fetch.mjs`: paginated API fetch with rate limiting, retry, and multiple output formats

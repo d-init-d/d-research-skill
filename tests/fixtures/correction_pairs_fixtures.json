@@ -1,0 +1,78 @@
+{
+  "fixture_id": "FIX-CORRECTION-001",
+  "description": "Contradiction and correction pairs with scope nuances (Desktop vs Mobile, v2.0 vs v2.1) (TP02, TP08, TP10)",
+  "pairs": [
+    {
+      "pair_id": "PAIR-01",
+      "category": "feature_removal_vs_relocation",
+      "initial_assertion": {
+        "claim_id": "CLM-INIT-01",
+        "text": "Lumen 2.1 đã loại bỏ hoàn toàn tính năng xuất dữ liệu định dạng CSV.",
+        "source_id": "SRC-FORUM-POST-01",
+        "source_url": "https://forum.example.vn/thread/102",
+        "speaker": "casual_user_01",
+        "timestamp": "2026-08-28T08:20:00Z",
+        "claim_kind": "firsthand_account",
+        "initial_verification_state": "firsthand_unverified"
+      },
+      "correction_assertion": {
+        "claim_id": "CLM-CORR-01",
+        "text": "Tính năng xuất CSV không bị loại bỏ mà được chuyển vào Settings > Export trên Desktop; chỉ phiên bản Mobile tạm ẩn trong bản 2.1.0.",
+        "source_id": "SRC-FORUM-REPLY-02",
+        "source_url": "https://forum.example.vn/thread/102#reply-2",
+        "speaker": "maintainer_lead",
+        "timestamp": "2026-08-28T09:10:00Z",
+        "claim_kind": "statement_made",
+        "grounding_doc_url": "https://docs.lumen.example.com/v2.1/data-export",
+        "resolution": "refutes_initial_assertion"
+      },
+      "reconciliation_rule": "Direct factual contradiction on feature removal; correction provides authoritative UI navigation path confirmed by documentary docs."
+    },
+    {
+      "pair_id": "PAIR-02",
+      "category": "scope_difference_desktop_vs_mobile",
+      "initial_assertion": {
+        "claim_id": "CLM-INIT-02",
+        "text": "Lỗi đồng bộ EX-21 làm sập toàn bộ ứng dụng Lumen trên mọi thiết bị.",
+        "source_id": "SRC-TWEET-01",
+        "speaker": "tech_influencer",
+        "timestamp": "2026-08-28T10:00:00Z",
+        "claim_kind": "opinion",
+        "initial_verification_state": "unverified"
+      },
+      "correction_assertion": {
+        "claim_id": "CLM-CORR-02",
+        "text": "Lỗi EX-21 chỉ phát sinh trên hệ điều hành Windows khi người dùng bật cờ cấu hình --strict-ascii với đường dẫn Unicode tiếng Việt; macOS và Linux chạy bình thường.",
+        "source_id": "SRC-GITHUB-ISSUE-441",
+        "speaker": "core_committer",
+        "timestamp": "2026-08-28T11:45:00Z",
+        "claim_kind": "underlying_fact",
+        "resolution": "narrows_scope_and_explains_mechanism"
+      },
+      "reconciliation_rule": "Scope refinement: Overgeneralized claim is restricted to specific OS platform and non-default CLI flag."
+    },
+    {
+      "pair_id": "PAIR-03",
+      "category": "negation_and_tone_context_boundary",
+      "initial_assertion": {
+        "claim_id": "CLM-INIT-03",
+        "text": "Có bằng chứng rằng máy chủ cơ sở dữ liệu đã bị rò rỉ thông tin cá nhân khách hàng.",
+        "source_id": "SRC-BLOG-POST-05",
+        "speaker": "rumor_aggregator",
+        "timestamp": "2026-08-29T02:00:00Z",
+        "claim_kind": "statement_made",
+        "initial_verification_state": "unverified"
+      },
+      "correction_assertion": {
+        "claim_id": "CLM-CORR-03",
+        "text": "Kiểm toán độc lập của cơ quan an ninh mạng khẳng định: Hoàn toàn không có bằng chứng nào cho thấy máy chủ bị truy cập trái phép; dữ liệu rò rỉ thực chất là bản mock kiểm thử nội bộ không chứa thông tin thực.",
+        "source_id": "SRC-OFFICIAL-AUDIT-REPORT",
+        "speaker": "cybersecurity_auditor",
+        "timestamp": "2026-08-29T06:30:00Z",
+        "claim_kind": "underlying_fact",
+        "resolution": "refutes_initial_assertion"
+      },
+      "reconciliation_rule": "Negation boundary test: Substring 'bằng chứng rằng máy chủ...' occurs inside strict negation 'Hoàn toàn không có bằng chứng...' and must not support the affirmative leak claim."
+    }
+  ]
+}

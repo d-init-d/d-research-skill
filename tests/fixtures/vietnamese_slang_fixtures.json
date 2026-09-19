@@ -1,0 +1,65 @@
+{
+  "fixture_id": "FIX-VIETNAMESE-SLANG-001",
+  "description": "Vietnamese technical jargon, slang, Unicode tone marks, and semantic equivalence mappings (TP08, C03, D08)",
+  "terms": [
+    {
+      "colloquial_slang": "mất nút tải",
+      "canonical_technical_term": "tùy chọn xuất dữ liệu định dạng bảng bị ẩn hoặc dời vị trí",
+      "english_equivalent": "data export button missing or relocated",
+      "sample_forum_query": "lumen 2.1 mất nút tải csv",
+      "expanded_formal_queries": [
+        "lumen 2.1 csv export button relocated",
+        "hướng dẫn xuất dữ liệu csv lumen 2.1",
+        "lumen 2.1 settings data management export"
+      ]
+    },
+    {
+      "colloquial_slang": "văng app",
+      "canonical_technical_term": "sự cố dừng đột ngột ứng dụng (crash / unhandled exception)",
+      "english_equivalent": "application crash / abort",
+      "sample_forum_query": "lumen 2.1 văng app khi chọn đồng bộ",
+      "expanded_formal_queries": [
+        "lumen 2.1 crash on sync",
+        "lỗi ứng dụng tự thoát lumen 2.1",
+        "lumen 2.1 unhandled exception sync protocol"
+      ]
+    },
+    {
+      "colloquial_slang": "bị bóp băng thông",
+      "canonical_technical_term": "giới hạn lưu lượng truyền tải mạng (rate limiting / traffic throttling)",
+      "english_equivalent": "network bandwidth throttling / rate limiting",
+      "sample_forum_query": "api lumen bị bóp băng thông sau 100 requests",
+      "expanded_formal_queries": [
+        "lumen api rate limit 100 requests",
+        "chính sách giới hạn tần suất api lumen 2.1",
+        "http 429 too many requests lumen sync"
+      ]
+    },
+    {
+      "colloquial_slang": "treo máy",
+      "canonical_technical_term": "tiến trình chạy vòng lặp vô hạn hoặc deadlock không phản hồi",
+      "english_equivalent": "process hang / deadlock / non-responsive UI",
+      "sample_forum_query": "lumen 2.1 import file lớn bị treo máy",
+      "expanded_formal_queries": [
+        "lumen 2.1 UI freezes on large file import",
+        "tiến trình lumen 2.1 không phản hồi khi tải tệp",
+        "lumen 2.1 infinite loop on large dataset"
+      ]
+    }
+  ],
+  "unicode_diacritic_normalization_cases": [
+    {
+      "case_id": "DIACRITIC-01",
+      "decomposed_nfd": "Tính năng xuất dữ liệu CSV",
+      "composed_nfc": "Tính năng xuất dữ liệu CSV",
+      "is_semantically_identical": true,
+      "notes": "Ensures comparison algorithms normalize Unicode NFD and NFC representations."
+    },
+    {
+      "case_id": "DIACRITIC-02",
+      "formal_vietnamese": "Đính chính: Tính năng vẫn có trong Cài đặt > Quản lý dữ liệu",
+      "mangling_risk_ascii_stripped": "Dinh chinh: Tinh nang van co trong Cai dat > Quan ly du lieu",
+      "expected_handling": "Must preserve full diacritics in evidence ledger, citations, and report render; do not strip diacritics."
+    }
+  ]
+}

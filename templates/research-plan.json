@@ -84,7 +84,9 @@
         "ledger_validates",
         "ledger_hmac_verified",
         "reproducibility_checklist_complete",
-        "standard_gates_intact"
+        "standard_gates_intact",
+        "dual_track_terminal",
+        "cross_branch_reconciliation_valid"
       ]
     },
     "release_ready": {
@@ -101,5 +103,7 @@
       ]
     }
   },
-  "notes": "Free-form notes for humans. Decision log, open questions, etc. Ignored by the script."
+  "notes": "Free-form notes for humans. Decision log, open questions, etc. Ignored by the script.",
+  "execution_mode": "concurrent",
+  "dual_track_version": "2.1"
 }

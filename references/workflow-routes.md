@@ -20,6 +20,18 @@ user before proceeding; otherwise state the assumption and continue.
 
 **Before picking a branch:** if the task is long-horizon (more than 5 sub-questions, more than 50 sources, multi-context-window runtime, or audit-grade output), apply the **research plan protocol** from `references/research-plan-protocol.md` as an outer loop *around* whichever branch fits the topic. The agent creates one workspace directory with `scripts/research_plan.py init --slug <topic-slug>`, writes `research-plan.json` (from `templates/research-plan.json`), renders `PLAN.md`, passes `plan_ready`, records approval, and passes `execute_ready`/`dispatch_ready` before dispatching any task. After research tasks finish, it passes `synthesize_ready`; after synthesis tasks, exact report/citations, claim coverage, and stopping criteria finish, it passes `release_ready`. See `examples/long-horizon-research-plan.md`. The branches below describe the *content* of the work; the protocol describes the *flow control* that keeps the work surviving across context resets.
 
+**Paired evidence branches:** every route that researches facts starts a
+documentary branch and a social/community branch in its first discovery round.
+The documentary branch includes official, primary, academic, historical,
+archaeological, standards, archive, and dataset evidence as relevant. The
+social branch includes original public posts, nested replies, corrections,
+issue threads, specialist forums, and firsthand accounts. Use actual concurrent
+execution when the host provides at least two slots; otherwise interleave the
+branches and label it honestly. Exclude a branch only for an explicit
+user-provided corpus restriction or a pure supporting operation. Both branches
+use Playwright on relevant public dynamic pages when available and persist
+activity logs plus hash-bound captures before they can be marked complete.
+
 **Investigative wrapper:** routes labeled `investigative_osint`,
 `person_osint_scoped`, `social_cross_platform`, or `self_exposure_audit` use
 `references/investigative-research.md`. Create `investigation-scope.json`, run
@@ -38,7 +50,7 @@ and confidence have been handled or explicitly marked out of scope.
 
 ### If the user asks to verify or look up one specific atomic fact
 
-Use `references/fact-verification.md`. Applies when the question targets one named entity, one named attribute, has a deterministic primary source (API, registry, canonical text), and a one-sentence-or-quote answer. Skip decompose, source map, query fanout, and crawl. Hit the primary source once, quote the value verbatim, file one ledger row with a one-shot independent re-check, and report. If anything looks off — non-2xx status, contradicting mirrors, the user follows up with "why" — escalate to the broad research workflow below. Never reach for `references/frontier-search.md` from this branch; atomic facts either fetch cleanly or fail loudly.
+Use `references/fact-verification.md`. Applies when the question targets one named entity, one named attribute, has a deterministic primary source (API, registry, canonical text), and a one-sentence-or-quote answer. Keep both branches bounded: verify the canonical value in the documentary branch and run one targeted social/community errata or contradiction query in parallel/interleaved. File the execution evidence and ledger rows, then report. If anything looks off — non-2xx status, community correction, contradicting mirrors, or the user follows up with "why" — escalate to the broad research workflow below. Never reach for `references/frontier-search.md` from this branch; atomic facts either verify cleanly or fail loudly.
 
 ### If the user asks to capture or analyze a public social-media post
 
@@ -84,7 +96,9 @@ Use `references/semantic-retrieval.md` when a corpus is large enough that keywor
 
 ### If the user asks for a broad research answer
 
-Use the full deep research workflow. Produce a source-backed synthesis with evidence, confidence, caveats, and next steps.
+Use the full dual-track deep research workflow. Start both branches in round one,
+then reconcile them claim by claim. Produce a source-backed synthesis with
+evidence, confidence, caveats, contradictions, and next steps.
 
 ### If the user asks for due diligence, public investigation, risk review, or red flags
 

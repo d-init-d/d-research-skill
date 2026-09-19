@@ -1,0 +1,129 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.6;
+  margin: 0;
+  padding: 20px;
+  background-color: #f4f6f9;
+  color: #333;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.panel {
+  background: white;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.search-box {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+input[type="text"], select {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 15px;
+}
+
+#search-input {
+  flex: 1;
+}
+
+button {
+  background-color: #0366d6;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+button:hover {
+  background-color: #0255b5;
+}
+
+.result-card {
+  border: 1px solid #e1e4e8;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 6px;
+}
+
+.result-title {
+  font-weight: bold;
+  font-size: 16px;
+  color: #0366d6;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 12px;
+  margin-left: 8px;
+}
+
+.badge-draft {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.badge-final {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.comment-box {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-left: 3px solid #0366d6;
+  border-radius: 4px;
+}
+
+.comment-correction {
+  border-left-color: #28a745;
+  background-color: #eef9f1;
+}
+
+.comment-author {
+  font-weight: bold;
+  font-size: 13px;
+  color: #555;
+}
+
+.comment-time {
+  font-size: 12px;
+  color: #888;
+  margin-left: 8px;
+}
+
+.comment-body {
+  margin-top: 6px;
+  font-size: 14px;
+}
+
+.transcript-line {
+  padding: 6px 0;
+  border-bottom: 1px dashed #e1e4e8;
+  font-size: 14px;
+}
+
+.cue-time {
+  font-weight: bold;
+  color: #d73a49;
+  margin-right: 10px;
+}
