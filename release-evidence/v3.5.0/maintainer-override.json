@@ -1,0 +1,32 @@
+{
+  "authorization_timing": "post_candidate_owner_direction",
+  "authorized_at": "2026-09-19T07:12:32.857176+00:00",
+  "candidate_skill_commit": "9b7f5da193ab762f29feb0f5e6b358351539f73c",
+  "candidate_tag": "v3.5.0-rc.2",
+  "candidate_tag_object_sha": "20f7a48f6a014f7d23e635c2c07ffc418c9fc392",
+  "candidate_version": "3.5.0-rc.2",
+  "decision": "approved_with_waivers",
+  "local_verification": {
+    "path": "release-evidence/v3.5.0/local-verification.json",
+    "sha256": "sha256:db4e01fec2342f7fac64eb6ba3f4826c8cc2cf1b0646f576ceec684273fee321"
+  },
+  "maintainer": {
+    "login": "d-init-d",
+    "role": "repository_owner"
+  },
+  "policy_deviation_paths": [],
+  "policy_deviation_sha256": {},
+  "reason": "The repository owner directed continued upgrade, verification, and GitHub publication through a professional stable release after the full candidate suite, exact-SHA CI, signed tag, deterministic source archive, and provenance checks completed. This records that owner direction without representing automated agent review as independent human approval or claiming an uncontaminated live baseline-versus-candidate benchmark.",
+  "release_tag": "v3.5.0",
+  "release_version": "3.5.0",
+  "repository": "d-init-d/d-research-skill",
+  "risk_acceptance": {
+    "independent_reviewer": "Publication proceeds under the repository owner’s direction. Automated agent and CI review are not represented as an independent GitHub human approval.",
+    "live_dogfood": "Publication proceeds with the disclosed benchmark limitation. Local, fixture, smoke, and CI results are not represented as an uncontaminated live baseline-versus-candidate dogfood study."
+  },
+  "schema_version": "1.1",
+  "waivers": [
+    "independent_reviewer",
+    "live_dogfood"
+  ]
+}

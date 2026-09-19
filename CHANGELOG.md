@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-09-19
+
+Stable production release of evidence-backed dual-track documentary and social
+research.
+
+- Require documentary and social coverage for every substantive research
+  question, with concurrent or round-robin scheduling and anti-starvation
+  checks.
+- Add deep Playwright exploration for dynamic posts, replies, pagination,
+  scrolling, expansion controls, and transcript panels.
+- Bind branch completion to successful browser activity and readable,
+  hash-verified captures instead of URLs, snippets, or evaluator counters.
+- Preserve source class, lineage, correction context, contradictions, access
+  blockers, and verification status through final reconciliation.
+- Promote the signed `v3.5.0-rc.2` candidate after exact-SHA CI on Ubuntu and
+  Windows, deterministic package verification, source archive reproduction,
+  and provenance attestation.
+
+See [release notes](docs/release-v3.5.0.md) for upgrade instructions,
+compatibility, and assurance limits.
+
 ## [3.5.0-rc.2] - 2026-09-19
 
 Release-candidate refresh for the evidence-backed dual-track research upgrade.
@@ -1443,7 +1464,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.5.0-rc.2...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0
 [3.5.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.2
 [3.5.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.1
 [3.4.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1

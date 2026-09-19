@@ -1,6 +1,6 @@
 {
   "contract_version": "1.0.0",
-  "package_version": "3.5.0-rc.2",
+  "package_version": "3.5.0",
   "ledger": {
     "header_sizes": [
       14,
