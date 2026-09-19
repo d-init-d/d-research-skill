@@ -164,7 +164,7 @@ _MAINTAINER_OVERRIDE_RELEASES = {
         "required_checks": _V340_REQUIRED_CHECKS + ("pytest", "acceptance", "browser_smoke"),
     },
     "3.5.0": {
-        "candidate": "3.5.0-rc.1",
+        "candidate": "3.5.0-rc.2",
         "policy_deviation_paths": (),
         "required_checks": _V340_REQUIRED_CHECKS + ("pytest", "acceptance", "browser_smoke"),
     },
@@ -172,7 +172,7 @@ _MAINTAINER_OVERRIDE_RELEASES = {
 
 # The active release line drives route-manifest fixtures and negative self-tests.
 _DIRECT_STABLE_OVERRIDE_VERSION = "3.5.0"
-_DIRECT_STABLE_OVERRIDE_CANDIDATE = "3.5.0-rc.1"
+_DIRECT_STABLE_OVERRIDE_CANDIDATE = "3.5.0-rc.2"
 _DIRECT_STABLE_POLICY_DEVIATION_PATHS = ()
 _DIRECT_STABLE_REQUIRED_CHECKS = _V340_REQUIRED_CHECKS + (
     "pytest",

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.5.0-rc.2] - 2026-09-19
+
+Release-candidate refresh for the evidence-backed dual-track research upgrade.
+
+- Include the final v3.5.0 release documentation inside the frozen package
+  closure so stable promotion does not add packaged files after candidate
+  verification.
+- Rebind candidate metadata, package closure, and stable-promotion validation to
+  `v3.5.0-rc.2`.
+- Preserve the runtime and social-depth implementation from `v3.5.0-rc.1`.
+- Require the complete exact-SHA CI, artifact, signed-tag, archive reproduction,
+  and provenance gates again before stable promotion.
+
+No independent live baseline-versus-candidate agent benchmark is claimed.
+See [release notes](docs/release-v3.5.0-rc.2.md) for details.
+
 ## [3.5.0-rc.1] - 2026-09-19
 
 Release candidate for evidence-backed dual-track documentary and social
@@ -1427,7 +1443,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.5.0-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.5.0-rc.2...HEAD
+[3.5.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.2
 [3.5.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.1
 [3.4.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1
 [3.4.1-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.1-rc.2
