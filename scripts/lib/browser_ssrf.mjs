@@ -131,7 +131,10 @@ export function structuredBlocker(code, message, extra = {}) {
   };
 }
 
-function routeTarget(target) {
+function routeTarget(target, opts = {}) {
+  if (opts.scope === 'page' && target && typeof target.route === 'function') {
+    return target;
+  }
   if (target && typeof target.route === 'function' && typeof target.newPage === 'function') {
     return target;
   }
@@ -215,6 +218,28 @@ function recordResourceLimit(stats, url, payload, reason) {
   stats.blockedUrls.push({ url, reason, ...payload });
 }
 
+export async function isTaskPageOrDescendant(candidatePage, taskPages) {
+  if (!candidatePage || !taskPages) return false;
+  if (taskPages.has(candidatePage)) return true;
+  let current = candidatePage;
+  const visited = new Set();
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    try {
+      const opener = typeof current.opener === 'function' ? await current.opener() : null;
+      if (!opener) break;
+      if (taskPages.has(opener)) {
+        taskPages.add(candidatePage);
+        return true;
+      }
+      current = opener;
+    } catch {
+      break;
+    }
+  }
+  return false;
+}
+
 /**
  * Install a context-level network guard. HTTP(S) requests are fulfilled via
  * fetchPublicHttp so Chromium never performs its own destination DNS/connect.
@@ -228,6 +253,7 @@ function recordResourceLimit(stats, url, payload, reason) {
  *   maxTotalResponseBytes?: number|null,
  *   maxRequests?: number|null,
  *   timeoutMs?: number,
+ *   taskPages?: Set<object>,
  *   onAllowed?: Function
  * }} opts
  */
@@ -251,10 +277,16 @@ export async function installBrowserSsrfGuard(target, opts = {}) {
     resourceLimit: null,
     websocketBlocked: 0,
   };
-  const context = routeTarget(target);
+  const context = routeTarget(target, opts);
 
   if (typeof context.routeWebSocket === 'function') {
     await context.routeWebSocket(() => true, async (ws) => {
+      if (opts.taskPages) {
+        const wsPage = ws.page?.();
+        if (wsPage && !(await isTaskPageOrDescendant(wsPage, opts.taskPages))) {
+          return;
+        }
+      }
       const rawUrl = ws.url();
       const httpUrl = rawUrl.replace(/^ws:/i, 'http:').replace(/^wss:/i, 'https:');
       const check = await assertBrowserPublicUrl(httpUrl, opts);
@@ -268,8 +300,21 @@ export async function installBrowserSsrfGuard(target, opts = {}) {
     });
   }
 
-  await context.route('**/*', async (route) => {
+  const routeHandler = async (route) => {
     const request = route.request();
+    if (opts.taskPages) {
+      let reqPage = null;
+      try {
+        reqPage = request.frame()?.page();
+      } catch {
+        // Navigation request issued before frame is created (e.g. popup initial navigation).
+        // Treated as task popup (fail-closed) so SSRF guards apply.
+      }
+      if (reqPage && !(await isTaskPageOrDescendant(reqPage, opts.taskPages))) {
+        await route.continue();
+        return;
+      }
+    }
     const url = request.url();
     // Allow browser-internal non-network documents.
     if (/^(data:|blob:|about:)/i.test(url)) {
@@ -393,9 +438,10 @@ export async function installBrowserSsrfGuard(target, opts = {}) {
         reason: 'guard_fetch_failed',
         error: String(error?.message || error),
       });
-      await route.abort('failed');
     }
-  });
+  };
+  await context.route('**/*', routeHandler);
+  stats.routeHandler = routeHandler;
   return stats;
 }
 

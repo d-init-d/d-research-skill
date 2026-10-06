@@ -14,10 +14,19 @@ import {
   installBrowserSsrfGuard,
   structuredBlocker,
 } from './lib/browser_ssrf.mjs';
+import { acquireBrowserSession } from './lib/browser_connector.mjs';
 import { browserUserAgent } from './lib/package_metadata.mjs';
 
 function parseArgs(argv) {
-  const args = { headless: true, timeout: 30000, waitMs: 750, maxResponseBytes: null };
+  const args = {
+    headless: true,
+    timeout: 30000,
+    waitMs: 750,
+    maxResponseBytes: null,
+    browserMode: 'standalone',
+    cdpEndpoint: null,
+    reuseSession: false,
+  };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') args.help = true;
@@ -31,6 +40,9 @@ function parseArgs(argv) {
     else if (a === '--headful') args.headless = false;
     else if (a === '--ignore-tls-errors') args.ignoreTlsErrors = true;
     else if (a === '--allow-loopback-fixture') args.allowLoopbackFixture = true;
+    else if (a === '--browser-mode') args.browserMode = argv[++i];
+    else if (a === '--cdp-endpoint') args.cdpEndpoint = argv[++i];
+    else if (a === '--reuse-session') args.reuseSession = true;
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (!Number.isSafeInteger(args.timeout) || args.timeout < 1) {
@@ -44,7 +56,22 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  return `Usage: node scripts/playwright_probe.mjs --url <url> [--out probe.json] [--screenshot page.png]\n\nOptions:\n  --url <url>              Page to probe\n  --out <path>             JSON output path\n  --screenshot <path>      Optional screenshot path\n  --timeout <ms>           Navigation timeout, default 30000\n  --max-response-bytes <n> Maximum main-document body bytes (env: D_RESEARCH_HTTP_MAX_BYTES)\n  --wait-ms <ms>           Extra wait after load, default 750\n  --headful                Run with a visible browser\n  --ignore-tls-errors      Opt in to invalid TLS certificates; recorded as limitation\n  --self-test              Run lightweight checks without Playwright\n`;
+  return `Usage: node scripts/playwright_probe.mjs --url <url> [--out probe.json] [--screenshot page.png]
+
+Options:
+  --url <url>              Page to probe
+  --out <path>             JSON output path
+  --screenshot <path>      Optional screenshot path
+  --timeout <ms>           Navigation timeout, default 30000
+  --max-response-bytes <n> Maximum main-document body bytes (env: D_RESEARCH_HTTP_MAX_BYTES)
+  --wait-ms <ms>           Extra wait after load, default 750
+  --headful                Run with a visible browser
+  --ignore-tls-errors      Opt in to invalid TLS certificates; recorded as limitation
+  --browser-mode <mode>    Browser mode: standalone (default), cdp, auto
+  --cdp-endpoint <url>     Chrome DevTools Protocol endpoint (or D_RESEARCH_CDP_URL)
+  --reuse-session          Reuse existing context in CDP mode rather than isolating
+  --self-test              Run lightweight checks without Playwright
+`;
 }
 
 function classifyBlockers({ status, text, title, links }) {
@@ -101,22 +128,33 @@ async function run(args) {
       timestamp: new Date().toISOString(),
     };
   }
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: args.headless });
+  let session;
+  try {
+    session = await acquireBrowserSession({
+      browserMode: args.browserMode,
+      cdpEndpoint: args.cdpEndpoint,
+      reuseSession: args.reuseSession,
+      headless: args.headless,
+      timeout: args.timeout,
+      ignoreTlsErrors: args.ignoreTlsErrors,
+      allowLoopbackFixture: args.allowLoopbackFixture,
+      maxResponseBytes: args.maxResponseBytes,
+    });
+  } catch (err) {
+    const code = err.blocker?.code || err.code || 'browser_launch_failure';
+    return {
+      inputUrl: args.url,
+      finalUrl: args.url,
+      accessStatus: 'blocked',
+      blockers: [code],
+      error: err.blocker?.message || err.message,
+      limitations: ['missing_browser_capability'],
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  const { page, ssrfStats } = session;
   const ignoreTls = Boolean(args.ignoreTlsErrors);
-  const context = await browser.newContext({
-    ignoreHTTPSErrors: ignoreTls,
-    serviceWorkers: 'block',
-    userAgent: BROWSER_USER_AGENT,
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(args.timeout);
-  const ssrfStats = await installBrowserSsrfGuard(context, {
-    allowLoopback: args.allowLoopbackFixture === true,
-    ignoreTlsErrors: ignoreTls,
-    maxResponseBytes: args.maxResponseBytes,
-    timeoutMs: args.timeout,
-  });
   let response = null;
   let responseBytes = null;
   try {
@@ -133,19 +171,21 @@ async function run(args) {
     if (delayedRouteLimit) throw delayedRouteLimit;
   } catch (err) {
     if (resourceLimitPayload(err)) {
-      await browser.close();
+      await session.release();
       throw err;
     }
     const result = {
       inputUrl: args.url,
-      finalUrl: page.url(),
+      finalUrl: page ? page.url() : args.url,
       accessStatus: 'broken',
       error: String(err.message || err),
       ssrfStats,
-      limitations: ignoreTls ? ['ignore_tls_errors_enabled'] : [],
+      limitations: [...new Set([...(ignoreTls ? ['ignore_tls_errors_enabled'] : []), ...(session.limitations || [])])],
+      browserMode: session.mode,
+      browserOwnership: session.ownership,
       timestamp: new Date().toISOString()
     };
-    await browser.close();
+    await session.release();
     return result;
   }
 
@@ -188,7 +228,7 @@ async function run(args) {
 
   const evaluateRouteLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
   if (evaluateRouteLimit) {
-    await browser.close();
+    await session.release();
     throw evaluateRouteLimit;
   }
 
@@ -200,7 +240,7 @@ async function run(args) {
       ssrfStats.resourceLimit,
     );
     if (screenshotRouteLimit) {
-      await browser.close();
+      await session.release();
       throw screenshotRouteLimit;
     }
   }
@@ -213,7 +253,9 @@ async function run(args) {
     status,
     accessStatus: inferAccessStatus(blockers, status, result.textLength),
     blockers,
-    limitations: ignoreTls ? ['ignore_tls_errors_enabled'] : [],
+    limitations: [...new Set([...(ignoreTls ? ['ignore_tls_errors_enabled'] : []), ...(session.limitations || [])])],
+    browserMode: session.mode,
+    browserOwnership: session.ownership,
     limits: {
       maxResponseBytes: args.maxResponseBytes,
       responseBytes,
@@ -229,10 +271,10 @@ async function run(args) {
       page.url(),
     );
   } catch (error) {
-    await browser.close();
+    await session.release();
     throw error;
   }
-  await browser.close();
+  await session.release();
   return output;
 }
 
@@ -251,6 +293,10 @@ async function main() {
     if (!tlsParsed.ignoreTlsErrors) throw new Error('ignore-tls-errors parser failed');
     const capParsed = parseArgs(['node', 'script', '--url', 'https://example.com', '--max-response-bytes', '123']);
     if (capParsed.maxResponseBytes !== 123) throw new Error('max-response-bytes parser failed');
+    const cdpParsed = parseArgs(['node', 'script', '--url', 'https://example.com', '--browser-mode', 'cdp', '--cdp-endpoint', 'http://127.0.0.1:9222', '--reuse-session']);
+    if (cdpParsed.browserMode !== 'cdp' || cdpParsed.cdpEndpoint !== 'http://127.0.0.1:9222' || !cdpParsed.reuseSession) {
+      throw new Error('cdp args parser failed');
+    }
     selfTestBrowserLimits();
     console.log('playwright_probe self-test ok');
     return;

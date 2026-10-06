@@ -38,6 +38,7 @@ import {
   resolveBrowserResponseLimit,
 } from './lib/browser_limits.mjs';
 import { browserUserAgent } from './lib/package_metadata.mjs';
+import { acquireBrowserSession } from './lib/browser_connector.mjs';
 
 export class BrowserOperator {
   constructor(options = {}) {
@@ -51,7 +52,11 @@ export class BrowserOperator {
     this.questionIds = options.questionIds || ['Q1'];
     this.outDir = options.outDir || null;
     this.maxActions = options.maxActions ?? 15;
+    this.browserMode = options.browserMode || 'standalone';
+    this.cdpEndpoint = options.cdpEndpoint || null;
+    this.reuseSession = options.reuseSession || false;
 
+    this.session = null;
     this.browser = null;
     this.context = null;
     this.page = null;
@@ -67,23 +72,31 @@ export class BrowserOperator {
   }
 
   async launch() {
-    const { chromium } = await import('playwright');
-    this.browser = await chromium.launch({
+    this.session = await acquireBrowserSession({
+      browserMode: this.browserMode,
+      cdpEndpoint: this.cdpEndpoint,
+      reuseSession: this.reuseSession,
       headless: this.headless,
+      timeout: this.timeout,
+      ignoreTlsErrors: this.ignoreTlsErrors,
+      allowLoopbackFixture: this.allowLoopback,
+      maxResponseBytes: this.maxResponseBytes,
+      installSsrf: false,
     });
-    this.context = await this.browser.newContext({
-      userAgent: browserUserAgent(),
-      ignoreHTTPSErrors: Boolean(this.ignoreTlsErrors),
-      serviceWorkers: 'block',
-    });
-    this.ssrfStats = await installBrowserSsrfGuard(this.context, {
+    this.browser = this.session.browser;
+    this.context = this.session.context;
+    this.page = this.session.page;
+
+    const targetForGuard = this.session.ownership?.ownsContext ? this.context : this.page;
+    this.ssrfStats = await installBrowserSsrfGuard(targetForGuard, {
       allowLoopback: this.allowLoopback,
       ignoreTlsErrors: this.ignoreTlsErrors,
       maxResponseBytes: this.maxResponseBytes,
       timeoutMs: this.timeout,
+      scope: this.session.ownership?.ownsContext ? 'context' : 'page',
     });
     if (this.allowLoopback) {
-      await this.context.route(/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/.*/, async (route) => {
+      await targetForGuard.route(/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/.*/, async (route) => {
         const req = route.request();
         if (req.method() === 'POST') {
           try {
@@ -107,16 +120,19 @@ export class BrowserOperator {
         }
       });
     }
-    this.page = await this.context.newPage();
-    this.page.setDefaultTimeout(this.timeout);
     return this;
   }
 
   async close() {
     try {
-      if (this.page) await this.page.close().catch(() => {});
-      if (this.context) await this.context.close().catch(() => {});
-      if (this.browser) await this.browser.close().catch(() => {});
+      if (this.session) {
+        await this.session.release();
+        this.session = null;
+      } else {
+        if (this.page) await this.page.close().catch(() => {});
+        if (this.context) await this.context.close().catch(() => {});
+        if (this.browser) await this.browser.close().catch(() => {});
+      }
     } finally {
       this.page = null;
       this.context = null;
@@ -683,6 +699,16 @@ export async function selfTestBrowserInteraction() {
   ) {
     throw new Error('Empty text capture must not create source evidence');
   }
+
+  const cdpOp = new BrowserOperator({
+    browserMode: 'cdp',
+    cdpEndpoint: 'http://127.0.0.1:9222',
+    reuseSession: true,
+  });
+  if (cdpOp.browserMode !== 'cdp' || cdpOp.cdpEndpoint !== 'http://127.0.0.1:9222' || !cdpOp.reuseSession) {
+    throw new Error('BrowserOperator options initialization failed');
+  }
+
   return true;
 }
 
@@ -702,6 +728,9 @@ async function main() {
   let branchId = 'documentary';
   let questionId = 'Q1';
   let headless = true;
+  let browserMode = 'standalone';
+  let cdpEndpoint = null;
+  let reuseSession = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -712,10 +741,25 @@ async function main() {
     else if (a === '--branch') branchId = args[++i];
     else if (a === '--question-id') questionId = args[++i];
     else if (a === '--headful') headless = false;
+    else if (a === '--browser-mode') browserMode = args[++i];
+    else if (a === '--cdp-endpoint') cdpEndpoint = args[++i];
+    else if (a === '--reuse-session') reuseSession = true;
+    else if (a === '--self-test') {
+      const op = new BrowserOperator({
+        browserMode: 'cdp',
+        cdpEndpoint: 'http://127.0.0.1:9222',
+        reuseSession: true,
+      });
+      if (op.browserMode !== 'cdp' || op.cdpEndpoint !== 'http://127.0.0.1:9222' || !op.reuseSession) {
+        throw new Error('BrowserOperator options initialization failed');
+      }
+      console.log('browser_interaction self-test ok');
+      return;
+    }
   }
 
   if (!url) {
-    console.error('Usage: node scripts/browser_interaction.mjs --url <url> [--actions <json>] [--allow-loopback-fixture] [--out-dir <dir>]');
+    console.error('Usage: node scripts/browser_interaction.mjs --url <url> [--actions <json>] [--allow-loopback-fixture] [--out-dir <dir>] [--browser-mode standalone|cdp|auto] [--cdp-endpoint <url>] [--reuse-session]');
     process.exit(1);
   }
 
@@ -725,6 +769,9 @@ async function main() {
     branchId,
     questionIds: [questionId],
     outDir,
+    browserMode,
+    cdpEndpoint,
+    reuseSession,
   });
 
   try {

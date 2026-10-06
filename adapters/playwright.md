@@ -85,7 +85,24 @@ node scripts/playwright_extract.mjs --url https://example.com --format json --ou
 node scripts/playwright_crawl.mjs --seed https://example.com --outDir research-output/crawl --maxDepth 2 --maxPages 30
 ```
 
-All three commands enforce `D_RESEARCH_HTTP_MAX_BYTES` for the main document;
+## Active Browser Attachment (CDP)
+
+To connect directly to an existing host/user Chrome or Chromium instance instead of launching a new headless browser:
+
+```bash
+# Connect to an active Chromium instance over CDP
+node scripts/playwright_probe.mjs --url https://example.com --browser-mode cdp --cdp-endpoint http://127.0.0.1:9222 --reuse-session
+
+# Auto mode: attaches via CDP if endpoint is configured, otherwise launches standalone
+node scripts/playwright_extract.mjs --url https://example.com --browser-mode auto
+```
+
+Options:
+- `--browser-mode standalone|cdp|auto`: choose lifecycle driver (`standalone` launches isolated headless browser; `cdp` attaches to existing remote debugging port; `auto` falls back gracefully).
+- `--cdp-endpoint <url>`: specify Chrome DevTools Protocol URL (e.g. `http://127.0.0.1:9222`), or set `D_RESEARCH_CDP_URL`.
+- `--reuse-session`: in CDP mode, reuses the existing active context instead of opening an isolated context.
+
+All browser commands enforce `D_RESEARCH_HTTP_MAX_BYTES` for the main document;
 override it per invocation with `--max-response-bytes <n>`. Exceeding the cap
 emits a structured incomplete blocker and exits `3` (crawl also writes the
 blocker and `complete: false` summary before exiting).
