@@ -2,6 +2,7 @@
 // Chrome DevTools Protocol (CDP) session attachment, and automated fallback.
 // Enforces strict resource ownership, idempotent cleanup, and SSRF routing guards.
 
+import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   assertBrowserPublicUrl,
@@ -411,16 +412,18 @@ export async function selfTest() {
     }
   }
 
-  // Check if playwright package is installed for live browser testing
+  // The package and browser binary are separate optional capabilities.
   let playwrightAvailable = false;
   try {
-    await import('playwright');
-    playwrightAvailable = true;
+    const { chromium } = await import('playwright');
+    playwrightAvailable = existsSync(chromium.executablePath());
   } catch {
     playwrightAvailable = false;
   }
 
-  if (playwrightAvailable) {
+  if (!playwrightAvailable) {
+    console.log('browser lifecycle DELEGATED: CAPABILITY_BROWSER (Playwright or Chromium binary unavailable)');
+  } else {
     // 4. Standalone launch & release lifecycle
     try {
       const session = await acquireBrowserSession({
