@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [3.6.0-rc.1] - 2026-10-06
+## [3.6.0-rc.2] - 2026-10-06
 
-Release-candidate for Host Search Gateway and Chrome DevTools Protocol (CDP) connectivity.
+Local candidate; official upstream attestation is unavailable.
 
-- Add host search gateway abstraction with resilient provider failover and structured blocker reporting.
-- Add CDP browser connector with loopback SSRF guards and isolated task context lifecycle.
-- Update 37-column evidence ledger integration and runtime self-test suites.
+- Keep all search traffic behind DNS-pinned HTTP and connected-peer checks.
+- Use explicit offline fixtures instead of detecting a patched global fetch.
+- Support host-result artifacts and opt-in CDP task page ownership.
+- Attribute benchmark RSS to task-created processes and report missing measurements honestly.
+- Local candidate integrity does not establish official upstream attestation.
 
 ## [3.5.0] - 2026-09-19
 
@@ -1472,8 +1474,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.6.0-rc.1...HEAD
-[3.6.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.1
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.6.0-rc.2...HEAD
+[3.6.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.2
 [3.5.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0
 [3.5.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.2
 [3.5.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.1

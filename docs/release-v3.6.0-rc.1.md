@@ -2,13 +2,16 @@
 
 ## v3.6.0-rc.1 Release Notes
 
-## Host-Native Search Gateway and Chrome DevTools Protocol Connectivity
+Local candidate; official upstream attestation is unavailable.
 
-D Research 3.6-rc.1 introduces host-native search gateway abstractions and Chrome DevTools Protocol (CDP) connectivity, enabling high-performance research execution across agent environments.
+Search supports validated host-result artifacts and provider fallback with honest
+blocked/error/empty statuses. Host/MCP tools are invoked by the agent host, not
+by Node scripts. Every search transport uses DNS-pinned public HTTP and peer
+checks, including when global fetch is wrapped. Offline fixtures explicitly use
+the test connector seam.
 
-### Highlights
+CDP attachment is opt-in, loopback by default, with ownership limited to task
+pages and descendants. RAM/latency observations are fixture-specific and are not
+guaranteed percentages. This candidate has no official upstream attestation.
 
-- **Host-Native / MCP Search Gateway.** Flexible multi-provider gateway supporting native host integrations, MCP search tools, SearXNG, and direct web search with resilient fallback handling.
-- **Chrome DevTools Protocol (CDP) Connector.** Enables reuse of existing user browser instances, reducing RAM consumption and navigating dynamic single-page applications without standalone headless browser overhead.
-- **Strict Network & Loopback SSRF Guarding.** Robust endpoint validation blocking private IP ranges, cloud metadata services, and unverified loopback access.
-- **Full Evidence Ledger Integrity.** Seamless integration with the 37-column evidence ledger schema, preserving full provenance, hash bindings, and execution receipts.
+See [candidate contract](upgrade-completion.md) and run `npm run acceptance`.

@@ -9,7 +9,9 @@ import {
   urlHasCredentials,
 } from './lib/credentials.mjs';
 import { packageUserAgent } from './lib/package_metadata.mjs';
-import { fetchPublicHttp, isNonPublicIp } from './lib/ssrf_guards.mjs';
+import { fetchPublicHttp, isNonPublicIp, setTestDnsResolver, setTestConnectFactory } from './lib/ssrf_guards.mjs';
+import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 
 export const USER_AGENT = packageUserAgent('web-search');
 export const DEFAULT_MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
@@ -171,8 +173,6 @@ export async function readResponseTextBounded(response, maxBytes) {
   return body.toString('utf8');
 }
 
-const initialFetch = globalThis.fetch;
-
 export async function fetchWithManualRedirects(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   let current = validateHttpUrl(url);
   assertNotPrivateOrBlocked(current);
@@ -181,16 +181,12 @@ export async function fetchWithManualRedirects(url, options = {}, timeoutMs = DE
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const signal = timeoutMs ? AbortSignal.timeout(timeoutMs) : options?.signal;
-    const fetchFn = (globalThis.fetch !== initialFetch)
-      ? ((u, o) => globalThis.fetch(u, o))
-      : ((u, o) => fetchPublicHttp(u, o, { allowHttp: true }));
-
-    const response = await fetchFn(current.href, {
+    const response = await fetchPublicHttp(current.href, {
       ...options,
       headers,
       redirect: 'manual',
       signal,
-    });
+    }, { allowHttp: true });
     if (!REDIRECT_STATUSES.has(response.status)) return response;
 
     const location = response.headers?.get?.('location');
@@ -989,10 +985,60 @@ function parseArgs(argv) {
 
 // ─── Self-Test ───────────────────────────────────────────────────────────────
 
+/** Explicit offline fixture seam; URL, DNS and peer checks still run in the guard. */
+export function setSearchTestResponse(provider) {
+  if (typeof provider !== 'function') {
+    setTestDnsResolver(null);
+    setTestConnectFactory(null);
+    return;
+  }
+  setTestDnsResolver(async () => ['8.8.8.8']);
+  setTestConnectFactory((options, onResponse) => {
+    const request = new EventEmitter();
+    const chunks = [];
+    let destroyed = false;
+    request.write = (chunk) => { chunks.push(Buffer.from(chunk)); return true; };
+    request.destroy = (error) => {
+      if (!destroyed && error) queueMicrotask(() => request.emit('error', error));
+      destroyed = true;
+      return request;
+    };
+    request.end = () => {
+      queueMicrotask(async () => {
+        if (destroyed) return;
+        const socket = new EventEmitter();
+        socket.remoteAddress = options.ip;
+        socket.connecting = false;
+        socket.destroy = () => { destroyed = true; };
+        request.emit('socket', socket);
+        if (destroyed) return;
+        try {
+          const response = await provider(options.url, {
+            method: options.method, headers: options.headers, redirect: 'manual',
+            body: chunks.length ? Buffer.concat(chunks).toString() : undefined,
+          });
+          const body = typeof response.text === 'function' ? await response.text() : '';
+          if (destroyed) return;
+          const stream = Readable.from([Buffer.from(body)]);
+          stream.statusCode = response.status;
+          stream.statusMessage = response.statusText || '';
+          stream.headers = {};
+          for (const name of ['location', 'content-type', 'content-length', 'retry-after']) {
+            const value = response.headers?.get?.(name);
+            if (value != null) stream.headers[name] = value;
+          }
+          onResponse(stream);
+        } catch (error) { request.emit('error', error); }
+      });
+      return request;
+    };
+    return request;
+  });
+}
+
 export async function runSelfTest() {
   let passed = 0;
   let failed = 0;
-  const originalFetch = globalThis.fetch;
   const originalEnv = { ...process.env };
 
   function assert(condition, label) {
@@ -1004,6 +1050,7 @@ export async function runSelfTest() {
     }
   }
 
+  try {
   try {
     parsePositiveInteger('12x', '--limit');
     assert(false, 'strict integer parser rejects trailing junk');
@@ -1029,7 +1076,7 @@ export async function runSelfTest() {
 
   process.env.BRAVE_API_KEY = 'brave-redirect-secret';
   let redirectCalls = [];
-  globalThis.fetch = async (url, options) => {
+  setSearchTestResponse(async (url, options) => {
     redirectCalls.push({ url: String(url), headers: { ...(options.headers || {}) }, redirect: options.redirect });
     if (redirectCalls.length === 1) {
       return {
@@ -1045,7 +1092,7 @@ export async function runSelfTest() {
       headers: { get: () => null },
       text: async () => JSON.stringify({ web: { results: [] } }),
     };
-  };
+  });
   try {
     await searchBrave('redirect test', 1);
     assert(redirectCalls.length === 2, 'same-origin redirect is followed manually');
@@ -1062,7 +1109,7 @@ export async function runSelfTest() {
   }
 
   redirectCalls = [];
-  globalThis.fetch = async (url, options) => {
+  setSearchTestResponse(async (url, options) => {
     redirectCalls.push({ url: String(url), headers: { ...(options.headers || {}) } });
     return {
       ok: false,
@@ -1070,7 +1117,7 @@ export async function runSelfTest() {
       headers: { get: (name) => name.toLowerCase() === 'location' ? 'https://redirect.invalid/stolen' : null },
       body: { cancel: async () => {} },
     };
-  };
+  });
   try {
     await searchBrave('redirect test', 1);
     assert(false, 'credentialed cross-origin redirect is blocked');
@@ -1086,7 +1133,7 @@ export async function runSelfTest() {
   }
 
   let loopCalls = 0;
-  globalThis.fetch = async () => {
+  setSearchTestResponse(async () => {
     loopCalls++;
     return {
       ok: false,
@@ -1094,7 +1141,7 @@ export async function runSelfTest() {
       headers: { get: (name) => name.toLowerCase() === 'location' ? '/loop' : null },
       body: { cancel: async () => {} },
     };
-  };
+  });
   try {
     await fetchTextBounded('https://loop.example/start');
     assert(false, 'redirect loop is bounded');
@@ -1146,7 +1193,7 @@ export async function runSelfTest() {
     ]
   };
 
-  globalThis.fetch = async (url) => {
+  setSearchTestResponse(async (url) => {
     const urlStr = typeof url === 'string' ? url : url.toString();
     if (urlStr.includes('html.duckduckgo.com')) {
       return {
@@ -1196,7 +1243,7 @@ export async function runSelfTest() {
       text: async () => 'error',
       json: async () => ({ error: 'unknown' })
     };
-  };
+  });
 
   // Test 1: DDG parser
   console.log('  Test 1: DuckDuckGo engine');
@@ -1260,7 +1307,7 @@ export async function runSelfTest() {
 
   // Test 5: Fallback chain (DDG fail -> SearXNG success)
   console.log('  Test 5: Fallback chain (DDG fail -> SearXNG success)');
-  globalThis.fetch = async (url) => {
+  setSearchTestResponse(async (url) => {
     const urlStr = typeof url === 'string' ? url : url.toString();
     if (urlStr.includes('html.duckduckgo.com')) {
       return { ok: false, status: 503, statusText: 'Service Unavailable', headers: { get: () => null } };
@@ -1276,7 +1323,7 @@ export async function runSelfTest() {
       };
     }
     return { ok: false, status: 500, statusText: 'Internal Server Error', headers: { get: () => null } };
-  };
+  });
 
   try {
     delete process.env.BRAVE_API_KEY;
@@ -1294,9 +1341,9 @@ export async function runSelfTest() {
 
   // Test 6: All engines fail
   console.log('  Test 6: All engines fail (exit non-zero)');
-  globalThis.fetch = async () => {
+  setSearchTestResponse(async () => {
     return { ok: false, status: 500, statusText: 'Internal Server Error', headers: { get: () => null } };
-  };
+  });
 
   let exitCode = null;
   const originalExit = process.exit;
@@ -1318,7 +1365,7 @@ export async function runSelfTest() {
   // Regression 7: DDG HTTP 202 challenge triggers fallback
   console.log('  Test 7: DDG HTTP 202 challenge triggers fallback');
   let calls = [];
-  globalThis.fetch = async (url) => {
+  setSearchTestResponse(async (url) => {
     const s = String(url);
     calls.push(s);
     if (s.includes('duckduckgo.com')) {
@@ -1338,7 +1385,7 @@ export async function runSelfTest() {
       text: async () => JSON.stringify(mockSearxJson),
       json: async () => mockSearxJson,
     };
-  };
+  });
   try {
     const gw = new SearchGateway();
     const res = await gw.execute({ query: 'challenge 202 test', limit: 5 });
@@ -1353,7 +1400,7 @@ export async function runSelfTest() {
   // Regression 8: DDG HTTP 200 with challenge body triggers fallback
   console.log('  Test 8: DDG HTTP 200 body challenge triggers fallback');
   calls = [];
-  globalThis.fetch = async (url) => {
+  setSearchTestResponse(async (url) => {
     const s = String(url);
     calls.push(s);
     if (s.includes('duckduckgo.com')) {
@@ -1373,7 +1420,7 @@ export async function runSelfTest() {
       text: async () => JSON.stringify(mockSearxJson),
       json: async () => mockSearxJson,
     };
-  };
+  });
   try {
     const gw = new SearchGateway();
     const res = await gw.execute({ query: 'challenge 200 test', limit: 5 });
@@ -1387,7 +1434,7 @@ export async function runSelfTest() {
   // Regression 9: HTTP 429 records Retry-After and does not loop
   console.log('  Test 9: HTTP 429 rate limit recorded');
   calls = [];
-  globalThis.fetch = async (url) => {
+  setSearchTestResponse(async (url) => {
     const s = String(url);
     calls.push(s);
     if (s.includes('duckduckgo.com')) {
@@ -1407,7 +1454,7 @@ export async function runSelfTest() {
       text: async () => JSON.stringify(mockSearxJson),
       json: async () => mockSearxJson,
     };
-  };
+  });
   try {
     const gw = new SearchGateway();
     const res = await gw.execute({ query: 'rate limit test', limit: 5 });
@@ -1469,12 +1516,14 @@ export async function runSelfTest() {
     console.error(`  FAIL: Test 11 threw: ${err.message}`);
   }
 
-  // Restore env and fetch
-  globalThis.fetch = originalFetch;
-  for (const key of Object.keys(process.env)) {
-    if (!(key in originalEnv)) delete process.env[key];
+  } finally {
+    // Explicit test transport hooks and environment never survive this runner.
+    setSearchTestResponse(null);
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
   }
-  Object.assign(process.env, originalEnv);
 
   console.log(`  ${passed} passed, ${failed} failed`);
   if (failed > 0) {

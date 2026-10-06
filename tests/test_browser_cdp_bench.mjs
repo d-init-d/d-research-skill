@@ -86,8 +86,8 @@ function getProcessTreeInfo(rootPid) {
       browserChildrenRssMB: Math.round(((totalRssKb - (rssByPid.get(rootPid) || 0)) / 1024) * 100) / 100,
       rssByPid,
     };
-  } catch {
-    return { pids: [], childCount: 0, totalRssMB: 0, workerRssMB: 0, browserChildrenRssMB: 0, rssByPid: new Map() };
+  } catch (error) {
+    throw new Error(`PROCESS_MEASUREMENT_UNAVAILABLE: ${error.message}`);
   }
 }
 
@@ -267,8 +267,13 @@ async function benchmarkStandalone(server) {
     rssPeakMB: memPeak.rss,
     deltaRssMB: Math.round((memPeak.rss - memBefore.rss) * 100) / 100,
     processTreePeakMB: treePeak.totalRssMB,
-    browserSpawnedRssMB: treePeak.browserChildrenRssMB,
-    spawnedPidsCount: treePeak.childCount,
+    browserSpawnedRssMB: Math.round(taskSpawnedStandalonePids.reduce((sum, pid) => sum + (treePeak.rssByPid.get(pid) || 0), 0) / 1024 * 100) / 100,
+    existingBrowserRssDeltaMB: Math.round((treePeak.browserChildrenRssMB - treeBefore.browserChildrenRssMB) * 100) / 100,
+    spawnedPidsCount: taskSpawnedStandalonePids.length,
+    baselinePids: [...baselineStandalonePids],
+    observedPids: treePeak.pids,
+    taskSpawnedPids: taskSpawnedStandalonePids,
+    survivorPids: zombiesStandalone,
     zombiesRemaining: zombiesStandalone.length,
   };
 }
@@ -320,7 +325,12 @@ async function benchmarkCdpAttached(server, cdpEndpoint) {
     deltaRssMB: Math.round((memPeak.rss - memBefore.rss) * 100) / 100,
     processTreePeakMB: treePeak.totalRssMB,
     browserSpawnedRssMB: taskSpawnedRssMB,
+    existingBrowserRssDeltaMB: Math.round((treePeak.browserChildrenRssMB - treeBefore.browserChildrenRssMB) * 100) / 100,
     spawnedPidsCount: taskSpawnedCdpPids.length,
+    baselinePids: [...baselineCdpPids],
+    observedPids: treePeak.pids,
+    taskSpawnedPids: taskSpawnedCdpPids,
+    survivorPids: zombiesCdp,
     zombiesRemaining: zombiesCdp.length,
   };
 }
@@ -364,6 +374,7 @@ async function runBenchmarks(server) {
         avgDeltaRssMB: avg(standaloneResults, 'deltaRssMB'),
         avgTreePeakMB: avg(standaloneResults, 'processTreePeakMB'),
         avgBrowserSpawnedMB: avg(standaloneResults, 'browserSpawnedRssMB'),
+        avgBrowserRssDeltaMB: avg(standaloneResults, 'existingBrowserRssDeltaMB'),
         spawnedPids: avg(standaloneResults, 'spawnedPidsCount'),
         zombiesRemaining: avg(standaloneResults, 'zombiesRemaining'),
       },
@@ -374,6 +385,7 @@ async function runBenchmarks(server) {
         avgDeltaRssMB: avg(cdpResults, 'deltaRssMB'),
         avgTreePeakMB: avg(cdpResults, 'processTreePeakMB'),
         avgBrowserSpawnedMB: avg(cdpResults, 'browserSpawnedRssMB'),
+        avgBrowserRssDeltaMB: avg(cdpResults, 'existingBrowserRssDeltaMB'),
         spawnedPids: avg(cdpResults, 'spawnedPidsCount'),
         zombiesRemaining: avg(cdpResults, 'zombiesRemaining'),
       },
@@ -408,8 +420,12 @@ async function runBenchmarks(server) {
     console.log(`\nMeasured Observations:`);
     console.log(`  - Startup time speedup: ~${startupSpeedup}x faster attachment vs cold launch`);
     console.log(`  - Total session duration speedup: ~${wallSpeedup}x`);
-    console.log(`  - Empirical Browser RAM saved per task: ~${memorySavedMB}MB (CDP spawns 0 new browser child processes vs ${summary.standalone.spawnedPids} PIDs in standalone)`);
-    console.log(`  - Zombie process count: ${summary.standalone.zombiesRemaining} (0 zombies across all runs)`);
+    console.log(`  - Empirical Browser RAM saved per task: ~${memorySavedMB}MB (observed new child processes: CDP ${summary.cdp_attached.spawnedPids}, standalone ${summary.standalone.spawnedPids}; reuse can also grow existing browser RSS)`);
+    console.log(`  - Surviving task child processes after release: standalone ${summary.standalone.zombiesRemaining}, CDP ${summary.cdp_attached.zombiesRemaining}`);
+    console.log(`BENCHMARK_JSON=${JSON.stringify({ ...summary, startupSpeedup, wallSpeedup, memorySavedMB, warmup: [warmStandalone, warmCdp], runs: { standalone: standaloneResults, cdp: cdpResults } })}`);
+    if (summary.standalone.zombiesRemaining || summary.cdp_attached.zombiesRemaining) {
+      throw new Error('TASK_PROCESS_LEAK: measured task processes remain after session release');
+    }
 
     return summary;
   } finally {
@@ -423,7 +439,7 @@ async function main() {
     const edgePass = await testP5C04_EdgeCases(server);
     if (!edgePass) {
       console.error('Edge case tests failed!');
-      process.exit(1);
+      throw new Error('EDGE_CASE_FAILED');
     }
     await runBenchmarks(server);
     console.log('\nAll P5 tests & benchmarks completed successfully.');
