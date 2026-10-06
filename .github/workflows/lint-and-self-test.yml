@@ -183,6 +183,9 @@ jobs:
       - name: Run Node self-tests
         run: npm run self-test:node
 
+      - name: Verify wrapped fetch cannot bypass search transport guards
+        run: node tests/test_search_transport_boundary.mjs
+
       - name: Verify npm pack excludes generated Python caches
         shell: bash
         run: |

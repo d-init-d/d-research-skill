@@ -53,21 +53,29 @@ Fetches from `https://www.googleapis.com/customsearch/v1`. Requires both `GOOGLE
 GOOGLE_CSE_KEY=AIza... GOOGLE_CSE_ID=abc123 node scripts/web_search.mjs --engine google-cse --query "open data portal CSV"
 ```
 
-## Fallback chain
+## SearchGateway and Fallback Chain
 
-When no `--engine` is specified, the script attempts engines in this order:
+When running in an AI host environment, `scripts/web_search.mjs` supports gateway routing via `--gateway` or `--search-gateway auto|host|mcp|direct`:
 
-1. **DuckDuckGo** — always attempted (no key needed)
-2. **SearXNG** — always attempted (no key needed)
-3. **Brave** — attempted only if `BRAVE_API_KEY` is set
-4. **Google CSE** — attempted only if both `GOOGLE_CSE_KEY` and `GOOGLE_CSE_ID` are set
+- `auto` (default): Attempts host-native search tool (`search_web`) or MCP gateway if configured, falling back to direct web engines.
+- `host`: Prefers host environment tools and bridges before falling back.
+- `mcp`: Uses configured MCP search tools (Tavily/Brave MCP) before falling back.
+- `direct`: Bypasses host/MCP gateway and queries direct endpoints.
 
-The first engine that returns results wins. Results are **not** merged across engines — every result in the output has the same `source_engine` value.
+When attempting direct search engines (or when no `--engine` is specified), the script follows this order:
 
-If all engines fail, the script prints a summary of all failures to stderr and exits non-zero.
+1. **Host-Native / MCP Gateway** — attempted first in `auto`/`host`/`mcp` modes
+2. **DuckDuckGo** — attempted next (no key needed; resilient to HTTP 202 challenge)
+3. **SearXNG** — attempted next (no key needed)
+4. **Brave** — attempted only if `BRAVE_API_KEY` is set
+5. **Google CSE** — attempted only if both `GOOGLE_CSE_KEY` and `GOOGLE_CSE_ID` are set
+
+The first provider that returns valid results wins. Results are **not** merged across engines — every result in the output has the same `source_engine` value.
+
+If all engines fail, the script prints a structured error summary to stderr and exits non-zero.
 
 ```bash
-# Uses fallback chain automatically
+# Uses SearchGateway and fallback chain automatically
 node scripts/web_search.mjs --query "evidence-based policy evaluation"
 ```
 

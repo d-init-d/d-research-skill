@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.6.0-rc.2] - 2026-10-06
+
+Local candidate; official upstream attestation is unavailable.
+
+- Keep all search traffic behind DNS-pinned HTTP and connected-peer checks.
+- Use explicit offline fixtures instead of detecting a patched global fetch.
+- Support host-result artifacts and opt-in CDP task page ownership.
+- Attribute benchmark RSS to task-created processes and report missing measurements honestly.
+- Local candidate integrity does not establish official upstream attestation.
+
 ## [3.5.0] - 2026-09-19
 
 Stable production release of evidence-backed dual-track documentary and social
@@ -1464,7 +1474,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.5.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.6.0-rc.2...HEAD
+[3.6.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.2
 [3.5.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0
 [3.5.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.2
 [3.5.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.1

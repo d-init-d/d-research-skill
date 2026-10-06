@@ -13,6 +13,7 @@ import {
   assertBrowserPublicUrl,
   installBrowserSsrfGuard,
 } from './lib/browser_ssrf.mjs';
+import { acquireBrowserSession } from './lib/browser_connector.mjs';
 import { browserUserAgent } from './lib/package_metadata.mjs';
 
 function parseArgs(argv) {
@@ -22,6 +23,9 @@ function parseArgs(argv) {
     waitMs: 750,
     format: 'json',
     maxResponseBytes: null,
+    browserMode: 'standalone',
+    cdpEndpoint: null,
+    reuseSession: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -38,6 +42,9 @@ function parseArgs(argv) {
     else if (a === '--headful') args.headless = false;
     else if (a === '--ignore-tls-errors') args.ignoreTlsErrors = true;
     else if (a === '--allow-loopback-fixture') args.allowLoopbackFixture = true;
+    else if (a === '--browser-mode') args.browserMode = argv[++i];
+    else if (a === '--cdp-endpoint') args.cdpEndpoint = argv[++i];
+    else if (a === '--reuse-session') args.reuseSession = true;
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (!Number.isSafeInteger(args.timeout) || args.timeout < 1) {
@@ -51,7 +58,24 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  return `Usage: node scripts/playwright_extract.mjs --url <url> [--format json|md] [--out output.json]\n\nOptions:\n  --url <url>              Page to extract\n  --out <path>             Output file\n  --format json|md         Output format, default json\n  --selector <css>         Extract text under a CSS selector when available\n  --screenshot <path>      Optional screenshot path\n  --timeout <ms>           Navigation timeout, default 30000\n  --max-response-bytes <n> Maximum main-document body bytes (env: D_RESEARCH_HTTP_MAX_BYTES)\n  --wait-ms <ms>           Extra wait after load, default 750\n  --headful                Run with a visible browser\n  --ignore-tls-errors      Opt in to invalid TLS certificates; recorded as limitation\n  --self-test              Run lightweight checks without Playwright\n`;
+  return `Usage: node scripts/playwright_extract.mjs --url <url> [--format json|md] [--out output.json]
+
+Options:
+  --url <url>              Page to extract
+  --out <path>             Output file
+  --format json|md         Output format, default json
+  --selector <css>         Extract text under a CSS selector when available
+  --screenshot <path>      Optional screenshot path
+  --timeout <ms>           Navigation timeout, default 30000
+  --max-response-bytes <n> Maximum main-document body bytes (env: D_RESEARCH_HTTP_MAX_BYTES)
+  --wait-ms <ms>           Extra wait after load, default 750
+  --headful                Run with a visible browser
+  --ignore-tls-errors      Opt in to invalid TLS certificates; recorded as limitation
+  --browser-mode <mode>    Browser mode: standalone (default), cdp, auto
+  --cdp-endpoint <url>     Chrome DevTools Protocol endpoint (or D_RESEARCH_CDP_URL)
+  --reuse-session          Reuse existing context in CDP mode rather than isolating
+  --self-test              Run lightweight checks without Playwright
+`;
 }
 
 async function ensureDirFor(filePath) {
@@ -112,22 +136,18 @@ async function run(args) {
     err.blocker = pre.blocker;
     throw err;
   }
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: args.headless });
-  const ignoreTls = Boolean(args.ignoreTlsErrors);
-  const context = await browser.newContext({
-    ignoreHTTPSErrors: ignoreTls,
-    serviceWorkers: 'block',
-    userAgent: BROWSER_USER_AGENT,
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(args.timeout);
-  const ssrfStats = await installBrowserSsrfGuard(context, {
-    allowLoopback: args.allowLoopbackFixture === true,
-    ignoreTlsErrors: ignoreTls,
+  const session = await acquireBrowserSession({
+    browserMode: args.browserMode,
+    cdpEndpoint: args.cdpEndpoint,
+    reuseSession: args.reuseSession,
+    headless: args.headless,
+    timeout: args.timeout,
+    ignoreTlsErrors: args.ignoreTlsErrors,
+    allowLoopbackFixture: args.allowLoopbackFixture,
     maxResponseBytes: args.maxResponseBytes,
-    timeoutMs: args.timeout,
   });
+  const { page, ssrfStats } = session;
+  const ignoreTls = Boolean(args.ignoreTlsErrors);
   let response;
   let responseBytes;
   try {
@@ -140,13 +160,13 @@ async function run(args) {
       args.timeout,
     );
   } catch (error) {
-    await browser.close();
+    await session.release();
     throw error;
   }
   await page.waitForTimeout(args.waitMs);
   const delayedRouteLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
   if (delayedRouteLimit) {
-    await browser.close();
+    await session.release();
     throw delayedRouteLimit;
   }
 
@@ -194,7 +214,7 @@ async function run(args) {
 
   const evaluateRouteLimit = browserResourceLimitErrorFromPayload(ssrfStats.resourceLimit);
   if (evaluateRouteLimit) {
-    await browser.close();
+    await session.release();
     throw evaluateRouteLimit;
   }
 
@@ -206,7 +226,7 @@ async function run(args) {
       ssrfStats.resourceLimit,
     );
     if (screenshotRouteLimit) {
-      await browser.close();
+      await session.release();
       throw screenshotRouteLimit;
     }
   }
@@ -216,7 +236,9 @@ async function run(args) {
     finalUrl: page.url(),
     status: response ? response.status() : null,
     selector: args.selector || null,
-    limitations: ignoreTls ? ['ignore_tls_errors_enabled'] : [],
+    limitations: [...new Set([...(ignoreTls ? ['ignore_tls_errors_enabled'] : []), ...(session.limitations || [])])],
+    browserMode: session.mode,
+    browserOwnership: session.ownership,
     limits: {
       maxResponseBytes: args.maxResponseBytes,
       responseBytes,
@@ -232,10 +254,10 @@ async function run(args) {
       page.url(),
     );
   } catch (error) {
-    await browser.close();
+    await session.release();
     throw error;
   }
-  await browser.close();
+  await session.release();
   return result;
 }
 
@@ -254,6 +276,10 @@ async function main() {
     if (!tlsParsed.ignoreTlsErrors) throw new Error('ignore-tls-errors parser failed');
     const capParsed = parseArgs(['node', 'script', '--url', 'https://example.com', '--max-response-bytes', '123']);
     if (capParsed.maxResponseBytes !== 123) throw new Error('max-response-bytes parser failed');
+    const cdpParsed = parseArgs(['node', 'script', '--url', 'https://example.com', '--browser-mode', 'cdp', '--cdp-endpoint', 'http://127.0.0.1:9222', '--reuse-session']);
+    if (cdpParsed.browserMode !== 'cdp' || cdpParsed.cdpEndpoint !== 'http://127.0.0.1:9222' || !cdpParsed.reuseSession) {
+      throw new Error('cdp args parser failed');
+    }
     selfTestBrowserLimits();
     console.log('playwright_extract self-test ok');
     return;

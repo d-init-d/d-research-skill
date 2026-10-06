@@ -33,6 +33,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/lib/credentials.mjs`: credential classification and redaction for Node HTTP clients
 - `scripts/lib/browser_limits.mjs`: shared Playwright response/output caps, structured exit-3 blockers, and limit parsing used by probe/extract/crawl
 - `scripts/lib/package_metadata.mjs`: canonical package-version and User-Agent resolver shared by browser and Node network helpers
+- `scripts/lib/browser_connector.mjs`: centralized browser session management supporting standalone Chromium and Chrome DevTools Protocol (CDP) session attachment (`--browser-mode standalone|cdp|auto`, `--cdp-endpoint`, `--reuse-session`), lifecycle ownership isolation, and SSRF routing
 - `scripts/browser_smoke.mjs`: real Chromium launch + local fixture smoke (probe/extract/crawl/robots/TLS/local-only/browser SSRF adversarial/service-worker blocking)
 - `scripts/adversarial_acceptance.py`: mandatory adversarial acceptance matrix; CI sets `D_RESEARCH_SKIP_BROWSER_SMOKE=1` and runs one explicit browser smoke per OS
 - `scripts/citation_render.py`: render BibTeX into APA / MLA / IEEE / Chicago / Vancouver / Harvard / Nature / Science / ACM / AMA styles via pandoc + path-contained official CSL slug caching
@@ -55,7 +56,7 @@ Use them when Playwright is installed and the task benefits from repeatable extr
 - `scripts/lib/http_cache.mjs`: Node ESM helper used by `api_fetch.mjs` for the same shared cache layout
 - `scripts/bench_harness_check.py`: check / check-all / orphans / self-test — bench/fixture/harness consistency check. **NOT an agent benchmark** — only catches bench data regressions
 - `scripts/quality_eval.py`: validate / list / integrity / hostile / fuzz / mutation / perf-compare / degraded / promotion-report / promotion-anti-spoof / self-test / triple — held-out research-quality suite, fail-closed enforcement of every promotion threshold, exact candidate/CI binding, integrity-covered evaluation and deterministic-run artifacts, citation/date integrity, and production-path hostile checks via `content_sanitize`. See `examples/evals/quality-suite.json` and `docs/eval.md`
-- `scripts/web_search.mjs`: multi-engine web search with fallback chain (DuckDuckGo → SearXNG → Brave → Google CSE) and bounded credential-isolating manual redirects; see `adapters/web-search-only.md`
+- `scripts/web_search.mjs`: multi-engine web search with SearchGateway abstraction (`--search-gateway auto|host|mcp|direct`) and fallback chain (Host/MCP tools → DuckDuckGo → SearXNG → Brave → Google CSE) with bounded credential-isolating manual redirects; see `adapters/web-search-only.md`
 - `scripts/check_internal_refs.py`: validate backticked in-repo path references (CI guard)
 - `scripts/run_python.mjs`: portable Node-to-Python wrapper that runs every bundled Python helper through one entry point (runtime-internal; used by all `npm run` Python scripts)
 - `scripts/lib/config.mjs`: shared standard-library config loader — cwd-scoped `research.config.json` discovery, explicit `--config`, typed reads, and secret redaction; used by `api_fetch.mjs` (runtime-internal; see `references/config-reference.md`)

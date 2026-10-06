@@ -13,6 +13,7 @@ import {
   assertBrowserPublicUrl,
   installBrowserSsrfGuard,
 } from './lib/browser_ssrf.mjs';
+import { acquireBrowserSession } from './lib/browser_connector.mjs';
 import { browserUserAgent } from './lib/package_metadata.mjs';
 import { fetchPublicHttp } from './lib/ssrf_guards.mjs';
 
@@ -28,7 +29,10 @@ function parseArgs(argv) {
     maxResponseBytes: null,
     headless: true,
     respectRobots: true,
-    followExternalLinks: false
+    followExternalLinks: false,
+    browserMode: 'standalone',
+    cdpEndpoint: null,
+    reuseSession: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -52,8 +56,15 @@ function parseArgs(argv) {
       args.ignoreTlsErrors = true;
     } else if (a === '--allow-loopback-fixture') {
       args.allowLoopbackFixture = true;
-    } else if (a === '--follow-external-links') args.followExternalLinks = true;
-    else throw new Error(`Unknown argument: ${a}`);
+    } else if (a === '--follow-external-links') {
+      args.followExternalLinks = true;
+    } else if (a === '--browser-mode') {
+      args.browserMode = argv[++i];
+    } else if (a === '--cdp-endpoint') {
+      args.cdpEndpoint = argv[++i];
+    } else if (a === '--reuse-session') {
+      args.reuseSession = true;
+    } else throw new Error(`Unknown argument: ${a}`);
   }
   for (const [name, value, minimum] of [
     ['--maxDepth', args.maxDepth, 0],
@@ -71,7 +82,27 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  return `Usage: node scripts/playwright_crawl.mjs --seed <url> [--outDir crawl] [--maxDepth 2] [--maxPages 100]\n\nOptions:\n  --seed <url>              Seed URL, can be repeated\n  --seeds <file>            Newline-delimited seed URLs\n  --outDir <dir>            Output directory, default research-output/crawl\n  --maxDepth <n>            Max crawl depth, default 2\n  --maxPages <n>            Max total pages, default 100\n  --maxPagesPerDomain <n>   Max pages per domain, default 30\n  --delayMs <ms>            Delay between pages, default 1000\n  --timeout <ms>            Navigation timeout, default 30000\n  --max-response-bytes <n>  Maximum main-document body bytes (env: D_RESEARCH_HTTP_MAX_BYTES)\n  --headful                 Run with a visible browser\n  --ignore-tls-errors       Opt in to invalid TLS; recorded as a limitation\n  --no-respect-robots       Forbidden compatibility flag; always hard-fails\n  --follow-external-links   Allow external links in crawl queue\n  --self-test               Run lightweight checks without Playwright\n`;
+  return `Usage: node scripts/playwright_crawl.mjs --seed <url> [--outDir crawl] [--maxDepth 2] [--maxPages 100]
+
+Options:
+  --seed <url>              Seed URL, can be repeated
+  --seeds <file>            Newline-delimited seed URLs
+  --outDir <dir>            Output directory, default research-output/crawl
+  --maxDepth <n>            Max crawl depth, default 2
+  --maxPages <n>            Max total pages, default 100
+  --maxPagesPerDomain <n>   Max pages per domain, default 30
+  --delayMs <ms>            Delay between pages, default 1000
+  --timeout <ms>            Navigation timeout, default 30000
+  --max-response-bytes <n>  Maximum main-document body bytes (env: D_RESEARCH_HTTP_MAX_BYTES)
+  --headful                 Run with a visible browser
+  --ignore-tls-errors       Opt in to invalid TLS; recorded as a limitation
+  --no-respect-robots       Forbidden compatibility flag; always hard-fails
+  --follow-external-links   Allow external links in crawl queue
+  --browser-mode <mode>     Browser mode: standalone (default), cdp, auto
+  --cdp-endpoint <url>      Chrome DevTools Protocol endpoint (or D_RESEARCH_CDP_URL)
+  --reuse-session           Reuse existing context in CDP mode rather than isolating
+  --self-test               Run lightweight checks without Playwright
+`;
 }
 
 function sleep(ms) {
@@ -474,16 +505,19 @@ async function run(args) {
   await ensureDir(args.outDir);
   await ensureDir(path.join(args.outDir, 'pages'));
 
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: args.headless });
-  const ignoreTls = Boolean(args.ignoreTlsErrors);
-  const context = await browser.newContext({
-    ignoreHTTPSErrors: ignoreTls,
-    serviceWorkers: 'block',
-    userAgent: BROWSER_USER_AGENT,
+  const session = await acquireBrowserSession({
+    browserMode: args.browserMode,
+    cdpEndpoint: args.cdpEndpoint,
+    reuseSession: args.reuseSession,
+    headless: args.headless,
+    timeout: args.timeout,
+    ignoreTlsErrors: args.ignoreTlsErrors,
+    allowLoopbackFixture: args.allowLoopbackFixture,
+    maxResponseBytes: args.maxResponseBytes,
+    installSsrf: false,
   });
-  const page = await context.newPage();
-  page.setDefaultTimeout(args.timeout);
+  const { browser, context, page } = session;
+  const ignoreTls = Boolean(args.ignoreTlsErrors);
 
   const queue = seeds.map((url) => ({ url, depth: 0, seed: url }));
   const seen = new Set();
@@ -491,7 +525,7 @@ async function run(args) {
   const robotsCache = new Map();
   const domainStopped = new Set();
   const manifest = [];
-  const limitations = [];
+  const limitations = [...(session.limitations || [])];
   if (ignoreTls) {
     limitations.push('ignore_tls_errors_enabled');
   }
@@ -502,10 +536,11 @@ async function run(args) {
   let resourceLimitExceeded = false;
   let pagesAttempted = 0;
 
-  // Intercept every request at context scope:
+  // Intercept every request at context or page scope:
   // 1) SSRF public-destination check + Node-pinned HTTP(S) fulfillment
   // 2) robots policy for main-frame navigations when --respect-robots
-  const ssrfStats = await installBrowserSsrfGuard(context, {
+  const targetForGuard = session.ownership?.ownsContext ? context : page;
+  const ssrfStats = await installBrowserSsrfGuard(targetForGuard, {
     allowLoopback: args.allowLoopbackFixture === true,
     ignoreTlsErrors: ignoreTls,
     maxResponseBytes: args.maxResponseBytes,
@@ -515,6 +550,7 @@ async function run(args) {
     ),
     maxRequests: Math.min(Math.max(100, args.maxPages * 100), 10_000),
     timeoutMs: args.timeout,
+    scope: session.ownership?.ownsContext ? 'context' : 'page',
     onAllowed: async (_route, request) => {
       if (
         !args.respectRobots ||
@@ -742,7 +778,7 @@ async function run(args) {
     }
   }
 
-  await browser.close();
+  await session.release();
   const pendingByPageLimit = new Map();
   for (const item of queue) {
     const pendingUrl = normalizeUrl(item.url);
@@ -782,7 +818,9 @@ async function run(args) {
       ignoreTlsErrors: ignoreTls,
       maxResponseBytes: args.maxResponseBytes,
     },
-    limitations,
+    limitations: [...new Set(limitations)],
+    browserMode: session.mode,
+    browserOwnership: session.ownership,
     pagesAttempted,
     pagesVisited: manifest.length,
     blockedCount: blocked.length,
@@ -860,7 +898,20 @@ async function main() {
       '--max-response-bytes',
       '123',
     ]);
-    if (capParsed.maxResponseBytes !== 123) throw new Error('max-response-bytes parser failed');
+    const cdpParsed = parseArgs([
+      'node',
+      'playwright_crawl.mjs',
+      '--seed',
+      'https://example.com',
+      '--browser-mode',
+      'cdp',
+      '--cdp-endpoint',
+      'http://127.0.0.1:9222',
+      '--reuse-session',
+    ]);
+    if (cdpParsed.browserMode !== 'cdp' || cdpParsed.cdpEndpoint !== 'http://127.0.0.1:9222' || !cdpParsed.reuseSession) {
+      throw new Error('cdp args parser failed in playwright_crawl');
+    }
     selfTestBrowserLimits();
     console.log('playwright_crawl self-test ok');
     return;
