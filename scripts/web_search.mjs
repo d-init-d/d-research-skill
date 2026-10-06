@@ -9,7 +9,7 @@ import {
   urlHasCredentials,
 } from './lib/credentials.mjs';
 import { packageUserAgent } from './lib/package_metadata.mjs';
-import { isNonPublicIp } from './lib/ssrf_guards.mjs';
+import { fetchPublicHttp, isNonPublicIp } from './lib/ssrf_guards.mjs';
 
 export const USER_AGENT = packageUserAgent('web-search');
 export const DEFAULT_MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
@@ -171,18 +171,25 @@ export async function readResponseTextBounded(response, maxBytes) {
   return body.toString('utf8');
 }
 
-export async function fetchWithManualRedirects(url, options, timeoutMs) {
+const initialFetch = globalThis.fetch;
+
+export async function fetchWithManualRedirects(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   let current = validateHttpUrl(url);
   assertNotPrivateOrBlocked(current);
   let headers = { ...(options.headers || {}) };
   let credentialed = headersHaveCredentials(headers) || urlHasCredentials(current.href);
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const response = await fetch(current.href, {
+    const signal = timeoutMs ? AbortSignal.timeout(timeoutMs) : options?.signal;
+    const fetchFn = (globalThis.fetch !== initialFetch)
+      ? ((u, o) => globalThis.fetch(u, o))
+      : ((u, o) => fetchPublicHttp(u, o, { allowHttp: true }));
+
+    const response = await fetchFn(current.href, {
       ...options,
       headers,
       redirect: 'manual',
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     });
     if (!REDIRECT_STATUSES.has(response.status)) return response;
 
