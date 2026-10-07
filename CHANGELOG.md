@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.6.0-rc.3] - 2026-10-07
+
+Release preparation for stable 3.6.0. Include the stable release notes in the
+frozen package inventory and rebind the signed candidate promotion contract.
+Runtime behavior and dependencies remain unchanged from v3.6.0-rc.2.
+
+See [release notes](docs/release-v3.6.0-rc.3.md).
+
 ## [3.6.0-rc.2] - 2026-10-06
 
 Local candidate; official upstream attestation is unavailable.
@@ -1474,7 +1482,7 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.6.0-rc.2...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.6.0-rc.3...HEAD
 [3.6.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.2
 [3.5.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0
 [3.5.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.2
@@ -1506,3 +1514,5 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
 
 [3.4.2-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.2-rc.1
 [3.4.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.2
+
+[3.6.0-rc.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.3
