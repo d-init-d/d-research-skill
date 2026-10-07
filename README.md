@@ -862,5 +862,5 @@ bundles, or embedding this skill in a paid product or service.
 
 The copyright holder may offer separate commercial licenses on request.
 
-Release: v3.6.0-rc.2. See
-[release notes](docs/release-v3.6.0-rc.2.md). (Previous stable: v3.5.0).
+Release: v3.6.0-rc.3. See
+[release notes](docs/release-v3.6.0-rc.3.md). (Previous stable: v3.5.0).

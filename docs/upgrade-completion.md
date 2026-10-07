@@ -1,6 +1,6 @@
 # Search and browser candidate contract
 
-Version `3.6.0-rc.2` is a prerelease candidate for evaluation before stable promotion.
+Version `3.6.0-rc.3` is a prerelease candidate for evaluation before stable promotion.
 Published release assets are bound to its immutable tag; this does not establish
 live-provider availability or stable-release readiness.
 Host search tools are called by the agent host. The Node search helper consumes
