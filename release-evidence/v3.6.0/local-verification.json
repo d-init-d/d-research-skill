@@ -1,0 +1,214 @@
+{
+  "schema_version": "1.0",
+  "release_version": "3.6.0",
+  "candidate_version": "3.6.0-rc.3",
+  "candidate_skill_commit": "cf93479ef2032e787316bb4ffd8c7f32ecff8087",
+  "candidate_tag_object_sha": "1070173329bd63c88e83a8d288f3d623175ecbc2",
+  "generated_at": "2026-10-07T01:19:43.168113+00:00",
+  "environment": {
+    "os": "macOS-15.8-arm64-arm-64bit",
+    "architecture": "arm64",
+    "python_versions": [
+      "3.12.9",
+      "3.14.7"
+    ],
+    "node_versions": [
+      "v24.4.0"
+    ]
+  },
+  "commands": [
+    {
+      "id": "npm_ci",
+      "command": "npm ci --ignore-scripts --no-audit --no-fund",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "node_self_test",
+      "command": "npm run self-test:node",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "python_self_test",
+      "command": "npm run self-test:python",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "runtime_self_test",
+      "command": "npm run self-test:runtime",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "artifact_self_test",
+      "command": "npm run artifact:self-test",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "artifact_build",
+      "command": "npm run artifact:build",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "compileall",
+      "command": "python3 -m compileall -q scripts",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "package_check_after_bytecode",
+      "command": "npm run package:check",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "npm_pack_dry_run",
+      "command": "npm pack --dry-run --json --ignore-scripts",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "ruff",
+      "command": "uv run --offline --no-project --with ruff python -m ruff check scripts/",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "node_syntax",
+      "command": "python3 scripts/check_node_syntax.py",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "internal_refs",
+      "command": "python3 scripts/check_internal_refs.py",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "decision_tree",
+      "command": "python3 scripts/check_internal_refs.py --decision-tree",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "docs_examples",
+      "command": "python3 scripts/check_doc_examples.py",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "contract",
+      "command": "python3 scripts/check_contract.py",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "contract_self_test",
+      "command": "python3 scripts/check_contract.py self-test",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "bench_strict",
+      "command": "python3 scripts/bench_harness_check.py check-all --strict",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "quality_triple",
+      "command": "python3 scripts/quality_eval.py triple",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "promotion_anti_spoof",
+      "command": "python3 scripts/quality_eval.py promotion-anti-spoof",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "actionlint",
+      "command": "'/Users/minhdung/Downloads/d-research-skill va\u0300 aleph-skill/docs/stable-publication-2026-10-07/tools/actionlint'",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "git_diff_check",
+      "command": "git diff --check HEAD",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "npm_audit",
+      "command": "npm audit --omit=dev --audit-level=moderate",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "quick_validate",
+      "command": "/Users/minhdung/.cache/uv/archive-v0/rsriNhRukBPzPrXb/bin/python /Users/minhdung/.codex/skills/.system/skill-creator/scripts/quick_validate.py .",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "capability_superset",
+      "command": "npm run capability:check",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "pytest",
+      "command": "uv run --offline --no-project --with pytest --with jsonschema python -B -m pytest -q -p no:cacheprovider tests",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "acceptance",
+      "command": "npm run acceptance",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "browser_smoke",
+      "command": "npm run browser:smoke",
+      "runtime": "Local macOS frozen rc.3 verification",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "summary": {
+    "passed": 27,
+    "failed": 0
+  }
+}

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-10-07
+
+Official stable release of explicit search outcomes and opt-in CDP task browser
+reuse. Promote the signed 3.6.0-rc.3 preparation snapshot without changing
+runtime behavior, dependencies or research routes.
+
+- Preserve DNS-pinned public HTTP, connected-peer validation and explicit
+  blocked/error handling across search providers and redirects.
+- Import validated host/MCP result artifacts without hidden tool invocation.
+- Keep task pages and popup descendants isolated from existing user tabs.
+- Publish deterministic full/runtime profiles, immutable signed source,
+  checksums and source provenance attestation.
+- Record the owner's scoped promotion decision and the disclosed independent
+  review/live dogfood waivers; exact-commit CI and integrity gates remain required.
+
+See [release notes](docs/release-v3.6.0.md) for upgrade guidance and limits.
+
 ## [3.6.0-rc.3] - 2026-10-07
 
 Release preparation for stable 3.6.0. Include the stable release notes in the
@@ -1482,7 +1499,7 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.6.0-rc.3...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.6.0...HEAD
 [3.6.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.2
 [3.5.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0
 [3.5.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.2
@@ -1516,3 +1533,5 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
 [3.4.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.4.2
 
 [3.6.0-rc.3]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.3
+
+[3.6.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0
