@@ -625,7 +625,6 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint for recording and verifying DRS-1.1 browser evidence."""
     import argparse
     import json
-    import sys
 
     parser = argparse.ArgumentParser(description="DRS-1.1 browser evidence recording and verification helper")
     sub = parser.add_subparsers(dest="command", required=True)
