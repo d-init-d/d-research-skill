@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-11-14
+
+Official stable release of flexible 3-tier Browser-First routing, DRS-1.1
+host-browser evidence integration, federated completeness-first search,
+capture-driven term harvesting, equalized Round-1 dual-track execution, and
+expanded bilingual EN/VI cross-branch reconciliation. Promote the signed
+3.7.0-rc.1 preparation snapshot without changing runtime behavior,
+dependencies or research routes.
+
+- Enforce flexible 3-tier Browser-First routing (`host-integrated ->
+  Playwright/CDP -> bounded fetch`) with unified SHA-256-verified DRS-1.1
+  activity and capture logging across host subagent, Chrome DevTools MCP, Cua
+  Driver, CDP session attachment, and Playwright (`scripts/execution_evidence.py`,
+  `scripts/lib/browser_connector.mjs`, `adapters/generic-browser.md`,
+  `references/tool-adapter-policy.md`).
+- Deliver completeness-first `--federated` multi-provider search merging,
+  `canonicalizeResultUrl()` deduplication, empty-result fallback continuation,
+  and capture-driven iterative term harvesting (`scripts/web_search.mjs`,
+  `scripts/harvest_terms.py`).
+- Equalize Round-1 `documentary` and `social` authority budgets (`3.0`), retain
+  open `coverage_gaps` under diminishing-returns stops (`partial`), add
+  `--dual-track` plan initialization (`scripts/research_controller.py`,
+  `scripts/research_plan.py`), and expand bilingual EN/VI reconciliation patterns
+  (`scripts/reconciliation.py`).
+- Record the owner's scoped promotion decision, CI run evidence, and disclosed
+  waivers (`independent_reviewer`, `live_dogfood`) bound to the signed
+  `v3.7.0-rc.1` candidate snapshot.
+
+See [release notes](docs/release-v3.7.0.md) for upgrade guidance and limits.
+
 ## [3.7.0-rc.1] - 2026-11-14
 
 Release candidate for **D Research 3.7.0** — flexible 3-tier Browser-First
@@ -1527,7 +1557,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.7.0-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.7.0...HEAD
+[3.7.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.7.0
 [3.7.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.7.0-rc.1
 [3.6.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.2
 [3.5.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0
