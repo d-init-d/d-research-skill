@@ -13,7 +13,7 @@ import {
   assertBrowserPublicUrl,
   installBrowserSsrfGuard,
 } from './lib/browser_ssrf.mjs';
-import { acquireBrowserSession } from './lib/browser_connector.mjs';
+import { acquireBrowserSession, appendDrsBrowserEvidence } from './lib/browser_connector.mjs';
 import { browserUserAgent } from './lib/package_metadata.mjs';
 import { fetchPublicHttp } from './lib/ssrf_guards.mjs';
 
@@ -33,6 +33,10 @@ function parseArgs(argv) {
     browserMode: 'standalone',
     cdpEndpoint: null,
     reuseSession: false,
+    activityLog: null,
+    captureRecords: null,
+    branch: 'documentary',
+    questionIds: [],
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -64,6 +68,14 @@ function parseArgs(argv) {
       args.cdpEndpoint = argv[++i];
     } else if (a === '--reuse-session') {
       args.reuseSession = true;
+    } else if (a === '--activity-log') {
+      args.activityLog = argv[++i];
+    } else if (a === '--capture-records') {
+      args.captureRecords = argv[++i];
+    } else if (a === '--branch') {
+      args.branch = argv[++i];
+    } else if (a === '--question-id') {
+      args.questionIds.push(argv[++i]);
     } else throw new Error(`Unknown argument: ${a}`);
   }
   for (const [name, value, minimum] of [
@@ -101,6 +113,10 @@ Options:
   --browser-mode <mode>     Browser mode: standalone (default), cdp, auto
   --cdp-endpoint <url>      Chrome DevTools Protocol endpoint (or D_RESEARCH_CDP_URL)
   --reuse-session           Reuse existing context in CDP mode rather than isolating
+  --activity-log <path>     Append DRS-1.1 activity records JSON path
+  --capture-records <path>  Append DRS-1.1 capture records JSON path
+  --branch <id>             Research branch (documentary|social), default documentary
+  --question-id <id>        Question ID (repeatable, default Q1)
   --self-test               Run lightweight checks without Playwright
 `;
 }
@@ -835,6 +851,28 @@ async function run(args) {
   await writeJson(path.join(args.outDir, 'manifest.json'), manifest);
   await writeJson(path.join(args.outDir, 'blocked.json'), blocked);
   await writeJson(path.join(args.outDir, 'summary.json'), summary);
+
+  if (args.activityLog || args.captureRecords) {
+    for (const record of manifest) {
+      await appendDrsBrowserEvidence({
+        activityLogPath: args.activityLog,
+        captureRecordsPath: args.captureRecords,
+        url: record.inputUrl || record.finalUrl,
+        finalUrl: record.finalUrl || record.inputUrl,
+        branch: args.branch,
+        questionIds: args.questionIds.length ? args.questionIds : ['Q1'],
+        actionType: 'navigate',
+        engine: args.browserMode === 'cdp' ? 'cdp-session' : 'playwright-chromium',
+        mode: args.browserMode === 'cdp' ? 'cdp_attach' : args.browserMode,
+        method: 'playwright_crawl',
+        rawText: record.text || record.title || JSON.stringify(record),
+        startedAt: record.timestamp,
+        finishedAt: record.timestamp,
+        responseStatus: record.status ?? 200,
+      });
+    }
+  }
+
   return summary;
 }
 
@@ -911,6 +949,28 @@ async function main() {
     ]);
     if (cdpParsed.browserMode !== 'cdp' || cdpParsed.cdpEndpoint !== 'http://127.0.0.1:9222' || !cdpParsed.reuseSession) {
       throw new Error('cdp args parser failed in playwright_crawl');
+    }
+    const parsedEv = parseArgs([
+      'node',
+      'playwright_crawl.mjs',
+      '--seed',
+      'https://example.org',
+      '--activity-log',
+      'activity-log.json',
+      '--capture-records',
+      'capture-records.json',
+      '--branch',
+      'social',
+      '--question-id',
+      'Q3',
+    ]);
+    if (
+      parsedEv.activityLog !== 'activity-log.json' ||
+      parsedEv.captureRecords !== 'capture-records.json' ||
+      parsedEv.branch !== 'social' ||
+      parsedEv.questionIds[0] !== 'Q3'
+    ) {
+      throw new Error('evidence CLI options failed in crawl self-test');
     }
     selfTestBrowserLimits();
     console.log('playwright_crawl self-test ok');

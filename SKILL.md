@@ -58,9 +58,9 @@ Full policy: `references/safety-and-access-policy.md`.
 
 ## Tool priority by phase
 
-1. **Discovery:** user context → web search.
-2. **Probe:** Playwright/browser → fetch → web-search-only fallback.
-3. **Extraction:** public file/API/static DOM → browser-rendered content.
+1. **Discovery:** user context → web search (`--federated` multi-provider sweep).
+2. **Probe (Browser-First):** host/integrated browser or Playwright (`auto`/`cdp`) → fetch → web search.
+3. **Extraction:** host browser / Playwright DOM or public file/API → log DRS-1.1 via `execution_evidence.py`.
 
 Anti-bot blocked tier-1 public sources: run the bounded chain in
 `references/anti-bot-fallback.md` once (API/static → archive → cache/snippet →
@@ -209,13 +209,13 @@ Default crawl limits: depth 2, 30 pages/domain, 100 total, 1000 ms delay, robots
 
 ## Adapters and fallbacks
 
-Default adapter: `adapters/playwright.md`. Alternatives:
-`adapters/generic-browser.md`, `adapters/fetch-only.md`,
-`adapters/web-search-only.md`, `adapters/graphql.md`,
-`adapters/citation-resolver.md`, `adapters/translation.md`.
+Browser-first priority: integrated host browser (`adapters/generic-browser.md`:
+IDE browser subagent, Chrome DevTools MCP, CUA, or CDP) OR `adapters/playwright.md`.
+Other adapters: `adapters/fetch-only.md`, `adapters/web-search-only.md`,
+`adapters/graphql.md`, `adapters/citation-resolver.md`, `adapters/translation.md`.
 
-If Playwright is unavailable, use the configured browser adapter. If no browser
-exists, use fetch. If fetch is unavailable, use web search and mark limitations.
+Prefer whichever live browser (host or Playwright) works cleanly; log host browser
+captures with `scripts/execution_evidence.py record`, else fall back to fetch/search.
 
 Blocked relevant public tier-1 sources: one pass of
 `references/anti-bot-fallback.md` then `references/blocker-report.md`. Record

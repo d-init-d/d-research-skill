@@ -3,6 +3,10 @@
 // Enforces strict resource ownership, idempotent cleanup, and SSRF routing guards.
 
 import { existsSync } from 'node:fs';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import os from 'node:os';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   assertBrowserPublicUrl,
@@ -369,6 +373,157 @@ export async function acquireBrowserSession(options = {}) {
   return session;
 }
 
+async function readEvidenceJsonArray(filePath) {
+  try {
+    const raw = JSON.parse(await readFile(filePath, 'utf8'));
+    if (Array.isArray(raw)) return raw;
+    if (raw && Array.isArray(raw.records)) return raw.records;
+    if (raw && Array.isArray(raw.activities)) return raw.activities;
+    if (raw && Array.isArray(raw.captures)) return raw.captures;
+    throw new Error(`Unsupported evidence container in ${filePath}`);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return [];
+    throw err;
+  }
+}
+
+function relOrRawPath(baseDir, targetPath) {
+  if (!targetPath) return null;
+  const resolvedTarget = path.resolve(targetPath);
+  const resolvedBase = path.resolve(baseDir);
+  const rel = path.relative(resolvedBase, resolvedTarget);
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    return rel.split(path.sep).join('/');
+  }
+  return String(targetPath);
+}
+
+/**
+ * Append DRS-1.1 activity and SHA-256-verified capture records to disk.
+ */
+export async function appendDrsBrowserEvidence({
+  activityLogPath = null,
+  captureRecordsPath = null,
+  rawTextOut = null,
+  url,
+  finalUrl = null,
+  branch = 'documentary',
+  questionIds = ['Q1'],
+  sourceId = null,
+  purpose = null,
+  actionType = 'navigate',
+  engine = 'playwright-chromium',
+  mode = 'standalone',
+  method = 'playwright_extract',
+  outcome = 'success',
+  rawText = '',
+  screenshotRef = null,
+  domLocator = null,
+  observedStateRef = null,
+  itemsExtracted = 1,
+  totalEstimated = null,
+  truncated = false,
+  truncationReason = null,
+  limitation = null,
+  startedAt = null,
+  finishedAt = null,
+  responseStatus = 200,
+}) {
+  if (!['documentary', 'social'].includes(branch)) {
+    throw new Error(`Invalid --branch: ${branch}. Expected documentary or social`);
+  }
+  const normalizedQids = (Array.isArray(questionIds) ? questionIds : [questionIds])
+    .map((q) => String(q || '').trim())
+    .filter(Boolean);
+  const qids = normalizedQids.length > 0 ? normalizedQids : ['Q1'];
+  const nowIso = new Date().toISOString();
+  const startIso = startedAt || nowIso;
+  const endIso = finishedAt || nowIso;
+  const resolvedFinal = finalUrl || url;
+  const activityId = `act-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const captureId = `cap-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const resolvedSourceId =
+    sourceId || `src-${createHash('sha256').update(String(resolvedFinal), 'utf8').digest('hex').slice(0, 10)}`;
+
+  const evidenceBase = path.dirname(path.resolve(captureRecordsPath || activityLogPath || rawTextOut || '.'));
+  const rawBuffer = Buffer.from(String(rawText || ''), 'utf8');
+  let captureRecord = null;
+  let writtenRawPath = null;
+  const outputCaptureIds = [];
+
+  if (rawBuffer.length > 0 && (captureRecordsPath || rawTextOut)) {
+    writtenRawPath = rawTextOut
+      ? path.resolve(rawTextOut)
+      : path.join(evidenceBase, 'captures', `${captureId}.txt`);
+    await mkdir(path.dirname(writtenRawPath), { recursive: true });
+    await writeFile(writtenRawPath, rawBuffer);
+    const digest = createHash('sha256').update(rawBuffer).digest('hex');
+    captureRecord = {
+      schema_version: '1.1.0',
+      capture_id: captureId,
+      source_id: resolvedSourceId,
+      branch_id: branch,
+      activity_id: activityId,
+      retrieved_at: endIso,
+      source_url: url,
+      final_url: resolvedFinal,
+      method,
+      bytes_hash: `sha256:${digest}`,
+      byte_length: rawBuffer.length,
+      dom_locator: domLocator,
+      raw_text_ref: relOrRawPath(evidenceBase, writtenRawPath),
+      screenshot_ref: relOrRawPath(evidenceBase, screenshotRef),
+      extraction_limits: {
+        truncated: Boolean(truncated),
+        items_extracted: Math.max(0, Number(itemsExtracted || 0)),
+        total_estimated: totalEstimated,
+        truncation_reason: truncationReason,
+      },
+      artifact_version: 1,
+    };
+    if (captureRecordsPath) {
+      const capResolved = path.resolve(captureRecordsPath);
+      const captures = await readEvidenceJsonArray(capResolved);
+      captures.push(captureRecord);
+      await mkdir(path.dirname(capResolved), { recursive: true });
+      await writeFile(capResolved, JSON.stringify(captures, null, 2) + '\n', 'utf8');
+    }
+    outputCaptureIds.push(captureId);
+  }
+
+  const activityRecord = {
+    schema_version: '1.1.0',
+    activity_id: activityId,
+    branch_id: branch,
+    question_ids: qids,
+    purpose: purpose || `Browser ${actionType} (${engine}) for ${branch} branch`,
+    observed_state_ref: observedStateRef,
+    action_type: actionType,
+    target_locator: null,
+    action_payload: null,
+    started_at: startIso,
+    finished_at: endIso,
+    final_url: resolvedFinal,
+    outcome,
+    output_capture_ids: outputCaptureIds,
+    limitation: limitation || (outputCaptureIds.length === 0 && outcome !== 'success' ? `${outcome}_without_capture` : null),
+    tool_details: {
+      engine,
+      mode,
+      response_status: responseStatus,
+    },
+  };
+  if (activityLogPath) {
+    const actResolved = path.resolve(activityLogPath);
+    const activities = await readEvidenceJsonArray(actResolved);
+    activities.push(activityRecord);
+    await mkdir(path.dirname(actResolved), { recursive: true });
+    await writeFile(actResolved, JSON.stringify(activities, null, 2) + '\n', 'utf8');
+  }
+
+  return { activityRecord, captureRecord, rawTextPath: writtenRawPath };
+}
+
 export async function selfTest() {
   const errors = [];
 
@@ -410,6 +565,29 @@ export async function selfTest() {
     if (err?.code !== 'missing_cdp_endpoint' && err?.blocker?.code !== 'missing_cdp_endpoint') {
       errors.push(`expected missing_cdp_endpoint, got: ${err.message}`);
     }
+  }
+
+  // 3b. DRS-1.1 browser evidence emission helper
+  const tmpDir = path.join(os.tmpdir(), `d-res-ev-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  try {
+    const ev = await appendDrsBrowserEvidence({
+      activityLogPath: path.join(tmpDir, 'activity-log.json'),
+      captureRecordsPath: path.join(tmpDir, 'capture-records.json'),
+      url: 'https://example.org/doc',
+      branch: 'documentary',
+      questionIds: ['Q1'],
+      engine: 'host-subagent',
+      mode: 'host_integrated',
+      method: 'host_browser_dom',
+      rawText: 'Host browser extracted text sample.',
+    });
+    if (!ev.captureRecord?.bytes_hash?.startsWith('sha256:') || ev.activityRecord.output_capture_ids.length !== 1) {
+      errors.push('appendDrsBrowserEvidence emitted invalid capture/activity linkage');
+    }
+  } catch (err) {
+    errors.push(`appendDrsBrowserEvidence failed: ${err.message}`);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 
   // The package and browser binary are separate optional capabilities.

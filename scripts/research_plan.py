@@ -3196,6 +3196,36 @@ def cmd_init(args: argparse.Namespace) -> int:
     title = getattr(args, "title", None)
     plan = _generic_draft_plan(args.slug or "research", title)
     apply_execution_config(plan, config, config_path)
+    if getattr(args, "dual_track", False):
+        questions = [str(q).strip() for q in (getattr(args, "question", None) or []) if str(q).strip()]
+        if not questions:
+            questions = [str(plan.get("title") or "Primary research question").strip()]
+        sub_qs = [{"id": f"Q{i+1}", "text": q} for i, q in enumerate(questions)]
+        route = getattr(args, "route", "broad_research") or "broad_research"
+        exec_mode = getattr(args, "execution_mode", "concurrent") or "concurrent"
+        budget_profile = getattr(args, "budget_profile", "standard") or "standard"
+        plan["sub_questions"] = sub_qs
+        plan["research_route"] = route
+        plan["tasks"] = generate_dual_track_tasks(
+            sub_qs,
+            research_route=route,
+            execution_mode=exec_mode,
+            plan_dir=out.parent,
+        )
+        cov = init_research_coverage(
+            sub_qs,
+            research_route=route,
+            execution_mode=exec_mode,
+            budget_profile=budget_profile,
+        )
+        save(plan, out)
+        _scaffold_workspace(out.parent)
+        cov_path = out.parent / "research-coverage.json"
+        cov_path.write_text(json.dumps(cov, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"wrote dual-track plan to {out}")
+        print(f"wrote coverage map to {cov_path}")
+        print(f"workspace: {out.parent}")
+        return 0
     save(plan, out)
     _scaffold_workspace(out.parent)
     print(f"wrote draft plan to {out}")
@@ -5313,11 +5343,49 @@ def _self_test() -> int:
         if _assert_investigation_scope_valid(bound, plan_path)[0]:
             failures.append("policy byte mutation must invalidate dispatch readiness")
 
+        # 56. Dual-track CLI init + add-task --branch/--sub-question-id
+        with tempfile.TemporaryDirectory() as td_dt:
+            dt_dir = Path(td_dt) / "dual-track-init"
+            dt_plan = dt_dir / "research-plan.json"
+            if call_silent(
+                main,
+                [
+                    "init",
+                    "--workspace", str(dt_dir),
+                    "--slug", "dt-smoke",
+                    "--dual-track",
+                    "--question", "How do official specs compare with community bug reports?",
+                    "--route", "broad_research",
+                    "--execution-mode", "concurrent",
+                    "--budget-profile", "fast",
+                ],
+            ) != 0:
+                failures.append("dual-track init failed")
+            else:
+                dt_loaded = load(dt_plan)
+                if len(dt_loaded.get("tasks", [])) != 3:
+                    failures.append(f"dual-track init expected 3 tasks, got {len(dt_loaded.get('tasks', []))}")
+                if not (dt_dir / "research-coverage.json").exists():
+                    failures.append("dual-track init missing research-coverage.json")
+                if call_silent(
+                    main,
+                    [
+                        "add-task",
+                        "--file", str(dt_plan),
+                        "--id", "extra-soc",
+                        "--description", "Follow-up social task",
+                        "--branch", "social",
+                        "--sub-question-id", "Q1",
+                        "--outputs", "research-output/notes/extra-soc.md",
+                    ],
+                ) != 0:
+                    failures.append("add-task with --branch and --sub-question-id failed")
+
     if failures:
         for f in failures:
             print(f"FAIL: {f}", file=sys.stderr)
         return 1
-    print("OK: research_plan self-test passed (55 sub-tests).")
+    print("OK: research_plan self-test passed (56 sub-tests).")
     return 0
 
 
@@ -5356,6 +5424,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         default=None,
         help="optional research.config.json path for auto workspace defaults",
+    )
+    sp.add_argument(
+        "--dual-track",
+        action="store_true",
+        help="populate dual-track documentary/social/reconciliation tasks and research-coverage.json",
+    )
+    sp.add_argument(
+        "--question",
+        action="append",
+        default=[],
+        help="sub-question text for --dual-track (repeatable)",
+    )
+    sp.add_argument(
+        "--route",
+        default="broad_research",
+        help="research_route for --dual-track (default: broad_research)",
+    )
+    sp.add_argument(
+        "--execution-mode",
+        choices=["concurrent", "interleaved"],
+        default="concurrent",
+        help="execution_mode for --dual-track (default: concurrent)",
+    )
+    sp.add_argument(
+        "--budget-profile",
+        default="standard",
+        help="budget profile for research-coverage.json (default: standard)",
     )
     sp.add_argument("--force", action="store_true")
     sp.set_defaults(func=cmd_init)
@@ -5413,6 +5508,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--depends-on", nargs="*", default=[])
     sp.add_argument("--parallel-safe", action="store_true")
+    sp.add_argument(
+        "--branch",
+        choices=["documentary", "social", "reconciliation"],
+        default=None,
+        help="optional dual-track branch identifier",
+    )
+    sp.add_argument(
+        "--sub-question-id",
+        default=None,
+        help="optional parent sub-question identifier (e.g. Q1)",
+    )
     sp.add_argument("--inputs", nargs="*", default=[])
     sp.add_argument("--outputs", nargs="+", required=True)
     sp.set_defaults(func=cmd_add_task)

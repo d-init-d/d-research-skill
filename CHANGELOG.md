@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.7.0-rc.1] - 2026-11-14
+
+Release candidate for **D Research 3.7.0** — flexible 3-tier Browser-First
+routing, DRS-1.1 host-browser evidence integration, federated completeness-first
+search, capture-driven term harvesting, equalized Round-1 dual-track execution,
+and expanded bilingual EN/VI cross-branch reconciliation.
+
+- Freeze `docs/release-v3.7.0.md` and `docs/release-v3.7.0-rc.1.md` inside the
+  candidate package inventory before stable promotion.
+- Add `scripts/execution_evidence.py` (`record` / `verify`, `record_browser_evidence()`,
+  `summarize_browser_provenance()`) and `appendDrsBrowserEvidence()` in
+  `scripts/lib/browser_connector.mjs` so host-integrated browsers (`host-subagent`,
+  `chrome-devtools-mcp`, `cua-driver`, `cdp-session`) and Playwright produce
+  unified SHA-256-verified DRS-1.1 activity and capture ledgers.
+- Add `--federated` multi-provider query merging and `canonicalizeResultUrl()`
+  URL deduplication plus empty-result fallback continuation in `scripts/web_search.mjs`.
+- Add `harvest_from_captures()` (`--from-captures` / `--workspace`) in
+  `scripts/harvest_terms.py` for iterative term mining from DRS-1.1 captures.
+- Equalize Round-1 `documentary` / `social` authority weight (`3.0`), preserve
+  open `coverage_gaps` under diminishing-returns stops (`partial`) in
+  `scripts/research_controller.py`, and add `--dual-track` initialization plus
+  `--branch` / `--sub-question-id` task flags in `scripts/research_plan.py`.
+- Expand `CrossBranchReconciler` in `scripts/reconciliation.py` with bilingual
+  EN/VI correction, temporal supersession (`temporal_evolution`), platform and
+  methodology scope divergence, and empirical-vs-speculation markers.
+
+See [release notes](docs/release-v3.7.0-rc.1.md).
+
 ## [3.6.0] - 2026-10-07
 
 Official stable release of explicit search outcomes and opt-in CDP task browser
@@ -1499,7 +1527,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.6.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.7.0-rc.1...HEAD
+[3.7.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.7.0-rc.1
 [3.6.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.2
 [3.5.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0
 [3.5.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.5.0-rc.2

@@ -85,14 +85,23 @@ class CrossBranchReconciler:
     SCOPE_KEYWORDS = {
         "mobile": ["mobile", "android", "ios", "điện thoại", "ứng dụng di động"],
         "desktop": ["desktop", "macos", "windows", "linux", "máy tính", "bản máy tính"],
-        "version_diff": [r"v?2\.0", r"v?2\.1", r"v?2\.1\.1", r"phiên bản cũ", r"bản mới"],
-        "config_diff": ["strict-ascii", "utf-8", "cấu hình", "flag", "--"],
+        "web_browser": ["browser", "web app", "trình duyệt", "giao diện web"],
+        "cli_api": ["cli", "sdk", "rest api", "graphql", "command line", "dòng lệnh"],
+        "enterprise": ["enterprise", "pro plan", "paid tier", "doanh nghiệp", "bản trả phí"],
+        "methodology": ["in vitro", "in vivo", "clinical trial", "benchmark", "cohort", "thực nghiệm", "lâm sàng"],
+        "version_diff": [r"v?2\.0", r"v?2\.1", r"v?2\.1\.1", r"phiên bản cũ", r"bản mới", "deprecated", "legacy"],
+        "config_diff": ["strict-ascii", "utf-8", "cấu hình", "flag", "--", "chỉ áp dụng", "giới hạn"],
         "os_diff": ["windows", "macos", "linux", "mọi thiết bị", "hệ điều hành"],
     }
 
     CORRECTION_KEYWORDS = [
         "đính chính",
+        "cải chính",
+        "thu hồi",
+        "bác bỏ",
         "correction",
+        "erratum",
+        "corrigendum",
         "chính thức",
         "không bị loại bỏ",
         "không phải bị xóa",
@@ -100,6 +109,92 @@ class CrossBranchReconciler:
         "relocated to",
         "moved to",
     ]
+
+    TEMPORAL_SUPERSESSION_KEYWORDS = [
+        "deprecated",
+        "superseded",
+        "replaced by",
+        "updated in",
+        "new release",
+        "changelog",
+        "thay thế",
+        "cập nhật",
+        "phiên bản mới",
+        "ngừng hỗ trợ",
+        "đã sửa",
+    ]
+
+    EMPIRICAL_MARKERS = [
+        "benchmark",
+        "telemetry",
+        "dataset",
+        "audit",
+        "c14",
+        "radiocarbon",
+        "stratigraphy",
+        "n=",
+        "p<",
+        "p =",
+        "số liệu",
+        "đo đạc",
+        "thực nghiệm",
+        "khảo cổ",
+    ]
+
+    SPECULATION_MARKERS = [
+        "rumor",
+        "speculat",
+        "unverified",
+        "alleged",
+        "anecdotal",
+        "sensational",
+        "giả thuyết",
+        "bí ẩn",
+        "đồn đoán",
+        "chưa kiểm chứng",
+        "suy đoán",
+    ]
+
+    @staticmethod
+    def _parse_ts(meta: Optional[Dict[str, Any]]) -> Optional[datetime.datetime]:
+        if not meta or not meta.get("timestamp"):
+            return None
+        try:
+            raw = str(meta["timestamp"]).strip().replace("Z", "+00:00")
+            return datetime.datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _make_pair(
+        pair_id: str,
+        initial_claim_id: str,
+        initial_text: str,
+        initial_source: str,
+        competing_claim_id: str,
+        competing_text: str,
+        competing_source: str,
+        *,
+        discrepancy_kind: str,
+        resolution_status: str,
+        reconciliation_summary: str,
+        resolved_consensus: str,
+        target_follow_up_action: Optional[str] = None,
+    ) -> DiscrepancyPair:
+        return DiscrepancyPair(
+            pair_id=pair_id,
+            initial_claim_id=initial_claim_id,
+            initial_text=initial_text,
+            initial_source=initial_source,
+            competing_claim_id=competing_claim_id,
+            competing_text=competing_text,
+            competing_source=competing_source,
+            discrepancy_kind=discrepancy_kind,
+            resolution_status=resolution_status,
+            reconciliation_summary=reconciliation_summary,
+            resolved_consensus=resolved_consensus,
+            target_follow_up_action=target_follow_up_action,
+        )
 
     @classmethod
     def detect_scope_dimensions(cls, text: str) -> Dict[str, List[str]]:
@@ -125,10 +220,14 @@ class CrossBranchReconciler:
         competing_claim_id: str,
         competing_text: str,
         competing_source: str,
-        is_authoritative_correction: bool = False
+        is_authoritative_correction: bool = False,
+        initial_meta: Optional[Dict[str, Any]] = None,
+        competing_meta: Optional[Dict[str, Any]] = None,
     ) -> DiscrepancyPair:
         scope_init = self.detect_scope_dimensions(initial_text)
         scope_comp = self.detect_scope_dimensions(competing_text)
+        norm_init = unicodedata.normalize("NFC", initial_text).lower()
+        norm_comp = unicodedata.normalize("NFC", competing_text).lower()
 
         # Check 1: Refuted by authoritative correction (Acceptance E04)
         if is_authoritative_correction or self.is_correction_statement(competing_text):
@@ -229,6 +328,64 @@ class CrossBranchReconciler:
                 target_follow_up_action=None
             )
 
+        # Check 4b: General EN/VI temporal or version supersession
+        ts_init = self._parse_ts(initial_meta)
+        ts_comp = self._parse_ts(competing_meta)
+        has_supersession_kw = any(kw in norm_comp for kw in self.TEMPORAL_SUPERSESSION_KEYWORDS)
+        if (ts_init and ts_comp and ts_comp > ts_init and (has_supersession_kw or "version_diff" in scope_comp)) or (
+            has_supersession_kw and not (ts_init and ts_comp and ts_comp < ts_init)
+        ):
+            return self._make_pair(
+                pair_id, initial_claim_id, initial_text, initial_source,
+                competing_claim_id, competing_text, competing_source,
+                discrepancy_kind="temporal_evolution",
+                resolution_status="resolved",
+                reconciliation_summary="Later or version-specific update supersedes earlier claim.",
+                resolved_consensus=competing_text,
+            )
+
+        # Check 4c: General platform/environment/cohort/methodology scope divergence
+        scope_dims_init = set(scope_init.keys())
+        scope_dims_comp = set(scope_comp.keys())
+        if (scope_dims_init and scope_dims_comp and scope_dims_init != scope_dims_comp) or (
+            not scope_dims_init and len(scope_dims_comp) >= 1 and bool(scope_dims_comp & {"web_browser", "cli_api", "enterprise", "methodology", "mobile", "desktop"})
+        ):
+            return self._make_pair(
+                pair_id, initial_claim_id, initial_text, initial_source,
+                competing_claim_id, competing_text, competing_source,
+                discrepancy_kind="scope_refinement",
+                resolution_status="resolved",
+                reconciliation_summary="Discrepancy reflects platform, tier, configuration, or methodology scope boundaries.",
+                resolved_consensus=competing_text,
+            )
+
+        # Check 4d: Empirical measurement vs unverified speculation (EN/VI)
+        init_empirical = any(m in norm_init for m in self.EMPIRICAL_MARKERS)
+        comp_empirical = any(m in norm_comp for m in self.EMPIRICAL_MARKERS)
+        init_spec = any(m in norm_init for m in self.SPECULATION_MARKERS)
+        comp_spec = any(m in norm_comp for m in self.SPECULATION_MARKERS)
+        if (init_empirical and comp_spec) or (comp_empirical and init_spec):
+            grounded = initial_text if init_empirical else competing_text
+            return self._make_pair(
+                pair_id, initial_claim_id, initial_text, initial_source,
+                competing_claim_id, competing_text, competing_source,
+                discrepancy_kind="interpretive_divergence",
+                resolution_status="resolved",
+                reconciliation_summary="Empirical/quantitative evidence retained over speculative or unverified framing.",
+                resolved_consensus=grounded,
+            )
+
+        # Check 4e: General authoritative correction or erratum notice
+        if is_authoritative_correction or self.is_correction_statement(competing_text):
+            return self._make_pair(
+                pair_id, initial_claim_id, initial_text, initial_source,
+                competing_claim_id, competing_text, competing_source,
+                discrepancy_kind="refuted_by_correction",
+                resolution_status="resolved",
+                reconciliation_summary="Authoritative correction or erratum refutes or clarifies the initial assertion.",
+                resolved_consensus=competing_text,
+            )
+
         # Check 5: Direct contradiction unresolved
         return DiscrepancyPair(
             pair_id=pair_id,
@@ -263,7 +420,9 @@ class CrossBranchReconciler:
                 competing_claim_id=corr.get("claim_id", "CLM-02"),
                 competing_text=corr.get("text", ""),
                 competing_source=corr.get("source_url", corr.get("source_id", "")),
-                is_authoritative_correction=corr.get("resolution") == "refutes_initial_assertion"
+                is_authoritative_correction=corr.get("resolution") == "refutes_initial_assertion",
+                initial_meta=init,
+                competing_meta=corr,
             )
             pairs.append(pair_obj)
 
@@ -306,6 +465,45 @@ class CrossBranchReconciler:
 # CLI Entrypoint
 # ---------------------------------------------------------------------------
 
+def _cmd_self_test() -> int:
+    reconciler = CrossBranchReconciler()
+    # Temporal/version supersession
+    p_temp = reconciler.reconcile_pair(
+        "P-TEMP", "C1", "Feature enabled by default in v1", "post",
+        "C2", "Deprecated in new release and replaced by flag", "docs",
+        initial_meta={"timestamp": "2026-01-01T00:00:00Z"},
+        competing_meta={"timestamp": "2026-06-01T00:00:00Z"},
+    )
+    assert p_temp.discrepancy_kind == "temporal_evolution" and p_temp.resolution_status == "resolved"
+    # General scope divergence (CLI vs browser)
+    p_scope = reconciler.reconcile_pair(
+        "P-SCOPE", "C1", "Auth token fails in web browser", "forum",
+        "C2", "Auth token works cleanly in CLI and REST API", "docs",
+    )
+    assert p_scope.discrepancy_kind == "scope_refinement" and p_scope.resolution_status == "resolved"
+    # Empirical vs speculation (EN/VI)
+    p_emp = reconciler.reconcile_pair(
+        "P-EMP", "C1", "Số liệu thực nghiệm đo đạc n=500 xác nhận ổn định", "paper",
+        "C2", "Đồn đoán chưa kiểm chứng nói hệ thống bị hỏng", "thread",
+    )
+    assert p_emp.discrepancy_kind == "interpretive_divergence" and p_emp.resolution_status == "resolved"
+    # General erratum/correction
+    p_corr = reconciler.reconcile_pair(
+        "P-CORR", "C1", "Latency is 900ms", "blog",
+        "C2", "Official erratum published confirming typo", "docs",
+        is_authoritative_correction=True,
+    )
+    assert p_corr.discrepancy_kind == "refuted_by_correction" and p_corr.resolution_status == "resolved"
+    # Unresolved contradiction fallback
+    p_unres = reconciler.reconcile_pair(
+        "P-UNRES", "C1", "Revenue was $10M", "source-a",
+        "C2", "Revenue was $2M", "source-b",
+    )
+    assert p_unres.discrepancy_kind == "direct_contradiction" and p_unres.resolution_status == "unresolved_dispute"
+    print("reconciliation self-test ok")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="DRS-1.1 Reconciliation Engine")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -313,8 +511,12 @@ def main() -> int:
     p_rec = sub.add_parser("reconcile", help="Reconcile discrepancy fixtures")
     p_rec.add_argument("--fixtures", required=True, help="Path to correction pairs fixtures JSON")
     p_rec.add_argument("--out", default="", help="Optional output JSON path")
+    sub.add_parser("self-test", help="Run reconciliation self-tests")
 
     args = parser.parse_args()
+
+    if args.cmd == "self-test":
+        return _cmd_self_test()
 
     if args.cmd == "reconcile":
         reconciler = CrossBranchReconciler()

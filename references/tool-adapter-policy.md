@@ -28,10 +28,12 @@ Optional capabilities:
 
 ## Adapter selection
 
-1. If Playwright is available, use `adapters/playwright.md`.
-2. If another browser tool is configured, use `adapters/generic-browser.md`.
-3. If URL fetch is available but no browser exists, use `adapters/fetch-only.md`.
-4. If only web search exists, use `adapters/web-search-only.md`.
+Follow flexible 3-tier Browser-First priority:
+
+1. **Tier 1A (Host / Integrated Browser):** If the host runtime exposes an integrated browser (`browser` subagent, Chrome DevTools MCP, CUA driver, or CDP session), use `adapters/generic-browser.md` (or `--browser-mode cdp|auto`) and log captures with `scripts/execution_evidence.py record`.
+2. **Tier 1B (Local Playwright):** If Playwright/Chromium is available locally (standalone or `--browser-mode auto`), use `adapters/playwright.md`.
+3. **Tier 2 (URL Fetch):** If URL fetch is available but no interactive browser is available/required, use `adapters/fetch-only.md`.
+4. **Tier 3 (Web Search):** If only web search exists (or to discover seeds before browsing), use `adapters/web-search-only.md` (`scripts/web_search.mjs --federated`).
 5. If a GraphQL endpoint is discovered, use `adapters/graphql.md`.
 6. If user provides database credentials, use `adapters/database-readonly.md`.
 7. For academic database APIs, use `references/academic-databases.md`.
@@ -62,9 +64,12 @@ If the ideal tool is missing, state:
 ## Script capabilities
 
 Optional bundled scripts extend the agent's capabilities:
+- `scripts/execution_evidence.py`: record/verify DRS-1.1 host or Playwright browser evidence
 - `scripts/playwright_probe.mjs`: page classification and blocker detection
-- `scripts/playwright_extract.mjs`: DOM text, table, link extraction
-- `scripts/playwright_crawl.mjs`: bounded same-domain crawl
+- `scripts/playwright_extract.mjs`: DOM text, table, link extraction (`--browser-mode`, `--activity-log`, `--capture-records`)
+- `scripts/playwright_crawl.mjs`: bounded same-domain crawl (`--activity-log`, `--capture-records`)
+- `scripts/browser_interaction.mjs`: interactive search/expand/paginate/reply automation
+- `scripts/web_search.mjs`: fallback/federated multi-provider search (`--federated`)
 - `scripts/evidence_ledger.py`: CSV evidence ledger management
 - `scripts/api_fetch.mjs`: paginated API fetch with rate limiting
 - `scripts/data_clean.py`: data cleaning, deduplication, validation, statistics

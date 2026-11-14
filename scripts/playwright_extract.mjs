@@ -13,7 +13,7 @@ import {
   assertBrowserPublicUrl,
   installBrowserSsrfGuard,
 } from './lib/browser_ssrf.mjs';
-import { acquireBrowserSession } from './lib/browser_connector.mjs';
+import { acquireBrowserSession, appendDrsBrowserEvidence } from './lib/browser_connector.mjs';
 import { browserUserAgent } from './lib/package_metadata.mjs';
 
 function parseArgs(argv) {
@@ -26,6 +26,12 @@ function parseArgs(argv) {
     browserMode: 'standalone',
     cdpEndpoint: null,
     reuseSession: false,
+    activityLog: null,
+    captureRecords: null,
+    rawTextOut: null,
+    branch: 'documentary',
+    questionIds: [],
+    sourceId: null,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -45,6 +51,12 @@ function parseArgs(argv) {
     else if (a === '--browser-mode') args.browserMode = argv[++i];
     else if (a === '--cdp-endpoint') args.cdpEndpoint = argv[++i];
     else if (a === '--reuse-session') args.reuseSession = true;
+    else if (a === '--activity-log') args.activityLog = argv[++i];
+    else if (a === '--capture-records') args.captureRecords = argv[++i];
+    else if (a === '--raw-text-out') args.rawTextOut = argv[++i];
+    else if (a === '--branch') args.branch = argv[++i];
+    else if (a === '--question-id') args.questionIds.push(argv[++i]);
+    else if (a === '--source-id') args.sourceId = argv[++i];
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (!Number.isSafeInteger(args.timeout) || args.timeout < 1) {
@@ -74,6 +86,12 @@ Options:
   --browser-mode <mode>    Browser mode: standalone (default), cdp, auto
   --cdp-endpoint <url>     Chrome DevTools Protocol endpoint (or D_RESEARCH_CDP_URL)
   --reuse-session          Reuse existing context in CDP mode rather than isolating
+  --activity-log <path>    Append DRS-1.1 activity record JSON path
+  --capture-records <path> Append DRS-1.1 capture record JSON path
+  --raw-text-out <path>    Raw extracted text file path for capture hash
+  --branch <id>            Research branch (documentary|social), default documentary
+  --question-id <id>       Question ID (repeatable, default Q1)
+  --source-id <id>         Override capture source_id
   --self-test              Run lightweight checks without Playwright
 `;
 }
@@ -280,12 +298,42 @@ async function main() {
     if (cdpParsed.browserMode !== 'cdp' || cdpParsed.cdpEndpoint !== 'http://127.0.0.1:9222' || !cdpParsed.reuseSession) {
       throw new Error('cdp args parser failed');
     }
+    const parsedEv = parseArgs([
+      'node',
+      'playwright_extract.mjs',
+      '--url',
+      'https://example.org',
+      '--activity-log',
+      'activity-log.json',
+      '--capture-records',
+      'capture-records.json',
+      '--raw-text-out',
+      'captures/out.txt',
+      '--branch',
+      'social',
+      '--question-id',
+      'Q2',
+      '--source-id',
+      'SRC2',
+    ]);
+    if (
+      parsedEv.activityLog !== 'activity-log.json' ||
+      parsedEv.captureRecords !== 'capture-records.json' ||
+      parsedEv.rawTextOut !== 'captures/out.txt' ||
+      parsedEv.branch !== 'social' ||
+      parsedEv.questionIds[0] !== 'Q2' ||
+      parsedEv.sourceId !== 'SRC2'
+    ) {
+      throw new Error('evidence CLI options failed in self-test');
+    }
     selfTestBrowserLimits();
     console.log('playwright_extract self-test ok');
     return;
   }
   try {
+    const startedAt = new Date().toISOString();
     const result = await run(args);
+    const finishedAt = new Date().toISOString();
     const output = args.format === 'md' ? toMarkdown(result) : JSON.stringify(result, null, 2) + '\n';
     enforceBrowserOutputLimit(output, args.maxResponseBytes, result.finalUrl);
     if (args.out) {
@@ -293,6 +341,27 @@ async function main() {
       await fs.writeFile(args.out, output);
     } else {
       console.log(output);
+    }
+    if (args.activityLog || args.captureRecords || args.rawTextOut) {
+      await appendDrsBrowserEvidence({
+        activityLogPath: args.activityLog,
+        captureRecordsPath: args.captureRecords,
+        rawTextOut: args.rawTextOut,
+        url: args.url,
+        finalUrl: result.finalUrl,
+        branch: args.branch,
+        questionIds: args.questionIds.length ? args.questionIds : ['Q1'],
+        sourceId: args.sourceId,
+        actionType: 'extract',
+        engine: args.browserMode === 'cdp' ? 'cdp-session' : 'playwright-chromium',
+        mode: args.browserMode === 'cdp' ? 'cdp_attach' : args.browserMode,
+        method: 'playwright_extract',
+        rawText: result.text || output,
+        screenshotRef: args.screenshot || null,
+        domLocator: args.selector || null,
+        startedAt,
+        finishedAt,
+      });
     }
   } catch (err) {
     const payload = resourceLimitPayload(err);

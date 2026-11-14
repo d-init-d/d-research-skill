@@ -55,6 +55,7 @@ export class BrowserOperator {
     this.browserMode = options.browserMode || 'standalone';
     this.cdpEndpoint = options.cdpEndpoint || null;
     this.reuseSession = options.reuseSession || false;
+    this.engine = options.engine || (this.browserMode === 'cdp' ? 'cdp-session' : 'playwright-chromium');
 
     this.session = null;
     this.browser = null;
@@ -170,7 +171,7 @@ export class BrowserOperator {
         output_capture_ids: [],
         limitation: (pre.blocker && pre.blocker.message) ? pre.blocker.message : 'SSRF blocked',
         tool_details: {
-          engine: 'playwright-chromium',
+          engine: this.engine,
           mode: this.headless ? 'headless' : 'headed',
           response_status: null,
         },
@@ -210,7 +211,7 @@ export class BrowserOperator {
         output_capture_ids: [],
         limitation: status >= 400 ? ('HTTP status ' + status) : null,
         tool_details: {
-          engine: 'playwright-chromium',
+          engine: this.engine,
           mode: this.headless ? 'headless' : 'headed',
           response_status: status,
         },
@@ -239,7 +240,7 @@ export class BrowserOperator {
         output_capture_ids: [],
         limitation: redactSecretsInText(err.message),
         tool_details: {
-          engine: 'playwright-chromium',
+          engine: this.engine,
           mode: this.headless ? 'headless' : 'headed',
           response_status: null,
         },
@@ -387,7 +388,7 @@ export class BrowserOperator {
           output_capture_ids: [],
           limitation: null,
           tool_details: {
-            engine: 'playwright-chromium',
+            engine: this.engine,
             mode: this.headless ? 'headless' : 'headed',
             response_status: 200,
           },
@@ -433,7 +434,7 @@ export class BrowserOperator {
           output_capture_ids: [],
           limitation: redactSecretsInText(err.message),
           tool_details: {
-            engine: 'playwright-chromium',
+            engine: this.engine,
             mode: this.headless ? 'headless' : 'headed',
             response_status: 200,
           },
@@ -444,16 +445,60 @@ export class BrowserOperator {
     }
   }
 
+  async _resolveActionSelector(explicitSelector, fixtureDefault, semanticCandidates = []) {
+    if (explicitSelector) {
+      return { selector: explicitSelector, usedFallback: false };
+    }
+    if (this.page && typeof this.page.$ === 'function') {
+      if (fixtureDefault) {
+        try {
+          if (await this.page.$(fixtureDefault)) {
+            return { selector: fixtureDefault, usedFallback: false };
+          }
+        } catch {
+          // ignore probe error and try semantic candidates
+        }
+      }
+      for (const candidate of semanticCandidates) {
+        try {
+          if (await this.page.$(candidate)) {
+            return { selector: candidate, usedFallback: true };
+          }
+        } catch {
+          // ignore selector probe errors
+        }
+      }
+    }
+    return { selector: fixtureDefault || semanticCandidates[0], usedFallback: false };
+  }
+
   async _performActionWithWait(actionType, targetLocator, payload) {
     const timeout = this.actionTimeout;
     if (actionType === 'search') {
-      const inputSelector = targetLocator.inputSelector || targetLocator.selector || '#search-input';
-      const submitSelector = targetLocator.submitSelector || '#search-submit';
+      const inputResolved = await this._resolveActionSelector(
+        targetLocator.inputSelector || targetLocator.selector,
+        '#search-input',
+        ['input[type="search"]', 'input[name*="q" i]', '[role="searchbox"]', 'input[placeholder*="search" i]']
+      );
+      const submitResolved = await this._resolveActionSelector(
+        targetLocator.submitSelector,
+        '#search-submit',
+        ['button[type="submit"]', 'input[type="submit"]', 'button[aria-label*="search" i]']
+      );
       const query = payload.query || '';
-      const waitSelector = payload.waitSelector || targetLocator.waitSelector || '.result-card, .no-results';
+      const defaultWait = inputResolved.usedFallback
+        ? 'main, article, [role="main"], .search-results, #results, body'
+        : '.result-card, .no-results';
+      const waitSelector = payload.waitSelector || targetLocator.waitSelector || defaultWait;
 
-      await this.page.fill(inputSelector, query, { timeout });
-      await this.page.click(submitSelector, { timeout });
+      await this.page.fill(inputResolved.selector, query, { timeout });
+      if (submitResolved.selector) {
+        await this.page.click(submitResolved.selector, { timeout }).catch(async () => {
+          await this.page.press(inputResolved.selector, 'Enter', { timeout });
+        });
+      } else {
+        await this.page.press(inputResolved.selector, 'Enter', { timeout });
+      }
       await this.page.waitForSelector(waitSelector, { timeout });
     } else if (actionType === 'filter') {
       const selectSelector = targetLocator.selectSelector || targetLocator.selector || '#filter-type';
@@ -468,38 +513,50 @@ export class BrowserOperator {
         await this.page.waitForSelector(detachedSelector, { state: 'detached', timeout }).catch(() => {});
       }
       await this.page.waitForSelector(waitSelector, { timeout });
-    } else if (actionType === 'open') {
-      const selector = targetLocator.selector || '.open-thread-btn';
-      await this.page.click(selector, { timeout });
-      await this.page.waitForSelector(
-        payload.waitSelector || targetLocator.waitSelector || '#thread-section:not(.hidden)',
-        { timeout }
+    } else if (actionType === 'open' || actionType === 'expand' || actionType === 'view_replies' || actionType === 'paginate') {
+      const actionConfig = {
+        open: {
+          fixtureDefault: '.open-thread-btn',
+          semanticCandidates: ['[aria-expanded="false"]', 'article a', 'main a', 'button'],
+          fixtureWait: '#thread-section:not(.hidden)',
+          genericWait: 'main, article, [role="main"], body',
+        },
+        expand: {
+          fixtureDefault: '#expand-post-btn',
+          semanticCandidates: ['[aria-expanded="false"]', 'details > summary', 'button[aria-controls]', 'button'],
+          fixtureWait: '#post-body-container',
+          genericWait: '[aria-expanded="true"], details[open], main, article, body',
+        },
+        view_replies: {
+          fixtureDefault: '#view-replies-btn',
+          semanticCandidates: ['[aria-expanded="false"]', 'button[aria-label*="repl" i]', 'button[aria-label*="comment" i]', 'details > summary'],
+          fixtureWait: '#replies-container:not(.hidden) .comment-box',
+          genericWait: '[aria-expanded="true"], details[open], [role="list"], main, body',
+        },
+        paginate: {
+          fixtureDefault: '#load-more-btn',
+          semanticCandidates: ['a[rel="next"]', 'button[aria-label*="more" i]', 'button[aria-label*="next" i]', '[aria-label="Pagination"] a'],
+          fixtureWait: '#paged-comments-container .comment-box',
+          genericWait: 'main, article, [role="list"], body',
+        },
+      }[actionType];
+
+      const resolved = await this._resolveActionSelector(
+        targetLocator.selector,
+        actionConfig.fixtureDefault,
+        actionConfig.semanticCandidates
       );
-    } else if (actionType === 'expand') {
-      const selector = targetLocator.selector || '#expand-post-btn';
-      await this.page.click(selector, { timeout });
-      const hiddenSelector = payload.hiddenSelector || targetLocator.hiddenSelector;
-      if (hiddenSelector) {
-        await this.page.waitForSelector(hiddenSelector, { state: 'hidden', timeout }).catch(() => {});
+      await this.page.click(resolved.selector, { timeout });
+      if (actionType === 'expand') {
+        const hiddenSelector = payload.hiddenSelector || targetLocator.hiddenSelector;
+        if (hiddenSelector) {
+          await this.page.waitForSelector(hiddenSelector, { state: 'hidden', timeout }).catch(() => {});
+        }
       }
-      await this.page.waitForSelector(
-        payload.waitSelector || targetLocator.waitSelector || '#post-body-container',
-        { timeout }
+      const waitSel = payload.waitSelector || targetLocator.waitSelector || (
+        resolved.usedFallback ? actionConfig.genericWait : actionConfig.fixtureWait
       );
-    } else if (actionType === 'view_replies') {
-      const selector = targetLocator.selector || '#view-replies-btn';
-      await this.page.click(selector, { timeout });
-      await this.page.waitForSelector(
-        payload.waitSelector || targetLocator.waitSelector || '#replies-container:not(.hidden) .comment-box',
-        { timeout }
-      );
-    } else if (actionType === 'paginate') {
-      const selector = targetLocator.selector || '#load-more-btn';
-      await this.page.click(selector, { timeout });
-      await this.page.waitForSelector(
-        payload.waitSelector || targetLocator.waitSelector || '#paged-comments-container .comment-box',
-        { timeout }
-      );
+      await this.page.waitForSelector(waitSel, { timeout });
     } else if (actionType === 'scroll') {
       const deltaY = payload.deltaY || 500;
       const selector = targetLocator.selector || null;
@@ -704,9 +761,25 @@ export async function selfTestBrowserInteraction() {
     browserMode: 'cdp',
     cdpEndpoint: 'http://127.0.0.1:9222',
     reuseSession: true,
+    engine: 'host-subagent',
   });
-  if (cdpOp.browserMode !== 'cdp' || cdpOp.cdpEndpoint !== 'http://127.0.0.1:9222' || !cdpOp.reuseSession) {
+  if (
+    cdpOp.browserMode !== 'cdp' ||
+    cdpOp.cdpEndpoint !== 'http://127.0.0.1:9222' ||
+    !cdpOp.reuseSession ||
+    cdpOp.engine !== 'host-subagent'
+  ) {
     throw new Error('BrowserOperator options initialization failed');
+  }
+  cdpOp.page = {
+    $: async (sel) => (sel === '[role="searchbox"]' ? {} : null),
+  };
+  const fallbackSel = await cdpOp._resolveActionSelector(null, '#search-input', [
+    'input[type="search"]',
+    '[role="searchbox"]',
+  ]);
+  if (fallbackSel.selector !== '[role="searchbox"]' || !fallbackSel.usedFallback) {
+    throw new Error('BrowserOperator semantic fallback resolution failed');
   }
 
   return true;
@@ -731,6 +804,7 @@ async function main() {
   let browserMode = 'standalone';
   let cdpEndpoint = null;
   let reuseSession = false;
+  let engine = null;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -744,14 +818,25 @@ async function main() {
     else if (a === '--browser-mode') browserMode = args[++i];
     else if (a === '--cdp-endpoint') cdpEndpoint = args[++i];
     else if (a === '--reuse-session') reuseSession = true;
+    else if (a === '--engine') engine = args[++i];
     else if (a === '--self-test') {
       const op = new BrowserOperator({
         browserMode: 'cdp',
         cdpEndpoint: 'http://127.0.0.1:9222',
         reuseSession: true,
+        engine: 'host-subagent',
       });
-      if (op.browserMode !== 'cdp' || op.cdpEndpoint !== 'http://127.0.0.1:9222' || !op.reuseSession) {
+      if (
+        op.browserMode !== 'cdp' ||
+        op.cdpEndpoint !== 'http://127.0.0.1:9222' ||
+        !op.reuseSession ||
+        op.engine !== 'host-subagent'
+      ) {
         throw new Error('BrowserOperator options initialization failed');
+      }
+      const resolved = await op._resolveActionSelector(null, '#missing', ['main', 'body']);
+      if (resolved.selector !== '#missing' || resolved.usedFallback !== false) {
+        throw new Error('BrowserOperator fallback selector default failed');
       }
       console.log('browser_interaction self-test ok');
       return;
@@ -759,7 +844,7 @@ async function main() {
   }
 
   if (!url) {
-    console.error('Usage: node scripts/browser_interaction.mjs --url <url> [--actions <json>] [--allow-loopback-fixture] [--out-dir <dir>] [--browser-mode standalone|cdp|auto] [--cdp-endpoint <url>] [--reuse-session]');
+    console.error('Usage: node scripts/browser_interaction.mjs --url <url> [--actions <json>] [--allow-loopback-fixture] [--out-dir <dir>] [--browser-mode standalone|cdp|auto] [--cdp-endpoint <url>] [--reuse-session] [--engine <name>]');
     process.exit(1);
   }
 
@@ -772,6 +857,7 @@ async function main() {
     browserMode,
     cdpEndpoint,
     reuseSession,
+    engine,
   });
 
   try {

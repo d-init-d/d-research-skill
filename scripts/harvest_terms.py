@@ -34,8 +34,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+import tempfile
 from pathlib import Path
+
+
+_CAPTURE_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "that", "this", "from", "are", "was", "were",
+    "have", "has", "had", "not", "but", "you", "your", "our", "all", "can",
+    "will", "its", "into", "about", "more", "than", "when", "what", "which",
+    "who", "how", "why", "use", "using", "used", "also", "other", "such",
+    "của", "và", "các", "những", "trong", "cho", "với", "được", "không", "một",
+    "này", "khi", "như", "từ", "về", "để", "tại", "theo", "trên", "nên",
+})
 
 
 def _read_input(path: str | None) -> str:
@@ -118,13 +130,96 @@ def _render_text(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _extract_capture_terms(text: str) -> list[str]:
+    """Extract deterministic candidate bigrams, hyphenated compounds, and acronyms from text."""
+    seen: list[str] = []
+    seen_lower: set[str] = set()
+
+    def _add(term: str) -> None:
+        key = term.lower()
+        if key not in seen_lower:
+            seen_lower.add(key)
+            seen.append(term)
+
+    for acro in re.findall(r"\b[A-Z][A-Z0-9-]{2,}\b", text):
+        _add(acro)
+
+    tokens = [
+        tok
+        for tok in re.findall(r"[0-9A-Za-zÀ-ỹ_-]{2,}", text)
+        if not tok.isdigit()
+    ]
+    for tok in tokens:
+        if "-" in tok and len(tok) >= 4 and tok.lower() not in _CAPTURE_STOPWORDS:
+            _add(tok.lower())
+
+    for idx in range(len(tokens) - 1):
+        w1 = tokens[idx].lower()
+        w2 = tokens[idx + 1].lower()
+        if len(w1) < 3 or len(w2) < 3:
+            continue
+        if w1 in _CAPTURE_STOPWORDS or w2 in _CAPTURE_STOPWORDS:
+            continue
+        _add(f"{w1} {w2}")
+    return seen
+
+
+def harvest_from_captures(
+    capture_records_path: str | Path,
+    *,
+    workspace_dir: str | Path | None = None,
+    threshold: int = 2,
+) -> dict:
+    """Harvest cross-source recurring terms directly from DRS-1.1 capture records."""
+    cap_path = Path(capture_records_path).resolve()
+    ws = Path(workspace_dir).resolve() if workspace_dir else cap_path.parent
+    raw_obj = json.loads(cap_path.read_text(encoding="utf-8"))
+    if isinstance(raw_obj, list):
+        records = raw_obj
+    elif isinstance(raw_obj, dict):
+        records = raw_obj.get("records") or raw_obj.get("captures") or []
+    else:
+        records = []
+
+    lines: list[str] = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        source_key = str(
+            rec.get("source_id")
+            or rec.get("final_url")
+            or rec.get("source_url")
+            or rec.get("capture_id")
+            or ""
+        ).strip()
+        raw_ref = rec.get("raw_text_ref")
+        if not source_key or not raw_ref:
+            continue
+        ref_path = Path(str(raw_ref))
+        if not ref_path.is_absolute():
+            ref_path = ws / ref_path
+        if not ref_path.exists():
+            continue
+        body = ref_path.read_text(encoding="utf-8", errors="replace")
+        for term in _extract_capture_terms(body):
+            lines.append(f"{source_key}\t{term}")
+    return harvest("\n".join(lines), delimiter="\t", threshold=threshold)
+
+
 def cmd_harvest(args: argparse.Namespace) -> int:
     if args.threshold < 1:
         print("error: --threshold must be >= 1", file=sys.stderr)
         return 1
-    delimiter = "\t" if args.delimiter == "\\t" else args.delimiter
-    text = _read_input(args.input)
-    result = harvest(text, delimiter=delimiter, threshold=args.threshold)
+    if getattr(args, "from_captures", None):
+        result = harvest_from_captures(
+            args.from_captures,
+            workspace_dir=getattr(args, "workspace", None),
+            threshold=args.threshold,
+        )
+    else:
+        delimiter = "\t" if args.delimiter == "\\t" else args.delimiter
+        text = _read_input(args.input)
+        result = harvest(text, delimiter=delimiter, threshold=args.threshold)
     if not result["terms"]:
         print("error: no usable 'source<delimiter>term' lines found", file=sys.stderr)
         return 1
@@ -189,6 +284,31 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
     if delim["confirmed"] != ["foo"]:
         errors.append("custom delimiter grouping failed")
 
+    # harvest directly from DRS-1.1 capture-records.json + raw text captures
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = Path(tmp)
+        (ws / "captures").mkdir()
+        (ws / "captures" / "c1.txt").write_text(
+            "Forum post discussing brain fog and CDP fallback behavior.\n",
+            encoding="utf-8",
+        )
+        (ws / "captures" / "c2.txt").write_text(
+            "Issue tracker confirming brain fog under rate limit.\n",
+            encoding="utf-8",
+        )
+        cap_file = ws / "capture-records.json"
+        cap_file.write_text(
+            json.dumps([
+                {"capture_id": "cap1", "source_id": "src-a", "raw_text_ref": "captures/c1.txt"},
+                {"capture_id": "cap2", "source_id": "src-b", "raw_text_ref": "captures/c2.txt"},
+            ]),
+            encoding="utf-8",
+        )
+        cap_res = harvest_from_captures(cap_file, workspace_dir=ws, threshold=2)
+        confirmed_lower = {t.lower() for t in cap_res["confirmed"]}
+        if "brain fog" not in confirmed_lower:
+            errors.append(f"harvest_from_captures missed recurring bigram: {cap_res['confirmed']}")
+
     if errors:
         print("harvest_terms self-test FAILED:", file=sys.stderr)
         for e in errors:
@@ -217,6 +337,14 @@ def main() -> int:
     h.add_argument(
         "--in", dest="input", default=None,
         help="Input file of 'source<delimiter>term' lines (default: stdin).",
+    )
+    h.add_argument(
+        "--from-captures", dest="from_captures", default=None,
+        help="Harvest recurring terms from DRS-1.1 capture-records.json + raw text files.",
+    )
+    h.add_argument(
+        "--workspace", default=None,
+        help="Workspace root for resolving relative raw_text_ref paths in --from-captures.",
     )
     h.add_argument(
         "--out", default=None, help="Write output to this file (default: stdout)."

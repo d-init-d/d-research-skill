@@ -718,12 +718,28 @@ export async function searchGoogleCSE(query, limit, overrides = requestOverrides
     }));
 }
 
+function canonicalizeResultUrl(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl));
+    parsed.hash = '';
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/^(utm_|fbclid$|gclid$|mc_eid$)/i.test(key)) {
+        parsed.searchParams.delete(key);
+      }
+    }
+    const cleanPath = parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, '') : parsed.pathname;
+    return `${parsed.protocol.toLowerCase()}//${parsed.hostname.toLowerCase()}${cleanPath}${parsed.search}`;
+  } catch {
+    return String(rawUrl || '').trim();
+  }
+}
+
 export class SearchGateway {
   constructor(options = {}) {
     this.overrides = options.overrides || {};
   }
 
-  async execute({ query, limit = 10, engine = null, gateway = null, hostResultsPath = null, format = 'legacy' }) {
+  async execute({ query, limit = 10, engine = null, gateway = null, hostResultsPath = null, format = 'legacy', federated = false }) {
     if (!query && !hostResultsPath) {
       throw new Error('--query or --host-results is required');
     }
@@ -841,6 +857,10 @@ export class SearchGateway {
         chain.push({ name: 'searxng', run: () => searchSearXNG(query, limit, this.overrides) });
       }
 
+      const federatedSeen = new Set();
+      const federatedItems = [];
+      let sawEmptySuccess = false;
+
       for (const provider of chain) {
         let attemptSucceeded = false;
         // At most 1 retry for transport or 5xx error
@@ -848,15 +868,43 @@ export class SearchGateway {
           const startTime = Date.now();
           try {
             const items = await provider.run();
-            finalResults = items;
-            finalStatus = items.length > 0 ? 'success' : 'no_results';
+            const attemptStatus = items.length > 0 ? 'success' : 'no_results';
             attempts.push({
               provider: provider.name,
-              status: finalStatus,
+              status: attemptStatus,
               duration_ms: Date.now() - startTime,
               result_count: items.length,
             });
-            attemptSucceeded = true;
+            if (federated) {
+              if (items.length > 0) {
+                for (const item of items) {
+                  const key = canonicalizeResultUrl(item.url);
+                  if (!key || federatedSeen.has(key)) continue;
+                  federatedSeen.add(key);
+                  federatedItems.push({
+                    ...item,
+                    source_engine: item.source_engine || item.provider || provider.name,
+                  });
+                }
+                finalResults = federatedItems.slice(0, limit);
+                finalStatus = 'success';
+              } else {
+                sawEmptySuccess = true;
+              }
+              attemptSucceeded = true;
+              break;
+            }
+            if (items.length > 0) {
+              finalResults = items;
+              finalStatus = 'success';
+              attemptSucceeded = true;
+              break;
+            }
+            sawEmptySuccess = true;
+            if (finalResults === null) {
+              finalResults = [];
+              finalStatus = 'no_results';
+            }
             break;
           } catch (err) {
             if (err instanceof ResourceLimitError) throw err;
@@ -883,9 +931,13 @@ export class SearchGateway {
             if (retry === 0) continue;
           }
         }
-        if (attemptSucceeded) {
+        if (attemptSucceeded && !federated) {
           break;
         }
+      }
+      if (federated && federatedItems.length === 0 && sawEmptySuccess && finalResults === null) {
+        finalResults = [];
+        finalStatus = 'no_results';
       }
     }
 
@@ -935,6 +987,7 @@ function parseArgs(argv) {
     format: 'legacy',
     hostResults: null,
     searchGateway: null,
+    federated: false,
     maxResponseBytes: null,
     timeoutMs: null,
     selfTest: false,
@@ -955,6 +1008,8 @@ function parseArgs(argv) {
         throw new Error(`Invalid --search-gateway: ${val}. Must be one of auto, host, mcp, direct.`);
       }
       args.searchGateway = gw;
+    } else if (arg === '--federated') {
+      args.federated = true;
     } else if (arg === '--query' && i + 1 < argv.length) {
       args.query = argv[++i];
     } else if (arg === '--limit' && i + 1 < argv.length) {
@@ -1516,6 +1571,92 @@ export async function runSelfTest() {
     console.error(`  FAIL: Test 11 threw: ${err.message}`);
   }
 
+  // Regression 12: Empty (no_results) provider does not stop fallback chain
+  console.log('  Test 12: Empty no_results continues fallback chain');
+  calls = [];
+  setSearchTestResponse(async (url) => {
+    const s = String(url);
+    calls.push(s);
+    if (s.includes('duckduckgo.com')) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null },
+        text: async () => '<html><body><div class="no-results">No results found</div></body></html>',
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: { get: () => null },
+      text: async () => JSON.stringify(mockSearxJson),
+      json: async () => mockSearxJson,
+    };
+  });
+  try {
+    const gw = new SearchGateway();
+    const res = await gw.execute({ query: 'sparse topic test', limit: 5 });
+    assert(res.exitCode === 0, 'fallback after no_results succeeds with exitCode 0');
+    assert(res.envelope.status === 'success', 'envelope status is success after fallback');
+    assert(res.envelope.attempts.length === 2, 'attempted both duckduckgo and searxng');
+    assert(res.envelope.attempts[0].status === 'no_results', 'first attempt recorded no_results');
+    assert(res.envelope.attempts[1].status === 'success', 'second attempt succeeded');
+    assert(res.legacy.length === 2, 'returned results from fallback searxng');
+  } catch (err) {
+    failed++;
+    console.error(`  FAIL: Test 12 threw: ${err.message}`);
+  }
+
+  // Regression 13: Federated mode queries multiple providers and deduplicates canonical URLs
+  console.log('  Test 13: Federated search merges and deduplicates across providers');
+  calls = [];
+  setSearchTestResponse(async (url) => {
+    const s = String(url);
+    calls.push(s);
+    if (s.includes('duckduckgo.com')) {
+      const ddgWithDup = `
+        <html><body>
+        <div class="result__body">
+          <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2F1%2F%3Futm_source%3Dddg">Dup Example 1</a>
+          <span class="result__snippet">Duplicate snippet</span>
+        </div>
+        <div class="result__body">
+          <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Funique.example.org%2Fdoc">Unique DDG</a>
+          <span class="result__snippet">Unique snippet</span>
+        </div>
+        </body></html>`;
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null },
+        text: async () => ddgWithDup,
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: { get: () => null },
+      text: async () => JSON.stringify(mockSearxJson),
+      json: async () => mockSearxJson,
+    };
+  });
+  try {
+    const parsedFed = parseArgs(['node', 'web_search.mjs', '--query', 'fed', '--federated']);
+    assert(parsedFed.federated === true, 'parseArgs accepts --federated');
+    const gw = new SearchGateway();
+    const res = await gw.execute({ query: 'federated test', limit: 10, federated: true });
+    assert(res.exitCode === 0, 'federated search succeeds');
+    assert(res.envelope.attempts.length >= 2, 'federated queries multiple providers');
+    assert(res.legacy.length === 3, `federated deduplicated 4 raw items to 3 unique URLs (got ${res.legacy.length})`);
+  } catch (err) {
+    failed++;
+    console.error(`  FAIL: Test 13 threw: ${err.message}`);
+  }
+
   } finally {
     // Explicit test transport hooks and environment never survive this runner.
     setSearchTestResponse(null);
@@ -1549,7 +1690,7 @@ async function main() {
 
   if (!args.query && !args.hostResults) {
     console.error('Error: --query or --host-results is required');
-    console.error('Usage: web_search.mjs --query "<q>" [--engine duckduckgo|searxng|brave|google-cse|host] [--limit N] [--format legacy|envelope] [--host-results <path>] [--out <file>]');
+    console.error('Usage: web_search.mjs --query "<q>" [--engine duckduckgo|searxng|brave|google-cse|host] [--federated] [--limit N] [--format legacy|envelope] [--host-results <path>] [--out <file>]');
     console.error('       web_search.mjs --self-test');
     process.exit(1);
   }
@@ -1562,6 +1703,7 @@ async function main() {
     gateway: args.searchGateway,
     hostResultsPath: args.hostResults,
     format: args.format,
+    federated: args.federated,
   });
 
   const outputData = args.format === 'envelope' ? result.envelope : result.legacy;

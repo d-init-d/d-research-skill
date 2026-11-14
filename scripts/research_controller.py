@@ -341,7 +341,7 @@ class ResearchController:
         if computed_priority is None:
             gap_prio = 4.0 if gap_id else 2.0
             relevance = 3.5
-            authority = 3.0 if branch == "documentary" else 2.0
+            authority = 3.0 if branch in {"documentary", "social"} else 2.0
             access_cost = 1.0 if node_type in {"url", "api"} else 0.5
             computed_priority = 2.0 * gap_prio + 2.0 * relevance + 2.0 * discounted_novelty + 1.0 * authority - 1.0 * access_cost
 
@@ -520,13 +520,21 @@ class ResearchController:
             )
 
         if no_progress >= self.profile.consecutive_no_progress_actions:
+            open_gaps = sorted(
+                {
+                    n.gap_id
+                    for n in self.frontier_nodes.values()
+                    if n.branch == branch and n.status in {"pending", "blocked"} and n.gap_id
+                }
+            )
             reason = "no_progress_limit_reached"
-            self.set_branch_state(branch, "completed", stop_reason=reason)
+            terminal_state = "partial" if open_gaps else "completed"
+            self.set_branch_state(branch, terminal_state, stop_reason=reason)
             return StopEvaluation(
                 should_stop=True,
-                terminal_state="completed",
+                terminal_state=terminal_state,
                 stop_reason=reason,
-                coverage_gaps=[],
+                coverage_gaps=open_gaps,
             )
 
         # Check if already terminal
