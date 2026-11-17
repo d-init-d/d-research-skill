@@ -10,10 +10,12 @@ reconciliation matrices for the final synthesis.
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime
 import json
 import re
 import sys
+import tempfile
 import unicodedata
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -460,6 +462,132 @@ class CrossBranchReconciler:
             timeline=timeline
         )
 
+    @staticmethod
+    def _entity_tokens(text: str) -> set[str]:
+        norm = unicodedata.normalize("NFC", text).lower()
+        return {tok for tok in re.findall(r"[^\W_]{3,}", norm, flags=re.UNICODE) if not tok.isdigit()}
+
+    def reconcile_from_ledger(self, ledger_path: Path) -> ReconciliationReport:
+        """Auto-detect and reconcile cross-branch or contradicting claims from an evidence-ledger CSV."""
+        doc_types = {"primary", "official", "dataset", "paper", "filing", "code", "pdf"}
+        soc_types = {"community", "secondary", "unknown", ""}
+        with open(ledger_path, "r", encoding="utf-8", newline="") as f:
+            raw_rows = list(csv.DictReader(f))
+
+        claims: List[Dict[str, str]] = []
+        for row in raw_rows:
+            rec_type = (row.get("record_type") or "").strip().lower()
+            if rec_type not in {"", "claim"}:
+                continue
+            claim_id = (row.get("claim_id") or "").strip()
+            claim_text = (row.get("claim") or "").strip()
+            if not claim_id or not claim_text:
+                continue
+            claims.append({k: (v or "").strip() for k, v in row.items() if k is not None})
+
+        groups: Dict[str, List[Dict[str, str]]] = {}
+        unscoped: List[Dict[str, str]] = []
+        for row in claims:
+            sq = row.get("sub_question", "")
+            if sq:
+                groups.setdefault(f"sq:{sq}", []).append(row)
+            else:
+                unscoped.append(row)
+
+        pair_candidates: List[tuple[Dict[str, str], Dict[str, str]]] = []
+        seen_pairs: set[tuple[str, str]] = set()
+
+        def _should_compare(a: Dict[str, str], b: Dict[str, str]) -> bool:
+            ta = (a.get("source_type") or "unknown").lower()
+            tb = (b.get("source_type") or "unknown").lower()
+            ca = (a.get("contradiction") or "").lower() in {"possible", "direct", "unresolved"}
+            cb = (b.get("contradiction") or "").lower() in {"possible", "direct", "unresolved"}
+            cross_branch = (ta in doc_types and tb in soc_types) or (tb in doc_types and ta in soc_types)
+            return cross_branch or ca or cb
+
+        for bucket in groups.values():
+            for i in range(len(bucket)):
+                for j in range(i + 1, len(bucket)):
+                    a, b = bucket[i], bucket[j]
+                    if not _should_compare(a, b):
+                        continue
+                    key = (min(a["claim_id"], b["claim_id"]), max(a["claim_id"], b["claim_id"]))
+                    if key not in seen_pairs:
+                        seen_pairs.add(key)
+                        pair_candidates.append((a, b))
+
+        for i in range(len(unscoped)):
+            toks_i = self._entity_tokens(f"{unscoped[i].get('claim', '')} {unscoped[i].get('evidence', '')}")
+            for j in range(i + 1, len(unscoped)):
+                a, b = unscoped[i], unscoped[j]
+                if not _should_compare(a, b):
+                    continue
+                toks_j = self._entity_tokens(f"{b.get('claim', '')} {b.get('evidence', '')}")
+                if len(toks_i & toks_j) < 2 and (a.get("contradiction", "").lower() not in {"direct", "unresolved"}):
+                    continue
+                key = (min(a["claim_id"], b["claim_id"]), max(a["claim_id"], b["claim_id"]))
+                if key not in seen_pairs:
+                    seen_pairs.add(key)
+                    pair_candidates.append((a, b))
+
+        pairs: List[DiscrepancyPair] = []
+        timeline: List[TimelineEvent] = []
+        seen_events: set[str] = set()
+
+        for idx, (row_a, row_b) in enumerate(pair_candidates, start=1):
+            ta = (row_a.get("source_type") or "unknown").lower()
+            tb = (row_b.get("source_type") or "unknown").lower()
+            # Prefer social/older row as initial and documentary/newer row as competing
+            init_row, comp_row = (row_b, row_a) if (ta in doc_types and tb in soc_types) else (row_a, row_b)
+            init_text = f"{init_row.get('claim', '')} {init_row.get('evidence', '')}".strip()
+            comp_text = f"{comp_row.get('claim', '')} {comp_row.get('evidence', '')}".strip()
+            init_ts = init_row.get("date_published") or init_row.get("date_accessed") or ""
+            comp_ts = comp_row.get("date_published") or comp_row.get("date_accessed") or ""
+            comp_is_doc = (comp_row.get("source_type") or "").lower() in doc_types
+            is_auth_corr = comp_is_doc and self.is_correction_statement(comp_text)
+
+            pair_obj = self.reconcile_pair(
+                pair_id=f"PAIR-LEDGER-{idx:03d}",
+                initial_claim_id=init_row["claim_id"],
+                initial_text=init_text,
+                initial_source=init_row.get("source_url") or init_row.get("source_title") or init_row["claim_id"],
+                competing_claim_id=comp_row["claim_id"],
+                competing_text=comp_text,
+                competing_source=comp_row.get("source_url") or comp_row.get("source_title") or comp_row["claim_id"],
+                is_authoritative_correction=is_auth_corr,
+                initial_meta={"timestamp": init_ts},
+                competing_meta={"timestamp": comp_ts},
+            )
+            pairs.append(pair_obj)
+
+            for r in (init_row, comp_row):
+                cid = r["claim_id"]
+                ts = r.get("date_published") or r.get("date_accessed") or ""
+                if ts and cid not in seen_events:
+                    seen_events.add(cid)
+                    rtype = (r.get("source_type") or "").lower()
+                    timeline.append(TimelineEvent(
+                        event_id=f"EVT-{cid}",
+                        timestamp=ts,
+                        entity=r.get("speaker_identity") or r.get("source_title") or "unknown",
+                        assertion=r.get("claim", ""),
+                        source_url=r.get("source_url", ""),
+                        source_type="official" if rtype in doc_types else "social",
+                        is_correction=self.is_correction_statement(r.get("claim", "")),
+                    ))
+
+        timeline.sort(key=lambda t: t.timestamp)
+        resolved_count = sum(1 for p in pairs if p.resolution_status == "resolved")
+        return ReconciliationReport(
+            schema_version="1.0",
+            generated_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            total_discrepancies=len(pairs),
+            resolved_count=resolved_count,
+            unresolved_count=len(pairs) - resolved_count,
+            pairs=pairs,
+            timeline=timeline,
+        )
+
 
 # ---------------------------------------------------------------------------
 # CLI Entrypoint
@@ -500,6 +628,54 @@ def _cmd_self_test() -> int:
         "C2", "Revenue was $2M", "source-b",
     )
     assert p_unres.discrepancy_kind == "direct_contradiction" and p_unres.resolution_status == "unresolved_dispute"
+
+    # Auto-reconciliation directly from evidence-ledger.csv
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger = Path(tmp) / "evidence-ledger.csv"
+        with open(ledger, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "claim_id", "claim", "sub_question", "source_title", "source_url",
+                    "source_type", "date_published", "date_accessed", "evidence",
+                    "contradiction", "record_type", "speaker_identity",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows([
+                {
+                    "claim_id": "C01",
+                    "claim": "CSV export missing on Mobile app",
+                    "sub_question": "Q1",
+                    "source_title": "Forum post",
+                    "source_url": "https://forum.example/1",
+                    "source_type": "community",
+                    "date_published": "2026-01-01T00:00:00Z",
+                    "date_accessed": "2026-05-01T00:00:00Z",
+                    "evidence": "Reported missing on mobile UI.",
+                    "contradiction": "possible",
+                    "record_type": "claim",
+                    "speaker_identity": "pseudonymous",
+                },
+                {
+                    "claim_id": "C02",
+                    "claim": "CSV export works cleanly on Desktop CLI",
+                    "sub_question": "Q1",
+                    "source_title": "Official Docs",
+                    "source_url": "https://docs.example/csv",
+                    "source_type": "official",
+                    "date_published": "2026-03-01T00:00:00Z",
+                    "date_accessed": "2026-05-01T00:00:00Z",
+                    "evidence": "CLI and Desktop documented.",
+                    "contradiction": "possible",
+                    "record_type": "claim",
+                    "speaker_identity": "official",
+                },
+            ])
+        rep = reconciler.reconcile_from_ledger(ledger)
+        assert rep.total_discrepancies == 1 and rep.resolved_count == 1
+        assert rep.pairs[0].discrepancy_kind == "scope_refinement"
+
     print("reconciliation self-test ok")
     return 0
 
@@ -508,8 +684,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="DRS-1.1 Reconciliation Engine")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_rec = sub.add_parser("reconcile", help="Reconcile discrepancy fixtures")
-    p_rec.add_argument("--fixtures", required=True, help="Path to correction pairs fixtures JSON")
+    p_rec = sub.add_parser("reconcile", help="Reconcile discrepancy fixtures or an evidence ledger CSV")
+    p_rec.add_argument("--fixtures", default="", help="Path to correction pairs fixtures JSON")
+    p_rec.add_argument("--ledger", default="", help="Path to evidence-ledger.csv for automatic cross-branch reconciliation")
     p_rec.add_argument("--out", default="", help="Optional output JSON path")
     sub.add_parser("self-test", help="Run reconciliation self-tests")
 
@@ -520,7 +697,13 @@ def main() -> int:
 
     if args.cmd == "reconcile":
         reconciler = CrossBranchReconciler()
-        report = reconciler.reconcile_from_fixtures(Path(args.fixtures))
+        if args.ledger:
+            report = reconciler.reconcile_from_ledger(Path(args.ledger))
+        elif args.fixtures:
+            report = reconciler.reconcile_from_fixtures(Path(args.fixtures))
+        else:
+            print("error: provide --fixtures <json> or --ledger <csv>", file=sys.stderr)
+            return 2
         output_json = json.dumps(report.to_dict(), indent=2, ensure_ascii=False)
         if args.out:
             Path(args.out).write_text(output_json, encoding="utf-8")

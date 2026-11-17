@@ -37,6 +37,7 @@ import json
 import re
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 
 
@@ -47,7 +48,11 @@ _CAPTURE_STOPWORDS = frozenset({
     "who", "how", "why", "use", "using", "used", "also", "other", "such",
     "của", "và", "các", "những", "trong", "cho", "với", "được", "không", "một",
     "này", "khi", "như", "từ", "về", "để", "tại", "theo", "trên", "nên",
+    "cũng", "đang", "đã", "sẽ", "rất", "nhiều", "hơn", "nhất", "chỉ", "phải",
+    "nếu", "thì", "nhưng", "hoặc", "hay", "bởi", "do", "vì", "qua", "lại",
+    "ra", "vào", "là", "có", "bị", "vẫn", "đều", "nào", "đó", "đây",
 })
+_VI_SHORT_SYLLABLES = frozenset({"y", "ô", "an", "ưu", "ảo", "đa"})
 
 
 def _read_input(path: str | None) -> str:
@@ -130,6 +135,17 @@ def _render_text(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _is_valid_bigram_token(tok: str) -> bool:
+    if not tok or tok in _CAPTURE_STOPWORDS:
+        return False
+    if len(tok) >= 3:
+        return True
+    has_non_ascii = any(ord(ch) > 127 for ch in tok)
+    if has_non_ascii and (len(tok) >= 2 or tok in _VI_SHORT_SYLLABLES):
+        return True
+    return tok in _VI_SHORT_SYLLABLES
+
+
 def _extract_capture_terms(text: str) -> list[str]:
     """Extract deterministic candidate bigrams, hyphenated compounds, and acronyms from text."""
     seen: list[str] = []
@@ -141,12 +157,13 @@ def _extract_capture_terms(text: str) -> list[str]:
             seen_lower.add(key)
             seen.append(term)
 
-    for acro in re.findall(r"\b[A-Z][A-Z0-9-]{2,}\b", text):
+    normalized_text = unicodedata.normalize("NFC", text)
+    for acro in re.findall(r"\b[A-Z][A-Z0-9-]{2,}\b", normalized_text):
         _add(acro)
 
     tokens = [
         tok
-        for tok in re.findall(r"[0-9A-Za-zÀ-ỹ_-]{2,}", text)
+        for tok in re.findall(r"[^\W_]+(?:-[^\W_]+)*", normalized_text, flags=re.UNICODE)
         if not tok.isdigit()
     ]
     for tok in tokens:
@@ -156,9 +173,9 @@ def _extract_capture_terms(text: str) -> list[str]:
     for idx in range(len(tokens) - 1):
         w1 = tokens[idx].lower()
         w2 = tokens[idx + 1].lower()
-        if len(w1) < 3 or len(w2) < 3:
+        if not (_is_valid_bigram_token(w1) and _is_valid_bigram_token(w2)):
             continue
-        if w1 in _CAPTURE_STOPWORDS or w2 in _CAPTURE_STOPWORDS:
+        if not any(ord(ch) > 127 for ch in (w1 + w2)) and (len(w1) < 3 or len(w2) < 3) and (len(w1) + len(w2) < 5):
             continue
         _add(f"{w1} {w2}")
     return seen
@@ -308,6 +325,29 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         confirmed_lower = {t.lower() for t in cap_res["confirmed"]}
         if "brain fog" not in confirmed_lower:
             errors.append(f"harvest_from_captures missed recurring bigram: {cap_res['confirmed']}")
+
+        # Vietnamese 1-2 character syllable bigrams
+        (ws / "captures" / "vi1.txt").write_text(
+            "Áp lực tỷ giá và nợ xấu tăng cùng chi phí dự trữ, y tế, ô nhiễm và độ trễ truyền dẫn.\n",
+            encoding="utf-8",
+        )
+        (ws / "captures" / "vi2.txt").write_text(
+            "Báo cáo tỷ giá, nợ xấu, dự trữ ngoại hối, y tế công cộng, ô nhiễm và độ trễ chính sách.\n",
+            encoding="utf-8",
+        )
+        vi_cap = ws / "vi-capture-records.json"
+        vi_cap.write_text(
+            json.dumps([
+                {"capture_id": "v1", "source_id": "vn-a", "raw_text_ref": "captures/vi1.txt"},
+                {"capture_id": "v2", "source_id": "vn-b", "raw_text_ref": "captures/vi2.txt"},
+            ]),
+            encoding="utf-8",
+        )
+        vi_res = harvest_from_captures(vi_cap, workspace_dir=ws, threshold=2)
+        vi_confirmed = {t.lower() for t in vi_res["confirmed"]}
+        for expected_vi in ("tỷ giá", "nợ xấu", "dự trữ", "y tế", "ô nhiễm", "độ trễ"):
+            if expected_vi not in vi_confirmed:
+                errors.append(f"missed Vietnamese bigram {expected_vi!r}: {sorted(vi_confirmed)}")
 
     if errors:
         print("harvest_terms self-test FAILED:", file=sys.stderr)

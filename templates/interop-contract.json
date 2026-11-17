@@ -1,6 +1,6 @@
 {
   "contract_version": "1.0.0",
-  "package_version": "3.7.0",
+  "package_version": "3.8.0-rc.1",
   "ledger": {
     "header_sizes": [
       14,
@@ -50,18 +50,26 @@
   ],
   "entrypoints": [
     "scripts/api_fetch.mjs",
+    "scripts/browser_interaction.mjs",
     "scripts/build_release_artifacts.py",
     "scripts/check_contract.py",
+    "scripts/embed_corpus.py",
     "scripts/evidence_ledger.py",
+    "scripts/execution_evidence.py",
+    "scripts/harvest_terms.py",
     "scripts/investigation_policy.py",
+    "scripts/lineage_tracker.py",
     "scripts/playwright_crawl.mjs",
     "scripts/playwright_extract.mjs",
     "scripts/playwright_probe.mjs",
+    "scripts/reconciliation.py",
     "scripts/release_verify.py",
     "scripts/report_render.py",
+    "scripts/research_controller.py",
     "scripts/research_plan.py",
     "scripts/run_dogfood.py",
     "scripts/social_snapshot.py",
+    "scripts/source_grounding.py",
     "scripts/web_search.mjs"
   ],
   "artifact_profiles": [

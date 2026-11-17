@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.8.0-rc.1] - 2026-11-18
+
+Release candidate for **D Research 3.8.0** — Open-Scholarly & Community
+Federated Search, Vietnamese & Multilingual Term Harvesting, Ledger-Native
+Reconciliation, Automated Lineage Inference, Paraphrase-Aware Grounding CLI, and
+Hybrid BM25+Semantic Corpus Retrieval.
+
+- Freeze `docs/release-v3.8.0.md` and `docs/release-v3.8.0-rc.1.md` inside the
+  candidate package inventory before stable promotion.
+- Add SSRF-guarded zero-key `openalex`, `crossref`, bilingual `wikipedia`
+  (`EN`/`VI`), and `hn-algolia` providers plus balanced round-robin
+  `--federated` diversity merging in `scripts/web_search.mjs`.
+- Fix Vietnamese 1-2 character syllable bigrams (`tỷ giá`, `nợ xấu`, `dự trữ`,
+  `y tế`, `ô nhiễm`, `độ trễ`) and expand bilingual stopwords/Unicode
+  tokenization in `scripts/harvest_terms.py`.
+- Add `reconcile_from_ledger()` and `--ledger <csv>` CLI support in
+  `scripts/reconciliation.py` to detect and resolve cross-branch
+  contradictions directly from CSV evidence ledgers (`E03`-`E06`).
+- Add `analyze_ledger()` and `analyze-ledger` CLI workflow in
+  `scripts/lineage_tracker.py` for automated domain-cluster, mirror, and
+  shared-quote syndication detection.
+- Add paraphrase-aware n-gram/numeric/negation grounding
+  (`assess_paraphrase_grounding`, `audit_ledger_grounding`) and `check` /
+  `audit-ledger` CLI commands in `scripts/source_grounding.py`.
+- Add hybrid BM25 lexical + dense cosine + numeric/acronym scoring
+  (`--hybrid-alpha`) in `scripts/embed_corpus.py`.
+- Expose all upgraded workflow scripts in `templates/route-manifest.json`
+  `cli_contracts` and `templates/interop-contract.json` `entrypoints` for
+  downstream dispatch by **Aleph Skill v2.9.0**.
+
+See [release notes](docs/release-v3.8.0-rc.1.md).
+
 ## [3.7.0] - 2026-11-14
 
 Official stable release of flexible 3-tier Browser-First routing, DRS-1.1
@@ -1557,7 +1589,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.7.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.8.0-rc.1...HEAD
+[3.8.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.8.0-rc.1
 [3.7.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.7.0
 [3.7.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.7.0-rc.1
 [3.6.0-rc.2]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.6.0-rc.2

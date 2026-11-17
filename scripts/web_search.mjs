@@ -718,6 +718,217 @@ export async function searchGoogleCSE(query, limit, overrides = requestOverrides
     }));
 }
 
+function stripHtmlTags(raw) {
+  return String(raw ?? '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function reconstructInvertedAbstract(invertedIndex, maxChars = 240) {
+  if (!invertedIndex || typeof invertedIndex !== 'object' || Array.isArray(invertedIndex)) {
+    return '';
+  }
+  const positions = [];
+  for (const [token, idxs] of Object.entries(invertedIndex)) {
+    if (!Array.isArray(idxs)) continue;
+    for (const pos of idxs) {
+      if (Number.isInteger(pos) && pos >= 0 && pos < 2000) {
+        positions.push([pos, token]);
+      }
+    }
+  }
+  if (positions.length === 0) return '';
+  positions.sort((a, b) => a[0] - b[0]);
+  const text = positions.map(pair => pair[1]).join(' ').trim();
+  return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
+}
+
+async function fetchJsonProvider(provider, url, overrides) {
+  const limits = activeLimits(overrides);
+  let response;
+  try {
+    response = await fetchWithManualRedirects(url, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'application/json',
+      },
+    }, limits.timeoutMs);
+  } catch (err) {
+    if (err instanceof ResourceLimitError) throw err;
+    throw new SearchProviderError(`${provider} network error: ${err.message}`, 'provider_error', {
+      provider,
+    });
+  }
+
+  const status = response.status;
+  if (status === 429) {
+    const retryAfter = response.headers?.get?.('retry-after') || null;
+    throw new SearchProviderError(`HTTP 429: Rate limited${retryAfter ? ` (Retry-After: ${retryAfter})` : ''}`, 'blocked', {
+      provider,
+      httpStatus: 429,
+      retryAfter,
+    });
+  }
+  if (status === 403 || status === 401) {
+    throw new SearchProviderError(`HTTP ${status}: Forbidden`, 'blocked', {
+      provider,
+      httpStatus: status,
+    });
+  }
+  if (!response.ok) {
+    throw new SearchProviderError(`HTTP ${status}: ${response.statusText || 'request failed'}`, 'provider_error', {
+      provider,
+      httpStatus: status,
+    });
+  }
+
+  const text = await readResponseTextBounded(response, limits.maxBytes);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new SearchProviderError(`Invalid JSON response: ${error.message}`, 'provider_error', {
+      provider,
+    });
+  }
+}
+
+export async function searchOpenAlex(query, limit, overrides = requestOverrides) {
+  const perPage = Math.min(Math.max(1, limit), 25);
+  const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=${perPage}`;
+  const data = await fetchJsonProvider('openalex', url, overrides);
+  if (!data || !Array.isArray(data.results)) {
+    throw new SearchProviderError('Unexpected response format: missing OpenAlex results array', 'provider_error', {
+      provider: 'openalex',
+    });
+  }
+  const nowIso = new Date().toISOString();
+  const mapped = [];
+  for (const work of data.results) {
+    if (!work || typeof work !== 'object') continue;
+    const rawDoi = typeof work.doi === 'string' ? work.doi.trim() : '';
+    const doiUrl = rawDoi ? (rawDoi.startsWith('http') ? rawDoi : `https://doi.org/${rawDoi}`) : '';
+    const candidateUrl = work.primary_location?.landing_page_url || doiUrl || work.id || '';
+    if (!isValidResultUrl(candidateUrl)) continue;
+    const abstractText = reconstructInvertedAbstract(work.abstract_inverted_index);
+    const venue = work.primary_location?.source?.display_name || '';
+    const year = work.publication_year ? String(work.publication_year) : '';
+    const metaSnippet = [venue, year, work.cited_by_count != null ? `cited by ${work.cited_by_count}` : ''].filter(Boolean).join(' · ');
+    mapped.push({
+      title: String(work.display_name || work.title || '').trim(),
+      url: candidateUrl,
+      snippet: abstractText || metaSnippet,
+      provider: 'openalex',
+      source_engine: 'openalex',
+      retrieved_at: nowIso,
+    });
+    if (mapped.length >= limit) break;
+  }
+  return mapped;
+}
+
+export async function searchCrossref(query, limit, overrides = requestOverrides) {
+  const rows = Math.min(Math.max(1, limit), 20);
+  const url = `https://api.crossref.org/works?query=${encodeURIComponent(query)}&rows=${rows}`;
+  const data = await fetchJsonProvider('crossref', url, overrides);
+  const items = data?.message?.items;
+  if (!Array.isArray(items)) {
+    throw new SearchProviderError('Unexpected response format: missing Crossref message.items array', 'provider_error', {
+      provider: 'crossref',
+    });
+  }
+  const nowIso = new Date().toISOString();
+  const mapped = [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const candidateUrl = isValidResultUrl(item.URL)
+      ? item.URL
+      : (item.DOI ? `https://doi.org/${encodeURI(String(item.DOI).trim())}` : '');
+    if (!isValidResultUrl(candidateUrl)) continue;
+    const title = Array.isArray(item.title) ? String(item.title[0] || '').trim() : String(item.title || '').trim();
+    if (!title) continue;
+    const journal = Array.isArray(item['container-title']) ? String(item['container-title'][0] || '').trim() : '';
+    const year = item.published?.['date-parts']?.[0]?.[0] || item['published-print']?.['date-parts']?.[0]?.[0] || '';
+    const abs = item.abstract ? stripHtmlTags(item.abstract).slice(0, 220) : '';
+    const snippet = abs || [journal, year ? String(year) : ''].filter(Boolean).join(' · ');
+    mapped.push({
+      title,
+      url: candidateUrl,
+      snippet,
+      provider: 'crossref',
+      source_engine: 'crossref',
+      retrieved_at: nowIso,
+    });
+    if (mapped.length >= limit) break;
+  }
+  return mapped;
+}
+
+export async function searchWikipedia(query, limit, overrides = requestOverrides) {
+  const srlimit = Math.min(Math.max(1, limit), 20);
+  const lang = /[À-ỹđĐ]/u.test(String(query || '')) ? 'vi' : 'en';
+  const url = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&utf8=1&format=json&srlimit=${srlimit}&srsearch=${encodeURIComponent(query)}`;
+  const data = await fetchJsonProvider('wikipedia', url, overrides);
+  const hits = data?.query?.search;
+  if (!Array.isArray(hits)) {
+    throw new SearchProviderError('Unexpected response format: missing Wikipedia query.search array', 'provider_error', {
+      provider: 'wikipedia',
+    });
+  }
+  const nowIso = new Date().toISOString();
+  return hits
+    .slice(0, limit)
+    .map(hit => {
+      const title = String(hit.title || '').trim();
+      const articleUrl = `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
+      return {
+        title,
+        url: articleUrl,
+        snippet: stripHtmlTags(hit.snippet || ''),
+        provider: 'wikipedia',
+        source_engine: 'wikipedia',
+        retrieved_at: nowIso,
+      };
+    })
+    .filter(item => item.title && isValidResultUrl(item.url));
+}
+
+export async function searchHackerNews(query, limit, overrides = requestOverrides) {
+  const hitsPerPage = Math.min(Math.max(1, limit), 20);
+  const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&hitsPerPage=${hitsPerPage}`;
+  const data = await fetchJsonProvider('hn-algolia', url, overrides);
+  if (!data || !Array.isArray(data.hits)) {
+    throw new SearchProviderError('Unexpected response format: missing HN Algolia hits array', 'provider_error', {
+      provider: 'hn-algolia',
+    });
+  }
+  const nowIso = new Date().toISOString();
+  return data.hits
+    .map(hit => {
+      const fallbackUrl = hit.objectID ? `https://news.ycombinator.com/item?id=${encodeURIComponent(String(hit.objectID))}` : '';
+      const candidateUrl = isValidResultUrl(hit.url) ? hit.url : fallbackUrl;
+      const title = String(hit.title || hit.story_title || '').trim();
+      const snippet = hit.comment_text
+        ? stripHtmlTags(hit.comment_text).slice(0, 220)
+        : `Hacker News (${hit.points ?? 0} points, ${hit.num_comments ?? 0} comments)`;
+      return {
+        title,
+        url: candidateUrl,
+        snippet,
+        provider: 'hn-algolia',
+        source_engine: 'hn-algolia',
+        retrieved_at: nowIso,
+      };
+    })
+    .filter(item => item.title && isValidResultUrl(item.url))
+    .slice(0, limit);
+}
+
 function canonicalizeResultUrl(rawUrl) {
   try {
     const parsed = new URL(String(rawUrl));
@@ -784,6 +995,18 @@ export class SearchGateway {
           case 'google-cse':
             items = await searchGoogleCSE(query, limit, this.overrides);
             break;
+          case 'openalex':
+            items = await searchOpenAlex(query, limit, this.overrides);
+            break;
+          case 'crossref':
+            items = await searchCrossref(query, limit, this.overrides);
+            break;
+          case 'wikipedia':
+            items = await searchWikipedia(query, limit, this.overrides);
+            break;
+          case 'hn-algolia':
+            items = await searchHackerNews(query, limit, this.overrides);
+            break;
           case 'host': {
             if (!hostResultsPath) throw new SearchProviderError('--host-results path required for host engine', 'provider_error', { provider: 'host' });
             const hostArtifact = loadHostResultsArtifact(hostResultsPath, query, this.overrides.maxResponseBytes);
@@ -797,7 +1020,7 @@ export class SearchGateway {
             break;
           }
           default:
-            throw new Error(`Unknown engine "${engine}". Valid: duckduckgo, searxng, brave, google-cse, host`);
+            throw new Error(`Unknown engine "${engine}". Valid: duckduckgo, searxng, brave, google-cse, host, openalex, crossref, wikipedia, hn-algolia`);
         }
         finalResults = items;
         finalStatus = items.length > 0 ? 'success' : 'no_results';
@@ -826,7 +1049,7 @@ export class SearchGateway {
       }
     } else {
       // 2. Multi-tier Provider Chain
-      // Order: Host results -> Brave -> Google CSE -> Configured SearXNG -> DuckDuckGo -> Default SearXNG
+      // Order: Host -> Brave -> Google CSE -> Configured SearXNG -> DuckDuckGo -> Default SearXNG -> OpenAlex/Wikipedia/Crossref/HN
       const chain = [];
       if (gateway !== 'direct' && (hostResultsPath || process.env.D_RESEARCH_HOST_SEARCH_FILE)) {
         chain.push({
@@ -856,9 +1079,13 @@ export class SearchGateway {
       if (!process.env.SEARXNG_INSTANCE) {
         chain.push({ name: 'searxng', run: () => searchSearXNG(query, limit, this.overrides) });
       }
+      chain.push({ name: 'wikipedia', run: () => searchWikipedia(query, limit, this.overrides) });
+      chain.push({ name: 'openalex', run: () => searchOpenAlex(query, limit, this.overrides) });
+      chain.push({ name: 'crossref', run: () => searchCrossref(query, limit, this.overrides) });
+      chain.push({ name: 'hn-algolia', run: () => searchHackerNews(query, limit, this.overrides) });
 
       const federatedSeen = new Set();
-      const federatedItems = [];
+      const federatedBuckets = [];
       let sawEmptySuccess = false;
 
       for (const provider of chain) {
@@ -877,17 +1104,20 @@ export class SearchGateway {
             });
             if (federated) {
               if (items.length > 0) {
+                const bucket = [];
                 for (const item of items) {
                   const key = canonicalizeResultUrl(item.url);
                   if (!key || federatedSeen.has(key)) continue;
                   federatedSeen.add(key);
-                  federatedItems.push({
+                  bucket.push({
                     ...item,
                     source_engine: item.source_engine || item.provider || provider.name,
                   });
                 }
-                finalResults = federatedItems.slice(0, limit);
-                finalStatus = 'success';
+                if (bucket.length > 0) {
+                  federatedBuckets.push(bucket);
+                  finalStatus = 'success';
+                }
               } else {
                 sawEmptySuccess = true;
               }
@@ -935,9 +1165,28 @@ export class SearchGateway {
           break;
         }
       }
-      if (federated && federatedItems.length === 0 && sawEmptySuccess && finalResults === null) {
-        finalResults = [];
-        finalStatus = 'no_results';
+      if (federated) {
+        const merged = [];
+        let cursor = 0;
+        while (merged.length < limit) {
+          let progressed = false;
+          for (const bucket of federatedBuckets) {
+            if (cursor < bucket.length) {
+              merged.push(bucket[cursor]);
+              progressed = true;
+              if (merged.length >= limit) break;
+            }
+          }
+          if (!progressed) break;
+          cursor++;
+        }
+        if (merged.length > 0) {
+          finalResults = merged;
+          finalStatus = 'success';
+        } else if (sawEmptySuccess && finalResults === null) {
+          finalResults = [];
+          finalStatus = 'no_results';
+        }
       }
     }
 
@@ -997,8 +1246,8 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--engine' && i + 1 < argv.length) {
       const eng = argv[++i].toLowerCase().trim();
-      if (!['duckduckgo', 'searxng', 'brave', 'google-cse', 'host'].includes(eng)) {
-        throw new Error(`Invalid --engine: ${eng}. Must be one of duckduckgo, searxng, brave, google-cse, host.`);
+      if (!['duckduckgo', 'searxng', 'brave', 'google-cse', 'host', 'openalex', 'crossref', 'wikipedia', 'hn-algolia'].includes(eng)) {
+        throw new Error(`Invalid --engine: ${eng}. Must be one of duckduckgo, searxng, brave, google-cse, host, openalex, crossref, wikipedia, hn-algolia.`);
       }
       args.engine = eng;
     } else if ((arg === '--search-gateway' || arg === '--gateway') && i + 1 < argv.length) {
@@ -1657,6 +1906,82 @@ export async function runSelfTest() {
     console.error(`  FAIL: Test 13 threw: ${err.message}`);
   }
 
+  // Regression 14: Open-scholarly & community providers (OpenAlex, Crossref, Wikipedia EN/VI, HN Algolia)
+  console.log('  Test 14: Open-scholarly & community providers + federated diversity');
+  setSearchTestResponse(async (url) => {
+    const s = String(url);
+    if (s.includes('api.openalex.org')) {
+      return {
+        ok: true, status: 200, statusText: 'OK', headers: { get: () => null },
+        text: async () => JSON.stringify({
+          results: [{
+            id: 'https://openalex.org/W123',
+            display_name: 'Causal Macro Simulation',
+            doi: 'https://doi.org/10.1000/oa1',
+            publication_year: 2025,
+            cited_by_count: 14,
+            abstract_inverted_index: { Causal: [0], macro: [1], evidence: [2] },
+          }],
+        }),
+      };
+    }
+    if (s.includes('api.crossref.org')) {
+      return {
+        ok: true, status: 200, statusText: 'OK', headers: { get: () => null },
+        text: async () => JSON.stringify({
+          message: {
+            items: [{
+              DOI: '10.1000/cr1',
+              URL: 'https://doi.org/10.1000/cr1',
+              title: ['Crossref Empirical Study'],
+              'container-title': ['Journal of Evidence'],
+              published: { 'date-parts': [[2024]] },
+            }],
+          },
+        }),
+      };
+    }
+    if (s.includes('wikipedia.org/w/api.php')) {
+      const prefix = s.includes('vi.wikipedia.org') ? 'VI' : 'EN';
+      return {
+        ok: true, status: 200, statusText: 'OK', headers: { get: () => null },
+        text: async () => JSON.stringify({
+          query: { search: [{ title: `${prefix} Macro Policy`, snippet: '<span class="searchmatch">Policy</span> summary' }] },
+        }),
+      };
+    }
+    if (s.includes('hn.algolia.com')) {
+      return {
+        ok: true, status: 200, statusText: 'OK', headers: { get: () => null },
+        text: async () => JSON.stringify({
+          hits: [{ objectID: '9988', title: 'Practitioner discussion on inflation', url: 'https://news.ycombinator.com/item?id=9988', points: 42, num_comments: 15 }],
+        }),
+      };
+    }
+    return { ok: false, status: 503, statusText: 'Unavailable', headers: { get: () => null }, text: async () => 'down' };
+  });
+  try {
+    const oa = await searchOpenAlex('causal macro', 5);
+    assert(oa.length === 1 && oa[0].snippet === 'Causal macro evidence', 'OpenAlex inverted abstract reconstructed');
+    const cr = await searchCrossref('empirical', 5);
+    assert(cr.length === 1 && cr[0].url === 'https://doi.org/10.1000/cr1', 'Crossref item mapped');
+    const wikiEn = await searchWikipedia('Macro Policy', 5);
+    assert(wikiEn.length === 1 && wikiEn[0].url.startsWith('https://en.wikipedia.org/wiki/'), 'Wikipedia EN routing');
+    const wikiVi = await searchWikipedia('Lạm phát Việt Nam', 5);
+    assert(wikiVi.length === 1 && wikiVi[0].url.startsWith('https://vi.wikipedia.org/wiki/'), 'Wikipedia VI routing');
+    const hn = await searchHackerNews('inflation', 5);
+    assert(hn.length === 1 && hn[0].source_engine === 'hn-algolia', 'HN Algolia hit mapped');
+    const gw = new SearchGateway();
+    const fedRes = await gw.execute({ query: 'macro evidence', limit: 4, federated: true });
+    assert(fedRes.exitCode === 0, 'federated succeeds even when DDG & SearXNG return 503');
+    const engines = new Set(fedRes.legacy.map(r => r.source_engine));
+    assert(engines.has('openalex') && engines.has('wikipedia') && engines.has('crossref') && engines.has('hn-algolia'),
+      `federated collected all 4 open providers: ${[...engines].join(',')}`);
+  } catch (err) {
+    failed++;
+    console.error(`  FAIL: Test 14 threw: ${err.message}`);
+  }
+
   } finally {
     // Explicit test transport hooks and environment never survive this runner.
     setSearchTestResponse(null);
@@ -1690,7 +2015,7 @@ async function main() {
 
   if (!args.query && !args.hostResults) {
     console.error('Error: --query or --host-results is required');
-    console.error('Usage: web_search.mjs --query "<q>" [--engine duckduckgo|searxng|brave|google-cse|host] [--federated] [--limit N] [--format legacy|envelope] [--host-results <path>] [--out <file>]');
+    console.error('Usage: web_search.mjs --query "<q>" [--engine duckduckgo|searxng|brave|google-cse|host|openalex|crossref|wikipedia|hn-algolia] [--federated] [--limit N] [--format legacy|envelope] [--host-results <path>] [--out <file>]');
     console.error('       web_search.mjs --self-test');
     process.exit(1);
   }

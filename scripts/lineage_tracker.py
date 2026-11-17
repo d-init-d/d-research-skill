@@ -10,13 +10,38 @@ and negation/refutation context preservation.
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
 import json
 import re
 import sys
+import tempfile
 import unicodedata
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
+
+try:
+    from dedup_near import hamming_distance, simhash
+except ImportError:
+    def simhash(text: str) -> int:
+        tokens = re.findall(r"\w+", text.lower())
+        if not tokens:
+            return 0
+        vec = [0] * 64
+        for token in tokens:
+            digest = int(hashlib.md5(token.encode("utf-8")).hexdigest(), 16)
+            for idx in range(64):
+                vec[idx] += 1 if (digest >> idx) & 1 else -1
+        fp = 0
+        for idx in range(64):
+            if vec[idx] > 0:
+                fp |= 1 << idx
+        return fp
+
+    def hamming_distance(a: int, b: int) -> int:
+        return bin(a ^ b).count("1")
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +219,138 @@ class LineageTracker:
             )
 
         return self.get_summary()
+
+    @staticmethod
+    def _canonical_url(url: str) -> str:
+        raw = unicodedata.normalize("NFC", (url or "").strip())
+        if not raw:
+            return ""
+        parsed = urlparse(raw)
+        if not parsed.scheme or not parsed.netloc:
+            return raw
+        path = parsed.path.rstrip("/") or "/"
+        return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), path, "", parsed.query, ""))
+
+    def analyze_ledger(
+        self,
+        ledger_path: Path,
+        captures_path: Path | None = None,
+    ) -> Dict[str, Any]:
+        """Infer origin-derivative lineage across an evidence-ledger CSV and optional capture records."""
+        capture_by_url: Dict[str, Dict[str, Any]] = {}
+        if captures_path and captures_path.is_file():
+            raw_caps = json.loads(captures_path.read_text(encoding="utf-8"))
+            cap_list = raw_caps if isinstance(raw_caps, list) else (raw_caps.get("records") or raw_caps.get("captures") or [])
+            for rec in cap_list:
+                if isinstance(rec, dict):
+                    for key in ("final_url", "source_url"):
+                        cu = self._canonical_url(str(rec.get(key) or ""))
+                        if cu:
+                            capture_by_url[cu] = rec
+
+        with open(ledger_path, "r", encoding="utf-8", newline="") as f:
+            raw_rows = list(csv.DictReader(f))
+
+        rows = [
+            {k: (v or "").strip() for k, v in r.items() if k is not None}
+            for r in raw_rows
+            if (r.get("record_type") or "").strip().lower() in {"", "claim", "lead"}
+            and (r.get("claim_id") or "").strip()
+        ]
+        # Prefer earliest published/accessed and primary/official sources as root origins
+        doc_rank = {"primary": 0, "official": 0, "dataset": 1, "paper": 1, "filing": 1, "code": 1}
+        rows.sort(
+            key=lambda r: (
+                r.get("date_published") or r.get("date_accessed") or "9999",
+                doc_rank.get((r.get("source_type") or "").lower(), 2),
+                r["claim_id"],
+            )
+        )
+
+        by_lineage_id: Dict[str, str] = {}
+        by_hash: Dict[str, str] = {}
+        by_url: Dict[str, str] = {}
+        origin_fingerprints: List[Tuple[str, int]] = []
+        assessor = UnifiedClaimAssessor()
+        assessments: List[Dict[str, Any]] = []
+
+        for row in rows:
+            cid = row["claim_id"]
+            src_url = self._canonical_url(row.get("source_url", ""))
+            arch_url = self._canonical_url(row.get("archive_url", ""))
+            cap = capture_by_url.get(src_url) or {}
+            c_hash = row.get("content_hash") or str(cap.get("content_hash") or "")
+            lin_id = row.get("lineage_id", "")
+            body = f"{row.get('claim', '')} {row.get('evidence', '')} {row.get('quote_or_anchor', '')}".strip()
+            fp = simhash(body)
+
+            matched_origin: str | None = None
+            relationship = "original"
+            if lin_id and lin_id in by_lineage_id:
+                matched_origin = by_lineage_id[lin_id]
+                relationship = "repost_summary"
+            elif c_hash and c_hash in by_hash:
+                matched_origin = by_hash[c_hash]
+                relationship = "repost_summary"
+            elif src_url and src_url in by_url:
+                matched_origin = by_url[src_url]
+                relationship = "cross_link"
+            elif arch_url and arch_url in by_url:
+                matched_origin = by_url[arch_url]
+                relationship = "cross_link"
+            else:
+                for orig_id, orig_fp in origin_fingerprints:
+                    if fp and orig_fp and hamming_distance(fp, orig_fp) <= 8:
+                        matched_origin = orig_id
+                        relationship = "rephrase"
+                        break
+
+            is_origin = matched_origin is None
+            origin_id = f"ORIGIN-{cid}" if is_origin else matched_origin
+            assert origin_id is not None
+
+            if is_origin:
+                if lin_id:
+                    by_lineage_id[lin_id] = origin_id
+                if c_hash:
+                    by_hash[c_hash] = origin_id
+                if src_url:
+                    by_url[src_url] = origin_id
+                if arch_url:
+                    by_url[arch_url] = origin_id
+                if fp:
+                    origin_fingerprints.append((origin_id, fp))
+
+            self.add_source(
+                source_id=cid,
+                origin_id=origin_id,
+                platform=row.get("source_type") or "unknown",
+                author=row.get("speaker_identity") or row.get("source_title") or "unknown",
+                is_origin=is_origin,
+                relationship=relationship,
+                independent_confirmation=is_origin,
+                url=row.get("source_url", ""),
+                content_hash=c_hash,
+            )
+
+            assessment = assessor.assess_claim(
+                claim_id=cid,
+                claim_text=row.get("claim", ""),
+                claim_kind="firsthand_account" if row.get("speaker_relationship") == "firsthand" else "underlying_fact",
+                speaker_identity=row.get("speaker_identity") or "unknown",
+                speaker_relationship=row.get("speaker_relationship") or "unknown",
+                content_origin=row.get("content_origin") or ("original" if is_origin else "repost"),
+                independent_origins=1,
+                integrity_status=row.get("snapshot_status") or "live_intact",
+                data_sensitivity=row.get("data_sensitivity") or "public",
+            )
+            assessments.append(assessment.to_dict())
+
+        summary = self.get_summary()
+        return {
+            "lineage_summary": summary.to_dict(),
+            "assessments": assessments,
+        }
 
     def get_summary(self) -> LineageSummary:
         """Calculates true independent origin count vs derivative repost count."""
@@ -411,7 +568,70 @@ def main() -> int:
         help="JSON array of claim evidence records bound to activity/capture IDs and hashes",
     )
 
+    p_analyze = sub.add_parser("analyze-ledger", help="Infer lineage trees directly from an evidence-ledger CSV")
+    p_analyze.add_argument("--ledger", required=True, help="Path to evidence-ledger.csv")
+    p_analyze.add_argument("--captures", default="", help="Optional capture-records.json path")
+    p_analyze.add_argument("--out", default="", help="Optional output JSON path")
+
+    sub.add_parser("self-test", help="Run offline lineage_tracker self-tests")
+
     args = parser.parse_args()
+
+    if args.cmd == "self-test":
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.csv"
+            with open(ledger, "w", encoding="utf-8", newline="") as f:
+                w = csv.DictWriter(
+                    f,
+                    fieldnames=[
+                        "claim_id", "claim", "source_title", "source_url", "source_type",
+                        "date_published", "evidence", "content_hash", "record_type", "lineage_id",
+                    ],
+                )
+                w.writeheader()
+                w.writerows([
+                    {
+                        "claim_id": "C1", "claim": "Central bank raised policy rate by 25 bps in September",
+                        "source_title": "Primary Press Release", "source_url": "https://fed.example/r1",
+                        "source_type": "official", "date_published": "2026-09-16",
+                        "evidence": "Target range raised 25 bps.", "content_hash": "sha256:" + "1" * 64,
+                        "record_type": "claim", "lineage_id": "LIN-1",
+                    },
+                    {
+                        "claim_id": "C2", "claim": "Repost: Central bank raised policy rate by 25 bps in September",
+                        "source_title": "Forum repost", "source_url": "https://forum.example/p2",
+                        "source_type": "community", "date_published": "2026-09-17",
+                        "evidence": "Target range raised 25 bps.", "content_hash": "sha256:" + "1" * 64,
+                        "record_type": "claim", "lineage_id": "",
+                    },
+                    {
+                        "claim_id": "C3", "claim": "Brent crude reached 117 dollars amid maritime chokepoint closure",
+                        "source_title": "Market Feed", "source_url": "https://oil.example/b3",
+                        "source_type": "dataset", "date_published": "2026-04-15",
+                        "evidence": "Monthly Brent benchmark 117.29.", "content_hash": "sha256:" + "2" * 64,
+                        "record_type": "claim", "lineage_id": "",
+                    },
+                ])
+            tracker = LineageTracker()
+            out = tracker.analyze_ledger(ledger)
+            summary = out["lineage_summary"]
+            assert summary["total_sources_observed"] == 3
+            assert summary["total_independent_origins"] == 2
+            assert summary["derivative_source_count"] == 1
+        print("lineage_tracker self-test ok")
+        return 0
+
+    if args.cmd == "analyze-ledger":
+        tracker = LineageTracker()
+        caps = Path(args.captures) if args.captures else None
+        payload = tracker.analyze_ledger(Path(args.ledger), captures_path=caps)
+        rendered = json.dumps(payload, indent=2, ensure_ascii=False)
+        if args.out:
+            Path(args.out).write_text(rendered + "\n", encoding="utf-8")
+            print(f"wrote {args.out}")
+        else:
+            print(rendered)
+        return 0
 
     if args.cmd == "evaluate-lineage":
         with open(args.fixture, "r", encoding="utf-8") as f:

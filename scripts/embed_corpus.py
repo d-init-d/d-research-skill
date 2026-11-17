@@ -563,6 +563,57 @@ def _query_is_blank(query: Any) -> bool:
     return not isinstance(query, str) or not query.strip()
 
 
+def _lexical_tokens(text: str) -> list[str]:
+    norm = unicodedata.normalize("NFKC", text).casefold()
+    return re.findall(r"[^\W_]+(?:-[^\W_]+)*", norm, flags=re.UNICODE)
+
+
+def _bm25_scores(query: str, docs: list[str]) -> list[float]:
+    """Return normalized [0, 1] BM25 + numeric/acronym overlap scores over docs."""
+    q_tokens = _lexical_tokens(query)
+    if not q_tokens or not docs:
+        return [0.0] * len(docs)
+    q_set = set(q_tokens)
+    q_nums = {t for t in q_tokens if any(ch.isdigit() for ch in t)}
+    tokenized_docs = [_lexical_tokens(doc) for doc in docs]
+    n_docs = len(tokenized_docs)
+    avg_dl = sum(len(d) for d in tokenized_docs) / max(1, n_docs) or 1.0
+    df: dict[str, int] = {}
+    for d in tokenized_docs:
+        for tok in set(d) & q_set:
+            df[tok] = df.get(tok, 0) + 1
+
+    raw_scores: list[float] = []
+    k1 = 1.5
+    b = 0.75
+    for d in tokenized_docs:
+        dl = len(d)
+        if dl == 0:
+            raw_scores.append(0.0)
+            continue
+        tf: dict[str, int] = {}
+        for tok in d:
+            if tok in q_set:
+                tf[tok] = tf.get(tok, 0) + 1
+        score = 0.0
+        for tok in q_set:
+            f = tf.get(tok, 0)
+            if f == 0:
+                continue
+            idf = math.log(1.0 + (n_docs - df.get(tok, 0) + 0.5) / (df.get(tok, 0) + 0.5))
+            denom = f + k1 * (1.0 - b + b * (dl / avg_dl))
+            score += idf * ((f * (k1 + 1.0)) / max(1e-9, denom))
+        if q_nums:
+            d_nums = set(d) & q_nums
+            score *= 1.0 + 0.25 * (len(d_nums) / len(q_nums))
+        raw_scores.append(score)
+
+    peak = max(raw_scores) if raw_scores else 0.0
+    if peak <= 0.0:
+        return [0.0] * len(docs)
+    return [min(1.0, s / peak) for s in raw_scores]
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Build embedding index from text files in a directory."""
     in_dir = Path(args.input)
@@ -671,15 +722,23 @@ def cmd_query(args: argparse.Namespace) -> int:
         return 1
     query_vec = query_vecs[0]
 
-    # Score all entries
+    # Score all entries (optionally blended with normalized BM25 lexical score)
+    raw_alpha = getattr(args, "hybrid_alpha", 0.0)
+    alpha = max(0.0, min(1.0, float(0.0 if raw_alpha is None else raw_alpha)))
+    lex_scores = (
+        _bm25_scores(args.q, [str(entry.get("text_preview", "")) for entry in entries])
+        if alpha > 0.0
+        else [0.0] * len(entries)
+    )
     scored: list[tuple[float, dict[str, Any]]] = []
-    for entry in entries:
+    for idx, entry in enumerate(entries):
         try:
             sim = cosine_similarity(query_vec, entry["embedding"])
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 1
-        scored.append((sim, entry))
+        blended = (1.0 - alpha) * sim + alpha * lex_scores[idx] if alpha > 0.0 else sim
+        scored.append((blended, entry))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     k = args.k
@@ -756,6 +815,10 @@ def cmd_query_ledger(args: argparse.Namespace) -> int:
         return 1
     query_vec = query_vecs[0]
 
+    raw_alpha = getattr(args, "hybrid_alpha", 0.0)
+    alpha = max(0.0, min(1.0, float(0.0 if raw_alpha is None else raw_alpha)))
+    lex_scores = _bm25_scores(args.q, texts) if alpha > 0.0 else [0.0] * len(embeddings)
+
     scored: list[tuple[float, int]] = []
     for i, vec in enumerate(embeddings):
         try:
@@ -763,7 +826,8 @@ def cmd_query_ledger(args: argparse.Namespace) -> int:
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 1
-        scored.append((sim, i))
+        blended = (1.0 - alpha) * sim + alpha * lex_scores[i] if alpha > 0.0 else sim
+        scored.append((blended, i))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     k = args.k
@@ -1275,6 +1339,31 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         if rc != 0:
             errors.append("dedupe command failed")
 
+        # Test 16: Hybrid lexical + semantic retrieval on cross-lingual numbers/entities
+        vi_corpus = Path(tmpdir) / "vi_corpus"
+        vi_corpus.mkdir()
+        (vi_corpus / "a.txt").write_text("Lạm phát CPI-U năm 2026 tăng lên 337.476 điểm chỉ số.", encoding="utf-8")
+        (vi_corpus / "b.txt").write_text("Nhiệt độ đại dương mùa hè giữ mức ổn định.", encoding="utf-8")
+        hyb_index = Path(tmpdir) / "hyb_index.jsonl"
+        rc_idx = cmd_index(argparse.Namespace(
+            input=str(vi_corpus), out=str(hyb_index), backend="local-hashing", model="", allow_remote=False,
+        ))
+        if rc_idx != 0:
+            errors.append("hybrid index failed")
+        else:
+            cap_hyb = io.StringIO()
+            with contextlib.redirect_stdout(cap_hyb):
+                rc_q = cmd_query(argparse.Namespace(
+                    index=str(hyb_index), q="CPI-U 2026 inflation 337.476", k=2, out=None,
+                    allow_remote=False, hybrid_alpha=0.35,
+                ))
+            if rc_q != 0:
+                errors.append("hybrid query failed")
+            else:
+                hyb_res = json.loads(cap_hyb.getvalue())
+                if not hyb_res or hyb_res[0]["path"] != "a.txt":
+                    errors.append(f"hybrid query failed to rank matching CPI-U doc first: {hyb_res}")
+
     # Test 13: remote check enforcement
     os.environ.pop("D_RESEARCH_ALLOW_REMOTE_EMBEDDINGS", None)
     if _is_remote_allowed():
@@ -1392,6 +1481,7 @@ def main() -> int:
     q_p.add_argument("--k", type=int, default=10, help="Number of results.")
     q_p.add_argument("--out", default=None, help="Output JSON path.")
     q_p.add_argument("--allow-remote", action="store_true", default=False)
+    q_p.add_argument("--hybrid-alpha", type=float, default=0.0, help="BM25 lexical blend weight in [0.0, 1.0].")
 
     ql_p = sub.add_parser("query-ledger", help="Query evidence-ledger directly.")
     ql_p.add_argument("--ledger", required=True, help="Evidence-ledger CSV.")
@@ -1406,6 +1496,7 @@ def main() -> int:
     )
     ql_p.add_argument("--model", default="", help="Model name.")
     ql_p.add_argument("--allow-remote", action="store_true", default=False)
+    ql_p.add_argument("--hybrid-alpha", type=float, default=0.0, help="BM25 lexical blend weight in [0.0, 1.0].")
 
     dd_p = sub.add_parser("dedupe", help="Find near-duplicate documents.")
     dd_p.add_argument("--index", required=True, help="JSONL index file.")
