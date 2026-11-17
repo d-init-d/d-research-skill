@@ -346,5 +346,5 @@ Commercial use bao gồm nhưng không giới hạn ở: bán lại, phân phố
 phí, đóng gói thành SaaS, đưa lên marketplace, bán kèm agent bundle,
 hoặc nhúng skill này vào sản phẩm/dịch vụ trả phí.
 
-Release: v3.8.0-rc.1. Xem
-[release notes](docs/release-v3.8.0-rc.1.md). (Bản ổn định trước đó: v3.7.0).
+Release: v3.8.0. Xem
+[release notes](docs/release-v3.8.0.md). (Bản ổn định trước đó: v3.7.0).

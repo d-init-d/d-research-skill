@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-11-18
+
+Official stable release of Open-Scholarly & Community Federated Search,
+Vietnamese & Multilingual Term Harvesting, Ledger-Native Cross-Branch
+Reconciliation, Automated Domain & Quote Lineage Inference, Paraphrase-Aware
+Grounding CLI, and Hybrid BM25+Semantic Corpus Retrieval. Promotes the signed
+`v3.8.0-rc.1` candidate snapshot without changing runtime behavior,
+dependencies, or research routes.
+
+- Deliver zero-key SSRF-guarded `openalex`, `crossref`, bilingual `wikipedia`
+  (`EN`/`VI`), and `hn-algolia` providers plus balanced round-robin
+  `--federated` diversity merging (`scripts/web_search.mjs`).
+- Fix Vietnamese 1-2 character syllable bigrams (`tỷ giá`, `nợ xấu`, `dự trữ`,
+  `y tế`, `ô nhiễm`, `độ trễ`) and expand bilingual stopwords
+  (`scripts/harvest_terms.py`).
+- Add direct ledger reconciliation (`reconcile_from_ledger()`, `--ledger`) in
+  `scripts/reconciliation.py`, automated ledger lineage inference
+  (`analyze_ledger()`, `analyze-ledger`) in `scripts/lineage_tracker.py`,
+  paraphrase/numeric/negation grounding CLI in `scripts/source_grounding.py`,
+  and hybrid BM25 + semantic scoring (`--hybrid-alpha`) in
+  `scripts/embed_corpus.py`.
+- Expose all upgraded workflow scripts cleanly in `templates/route-manifest.json`
+  `cli_contracts` and `templates/interop-contract.json` `entrypoints` for
+  downstream orchestration by **Aleph Skill v2.9.0**.
+- Record the owner's scoped promotion decision, CI run evidence, and disclosed
+  waivers (`independent_reviewer`, `live_dogfood`) bound to the signed
+  `v3.8.0-rc.1` candidate snapshot.
+
+See [release notes](docs/release-v3.8.0.md) for upgrade guidance and limits.
+
 ## [3.8.0-rc.1] - 2026-11-18
 
 Release candidate for **D Research 3.8.0** — Open-Scholarly & Community
@@ -1589,7 +1619,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.8.0-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.8.0...HEAD
+[3.8.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.8.0
 [3.8.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.8.0-rc.1
 [3.7.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.7.0
 [3.7.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.7.0-rc.1
