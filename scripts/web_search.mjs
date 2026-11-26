@@ -9,7 +9,13 @@ import {
   urlHasCredentials,
 } from './lib/credentials.mjs';
 import { packageUserAgent } from './lib/package_metadata.mjs';
-import { fetchPublicHttp, isNonPublicIp, setTestDnsResolver, setTestConnectFactory } from './lib/ssrf_guards.mjs';
+import {
+  fetchPublicHttp,
+  isNonPublicIp,
+  isPrivateIpOrBlockedHost as ssrfIsPrivateIpOrBlockedHost,
+  setTestDnsResolver,
+  setTestConnectFactory,
+} from './lib/ssrf_guards.mjs';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 
@@ -74,17 +80,7 @@ export function redactSecrets(value) {
 }
 
 export function isPrivateIpOrBlockedHost(hostname) {
-  const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
-  if (BLOCKED_HOSTNAMES.has(h) || h.endsWith('.localhost')) return true;
-  if (h === '::1' || h === '0.0.0.0') return true;
-  if (/^127\.\d+\.\d+\.\d+$/.test(h)) return true;
-  if (/^10\.\d+\.\d+\.\d+$/.test(h)) return true;
-  if (/^192\.168\.\d+\.\d+$/.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(h)) return true;
-  if (/^169\.254\.\d+\.\d+$/.test(h)) return true;
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+$/.test(h)) return true;
-  if (net.isIP(h) && isNonPublicIp(h)) return true;
-  return false;
+  return ssrfIsPrivateIpOrBlockedHost(hostname);
 }
 
 export function validateHttpUrl(value, base = undefined) {
@@ -1239,6 +1235,7 @@ function parseArgs(argv) {
     federated: false,
     maxResponseBytes: null,
     timeoutMs: null,
+    help: false,
     selfTest: false,
   };
 
@@ -1273,6 +1270,8 @@ function parseArgs(argv) {
       args.format = fmt;
     } else if (arg === '--host-results' && i + 1 < argv.length) {
       args.hostResults = argv[++i];
+    } else if (arg === '--help' || arg === '-h') {
+      args.help = true;
     } else if (arg === '--self-test') {
       args.selfTest = true;
     } else if (arg === '--max-response-bytes' && i + 1 < argv.length) {
@@ -2007,6 +2006,12 @@ async function main() {
     maxResponseBytes: args.maxResponseBytes,
     timeoutMs: args.timeoutMs,
   };
+
+  if (args.help) {
+    console.log('Usage: web_search.mjs --query "<q>" [--engine duckduckgo|searxng|brave|google-cse|host|openalex|crossref|wikipedia|hn-algolia] [--federated] [--limit N] [--format legacy|envelope] [--host-results <path>] [--out <file>]');
+    console.log('       web_search.mjs --self-test');
+    return;
+  }
 
   if (args.selfTest) {
     await runSelfTest();

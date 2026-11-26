@@ -180,6 +180,7 @@ VALID_SPEAKER_RELATIONSHIPS = {
 }
 VALID_ORIGINS = {"original", "firsthand", "quote", "repost", "screenshot", "unknown"}
 VALID_INTEGRITY = {
+    "intact",
     "live_intact",
     "edited",
     "deleted_archived",
@@ -743,7 +744,8 @@ def assess_source(args: argparse.Namespace) -> dict[str, Any]:
         "firsthand",
     }
     original = args.origin in {"original", "firsthand"}
-    stable = args.integrity in {"live_intact", "archive_snapshot", "deleted_archived"}
+    normalized_integrity = "live_intact" if args.integrity == "intact" else args.integrity
+    stable = normalized_integrity in {"live_intact", "archive_snapshot", "deleted_archived"}
 
     if args.origin in {"repost", "screenshot"} or args.speaker_relationship == "repost":
         reasons.append("repost or screenshot is not an independent source")

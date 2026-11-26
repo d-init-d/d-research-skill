@@ -1,6 +1,6 @@
 {
   "name": "d-research-skill-tools",
-  "version": "3.8.0",
+  "version": "3.9.0-rc.1",
   "description": "Browser-first deep research, data collection, and academic research skill for AI agents.",
   "type": "module",
   "license": "CC-BY-NC-4.0",
@@ -163,8 +163,8 @@
   "dResearchPackageManifest": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "file_count": 254,
-    "paths_sha256": "sha256:c311340999dd32278c39a53f26ac212b95f389c0858b86a9face35a327ea4c00"
+    "file_count": 256,
+    "paths_sha256": "sha256:93856a963cca57f012eb3cfd492a56ba910b6d2d96a675e96544c0d36fdd57e2"
   },
   "dependencies": {
     "playwright": "1.61.1"

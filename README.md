@@ -61,11 +61,11 @@ Concretely, the repo contains:
 - `SKILL.md` — the entry point that an agent reads to learn the workflow.
 - `README.vi.md` — a short Vietnamese overview and setup guide.
 - `AGENTS.md` — short root-level instructions for agentic frameworks that look for it.
-- `references/` — 53 deep-dive guides, including investigative tiers, scoped person OSINT, cross-platform social classification, verified self-exposure, leak-derived lead handling, research intake, evidence ledgers, academic/systematic review, extraction, execution gates, frontier search, and reproducibility guidance, plus `references/i18n/` refusal templates (en, vi).
+- `references/` — 54 deep-dive guides, including investigative tiers, scoped person OSINT, cross-platform social classification, verified self-exposure, leak-derived lead handling, research intake, evidence ledgers, academic/systematic review, extraction, execution gates, frontier search, and reproducibility guidance, plus `references/i18n/` refusal templates (en, vi).
 - `adapters/` — 9 tool-adapter docs (Playwright default, generic browser, fetch-only, web-search-only, Wikidata, database read-only, GraphQL, citation resolver, translation).
 - `examples/` — 9 worked examples spanning academic review, dataset collection, large-scale crawl, technical research, a full PRISMA 2020 systematic review, and a long-horizon context-safe research plan.
 - `templates/` — CSV/BibTeX/JSON drop-in starters: the v3.3 evidence ledger with 37 columns, investigation scope, screening/search logs, data dictionary, API request log, citation library, PRISMA flow, Frictionless Data Package, research-plan schema, frontier ledger, coverage map, and register vocab log.
-- `scripts/` — 55 small, self-contained files (39 Python + 9 top-level Node + 7 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_doc_examples.py`, `check_contract.py`, `build_release_artifacts.py`, `package_manifest_check.mjs`, `release_verify.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`, `runtime_self_test.mjs`) run as CI/release gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version; `npm run package:check` rejects untracked, sensitive, or omitted runtime files before packaging.
+- `scripts/` — 65 small, self-contained files (47 Python + 10 top-level Node + 8 under `scripts/lib/`). Research helpers ship offline `--self-test` (or are invoked by the adversarial/browser smoke suite). Pre-commit/check utilities (`check_node_syntax.py`, `check_no_plan_files.py`, `check_internal_refs.py`, `check_doc_examples.py`, `check_contract.py`, `build_release_artifacts.py`, `package_manifest_check.mjs`, `release_verify.py`, `adversarial_acceptance.py`, `browser_smoke.mjs`, `runtime_self_test.mjs`) run as CI/release gates rather than research CLIs. `run_python.mjs` is a Node→Python wrapper only. Playwright is pinned to an exact npm version; `npm run package:check` rejects untracked, sensitive, or omitted runtime files before packaging.
 - `examples/evals/dogfood-bench.json`, `examples/evals/frontier-bench.json`, `examples/evals/quality-suite.json`, and `docs/eval.md` — offline eval: 12-task regression, 52-task frontier (bench 3.0), and a 42-case held-out quality suite (development / held-out / adversarial) with multi-dimension scoring, hostile fixtures, fuzz/mutation gates (`scripts/quality_eval.py`, `npm run eval:quality`).
 - `research.config.example.json` — defaults for browser, crawl, API, citation, monitoring, processing, and large-scale config.
 - `.agents/skills/testing-scripts/SKILL.md` — sub-skill that an agent uses to verify the scripts after edits.
@@ -95,10 +95,15 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.5.0 is the current stable release. It adds mandatory documentary and social
-branches, deep Playwright interaction, hash-bound execution evidence, and
-fail-closed coverage gates. See the
-[v3.5.0 release notes](docs/release-v3.5.0.md).
+v3.9.0-rc.1 is the current release candidate (building on v3.8.0 stable). It hardens contraction negation and multi-sentence/percent grounding in `source_grounding.py`, adds publisher-domain clustering and metadata-backed evidence assessment in `lineage_tracker.py`, fixes NFC normalization, 1-char Vietnamese syllables, and 2-letter acronyms in `harvest_terms.py`, aligns `"intact"`/`"live_intact"` and documentary 37-column validation in `evidence_ledger.py` and `investigation_policy.py`, detects same-branch ledger contradictions in `reconciliation.py`, and unifies Node CLI `--help`, positional URLs, and structured `browser_launch_failure` diagnostics. See [v3.9.0-rc.1 release notes](docs/release-v3.9.0-rc.1.md).
+
+v3.8.0 introduced zero-key `openalex`, `crossref`, bilingual `wikipedia`, and `hn-algolia` federated search, short-syllable Vietnamese bigrams, ledger-native reconciliation, automated lineage analysis, paraphrase grounding CLI, and hybrid BM25+semantic retrieval. See [v3.8.0 release notes](docs/release-v3.8.0.md).
+
+v3.7.0 added 3-tier Browser-First routing, DRS-1.1 host-browser evidence integration, `--federated` multi-provider search merging, capture-driven term harvesting, equalized Round-1 dual-track execution, and expanded EN/VI reconciliation. See [v3.7.0 release notes](docs/release-v3.7.0.md).
+
+v3.6.0 introduced explicit search outcome envelopes, DNS-pinned HTTP across redirects, host/MCP result artifact import, and opt-in CDP task page ownership. See [v3.6.0 release notes](docs/release-v3.6.0.md).
+
+v3.5.0 added mandatory documentary and social branches, deep Playwright interaction, hash-bound execution evidence, and fail-closed coverage gates. See the [v3.5.0 release notes](docs/release-v3.5.0.md).
 
 v3.4.0 is the previous stable monotonic capability expansion:
 existing commands, routes, ledger widths, and recorded no-config defaults
@@ -283,7 +288,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── citation-resolver.md              # new — DOI/PMID/arXiv/ISBN resolution adapter
 │   └── translation.md                    # new — machine-translation adapter
 │
-├── references/                           # 53 deep-dive guides
+├── references/                           # 54 deep-dive guides
 │   ├── academic-databases.md
 │   ├── academic-research-protocol.md
 │   ├── anti-bot-fallback.md              # new — lawful fallback chain for blocked public sources
@@ -410,7 +415,14 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── release-v3.4.0.md                 # stable monotonic-capability release
 │   ├── release-v3.4.1-rc.1.md            # access-contract candidate
 │   ├── release-v3.4.1-rc.2.md            # frozen patch candidate
-│   └── release-v3.4.1.md                 # stable access-contract patch
+│   ├── release-v3.4.1.md                 # stable access-contract patch
+│   ├── release-v3.4.2.md                 # source grounding and report integrity
+│   ├── release-v3.5.0.md                 # dual-track documentary + social research
+│   ├── release-v3.6.0.md                 # explicit search outcomes + CDP reuse
+│   ├── release-v3.7.0.md                 # 3-tier browser routing + DRS-1.1 evidence
+│   ├── release-v3.8.0.md                 # federated search + ledger grounding/lineage
+│   ├── release-v3.9.0-rc.1.md            # current release candidate
+│   └── release-v3.9.0.md                 # target stable release notes
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates
@@ -437,7 +449,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 Paste this into any LLM agent or IDE assistant (Claude Code, OpenCode, Cursor, Windsurf, etc.):
 
 ```text
-Install D Research v3.5.0 from the GitHub Release runtime artifact into
+Install D Research v3.9.0-rc.1 from the GitHub Release runtime artifact into
 .agents/skills/d-research. Do not clone the repository. Download both the
 runtime .tar.gz and its .sha256 file, verify SHA-256 before extraction, keep
 the skill read-only by default, and run npm run self-test:runtime when
@@ -469,7 +481,7 @@ Node/Python are available.
    closed inside the artifact. Bash:
 
 ```bash
-version=3.5.0
+version=3.9.0-rc.1
 base="https://github.com/d-init-d/d-research-skill/releases/download/v${version}"
 mkdir -p .agents/skills
 test ! -e .agents/skills/d-research || { echo 'destination already exists' >&2; exit 1; }
@@ -483,7 +495,7 @@ test -f .agents/skills/d-research/SKILL.md
    PowerShell:
 
 ```powershell
-$Version = '3.5.0'
+$Version = '3.9.0-rc.1'
 $Base = "https://github.com/d-init-d/d-research-skill/releases/download/v$Version"
 $Archive = "d-research-$Version-runtime.tar.gz"
 New-Item -ItemType Directory -Force .agents/skills | Out-Null
@@ -497,7 +509,7 @@ tar -xzf $Archive -C .agents/skills
 if (-not (Test-Path .agents/skills/d-research/SKILL.md)) { throw 'Skill entry point missing' }
 ```
 
-   Use `d-research-3.5.0-full.tar.gz` instead when you explicitly need the
+   Use `d-research-3.9.0-rc.1-full.tar.gz` instead when you explicitly need the
    complete contributor/auditor surface, including CI, evaluations, hostile
    fixtures, and release evidence. `full` (alias `source`) remains the
    capability-complete profile; `runtime` is an additional clean install
@@ -862,5 +874,5 @@ bundles, or embedding this skill in a paid product or service.
 
 The copyright holder may offer separate commercial licenses on request.
 
-Release: v3.8.0. See
-[release notes](docs/release-v3.8.0.md). (Previous stable: v3.7.0).
+Release: v3.9.0-rc.1. See
+[release notes](docs/release-v3.9.0-rc.1.md). (Previous stable: v3.8.0).

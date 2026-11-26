@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.9.0-rc.1] - 2026-11-26
+
+Release candidate for **D Research 3.9.0** — Grounding Contraction & Multi-Sentence Hardening, Publisher-Domain Lineage Clustering, Vietnamese Harvesting Precision, Cross-Script Ledger/Policy Parity, Same-Branch Reconciliation, and Unified Node CLI / Missing-Browser Blocker UX.
+
+- **`scripts/source_grounding.py`**: Expand English negation contractions (`didn't`, `don't`, `doesn't`, `can't`, `cannot`, `couldn't`, `won't`, `wouldn't`, `isn't`, `aren't`, `wasn't`, `weren't`, `hasn't`, `haven't`, `hadn't`, `shouldn't`, `mustn't`, normalizing curly `’` to `'`) in `_has_negator()` and `_polarity()`; canonicalize `%`/`percent`/`phần trăm` in `_numeric_tokens()`; support multi-sentence verbatim claims across 2–3 sentence windows and full normalized source text; improve `audit_ledger_grounding()` handling of `quote_or_anchor` and attribution prose in `evidence`.
+- **`scripts/lineage_tracker.py`**: Add canonical publisher-domain clustering (stripping `www.` while separating multi-tenant social/forum speakers), synthesize mapped `evidence_records` from validated ledger row metadata (`content_hash`, `snapshot_status`, `source_type`, `source_url`, `archive_url`), and pass true `independent_origins` into `UnifiedClaimAssessor.assess_claim()`.
+- **`scripts/harvest_terms.py`**: Apply `unicodedata.normalize("NFC", ...)` in direct `harvest()`, expand `_VI_SHORT_SYLLABLES` (`ý`, `ổ`, `ủ`, `ở`, `á`, `ê`, `u`, `í`, `ố`, `ế`, `ồ`), add `"mà"` to `_CAPTURE_STOPWORDS`, and recognize key 2-letter uppercase acronyms (`AI`, `VN`, `US`, `EU`, `UN`, `IT`, `IP`, `ID`, `OS`, `UI`, `UX`, `ML`, `QA`, `QC`).
+- **`scripts/evidence_ledger.py` & `scripts/investigation_policy.py`**: Accept `"intact"` and `"live_intact"` seamlessly across `investigation_policy.py` (`assess-source --integrity`) and `lineage_tracker.py`, and scope social-statement `notes` syntax enforcement in the 37-column validator to actual social/community sources rather than documentary rows with `speaker_identity`.
+- **`scripts/reconciliation.py`**: Detect same-branch contradictions sharing a `sub_question` even when `contradiction == "none"`, and accept `reconciliation.py --ledger ...` without requiring the positional `reconcile` subcommand.
+- **Node CLI & Missing-Browser UX**: Add `--help`/`-h` (exit `0`) to `web_search.mjs` and `api_fetch.mjs`, default `User-Agent` to `packageUserAgent('api-fetch')` in `api_fetch.mjs`, normalize raw host strings via `new URL` inside `isPrivateIpOrBlockedHost()` (`scripts/lib/ssrf_guards.mjs` & `scripts/web_search.mjs`), accept positional `<url>` / `--url` aliases in `playwright_probe.mjs`, `playwright_extract.mjs`, and `playwright_crawl.mjs`, and emit structured `browser_launch_failure` JSON blockers (plus `activity-log.json` entries in `browser_interaction.mjs`).
+- **Docs & Regression Coverage**: Update `README.md` and `README.vi.md` from stale `v3.5.0` references/counts (`54` references, `65` scripts), guard optional `pytest` imports in `tests/` for `unittest` compatibility, and add `tests/test_v390_upgrade_regressions.py`.
+
+See [release notes](docs/release-v3.9.0-rc.1.md).
+
 ## [3.8.0] - 2026-11-18
 
 Official stable release of Open-Scholarly & Community Federated Search,
@@ -1619,7 +1633,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.8.0...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.9.0-rc.1...HEAD
+[3.9.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.9.0-rc.1
 [3.8.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.8.0
 [3.8.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.8.0-rc.1
 [3.7.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.7.0

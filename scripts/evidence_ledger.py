@@ -142,6 +142,7 @@ VALID_VERIFIABILITY = {
 
 VALID_SNAPSHOT_STATUS = {
     "intact",
+    "live_intact",
     "edited",
     "deleted",
     "access_denied",
@@ -297,6 +298,33 @@ _RFC3339_RE = re.compile(
 # This is deliberately permissive - we only catch obviously invalid values
 # (whitespace, weird characters) and let upstream tools normalise the rest.
 _LICENSE_SPDX_RE = re.compile(r"^[A-Za-z0-9.\-+]{1,64}$")
+
+
+_SOCIAL_PLATFORMS = frozenset({
+    "x.com", "twitter.com", "reddit.com", "old.reddit.com", "news.ycombinator.com",
+    "facebook.com", "m.facebook.com", "instagram.com", "tiktok.com", "youtube.com",
+    "youtu.be", "bsky.app", "mastodon.social", "threads.net", "t.me", "tinhte.vn", "voz.vn",
+})
+
+
+def _is_social_row(source_type: str, source_url: str, speaker_identity: str, speaker_relationship: str, content_origin: str) -> bool:
+    stype = source_type.strip().lower()
+    if stype in {"community", "social"}:
+        return True
+    if speaker_identity in {"claimed_identity", "pseudonymous", "anonymous"}:
+        return True
+    if speaker_relationship in {"firsthand", "secondhand", "commentary", "repost"}:
+        return True
+    if content_origin in {"quote", "repost", "screenshot"}:
+        return True
+    if source_url:
+        from urllib.parse import urlparse
+        host = urlparse(source_url).netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if host in _SOCIAL_PLATFORMS:
+            return True
+    return False
 
 
 def _is_valid_license_spdx(value: str) -> bool:
@@ -678,53 +706,63 @@ def validate_ledger(file: Path) -> int:
                         "speaker_relationship, and content_origin together"
                     )
                 if reporting_disposition == "main_findings" and any(social_values):
-                    direct_integrity = bool(
-                        verifiability == "direct_api"
-                        and snapshot_status == "intact"
-                        and (row.get("content_hash") or "").strip()
+                    is_social = _is_social_row(
+                        source_type,
+                        source_url,
+                        speaker_identity,
+                        speaker_relationship,
+                        content_origin,
                     )
-                    archive_integrity = bool(
-                        verifiability == "archive_snapshot"
-                        and (row.get("archive_url") or "").strip()
-                        and (row.get("content_hash") or "").strip()
-                    )
-                    notes_value = (row.get("notes") or "").strip().lower()
-                    official_statement = (
-                        speaker_identity in {"official", "verified_public_role"}
-                        and speaker_relationship
-                        in {"subject", "authorized_representative"}
-                        and content_origin == "original"
-                        and (direct_integrity or archive_integrity)
-                        and re.search(
-                            r"(?:^|;\s*)claim_kind=statement_made(?:;|$)",
+                    if not is_social:
+                        pass
+                    else:
+                        direct_integrity = bool(
+                            verifiability == "direct_api"
+                            and snapshot_status in {"intact", "live_intact"}
+                            and (row.get("content_hash") or "").strip()
+                        )
+                        archive_integrity = bool(
+                            verifiability == "archive_snapshot"
+                            and (row.get("archive_url") or "").strip()
+                            and (row.get("content_hash") or "").strip()
+                        )
+                        notes_value = (row.get("notes") or "").strip().lower()
+                        official_statement = (
+                            speaker_identity in {"official", "verified_public_role"}
+                            and speaker_relationship
+                            in {"subject", "authorized_representative"}
+                            and content_origin == "original"
+                            and (direct_integrity or archive_integrity)
+                            and re.search(
+                                r"(?:^|;\s*)claim_kind=statement_made(?:;|$)",
+                                notes_value,
+                            )
+                        )
+                        corroborated_match = re.search(
+                            r"(?:^|;\s*)corroborated_by=([a-z0-9_.:-]+)(?:;|$)",
                             notes_value,
                         )
-                    )
-                    corroborated_match = re.search(
-                        r"(?:^|;\s*)corroborated_by=([a-z0-9_.:-]+)(?:;|$)",
-                        notes_value,
-                    )
-                    supported_community_fact = (
-                        content_origin == "original"
-                        and (direct_integrity or archive_integrity)
-                        and re.search(
-                            r"(?:^|;\s*)claim_kind=underlying_fact(?:;|$)",
-                            notes_value,
+                        supported_community_fact = (
+                            content_origin == "original"
+                            and (direct_integrity or archive_integrity)
+                            and re.search(
+                                r"(?:^|;\s*)claim_kind=underlying_fact(?:;|$)",
+                                notes_value,
+                            )
+                            and re.search(
+                                r"(?:^|;\s*)verification_state=supported(?:;|$)",
+                                notes_value,
+                            )
+                            and corroborated_match is not None
                         )
-                        and re.search(
-                            r"(?:^|;\s*)verification_state=supported(?:;|$)",
-                            notes_value,
-                        )
-                        and corroborated_match is not None
-                    )
-                    if not (official_statement or supported_community_fact):
-                        errors.append(
-                            f"line {i}: social main_findings requires either a hash-bound "
-                            "official statement or a hash-bound community fact with "
-                            "verification_state=supported and corroborated_by=<claim_id>"
-                        )
-                    elif supported_community_fact and corroborated_match:
-                        pending_social_corroboration.append((i, corroborated_match.group(1)))
+                        if not (official_statement or supported_community_fact):
+                            errors.append(
+                                f"line {i}: social main_findings requires either a hash-bound "
+                                "official statement or a hash-bound community fact with "
+                                "verification_state=supported and corroborated_by=<claim_id>"
+                            )
+                        elif supported_community_fact and corroborated_match:
+                            pending_social_corroboration.append((i, corroborated_match.group(1)))
                 if (
                     content_origin in {"quote", "repost", "screenshot"}
                     or speaker_relationship == "repost"

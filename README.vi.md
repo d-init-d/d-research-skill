@@ -62,9 +62,15 @@ Skill được tổ chức theo tám trụ vòng đời. Mỗi trụ là một b
 | 6 | **report** | Render báo cáo (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py` |
 | 7 | **audit** | Ký ledger (HMAC-SHA256), export PROV-O JSON-LD, kiểm tra reproducibility, ghi run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py`, `scripts/run_metadata.py` |
 
-v3.5.0 là bản stable hiện tại. Bản này thêm hai nhánh documentary và social bắt
-buộc, thao tác Playwright sâu, bằng chứng thực thi có hash và coverage gate
-fail-closed. Xem
+v3.9.0-rc.1 là release candidate hiện tại (xây trên bản stable v3.8.0). Bản này sửa nhận diện phủ định viết tắt tiếng Anh và kiểm chứng đa câu/% trong `source_grounding.py`, thêm gom cụm theo domain gốc và đánh giá chứng cứ từ metadata ledger trong `lineage_tracker.py`, bổ sung chuẩn hóa NFC, âm tiết 1 ký tự và viết tắt 2 chữ cái trong `harvest_terms.py`, đồng bộ `"intact"`/`"live_intact"` và quy tắc kiểm tra ledger 37 cột cho nguồn tài liệu trong `evidence_ledger.py` và `investigation_policy.py`, phát hiện mâu thuẫn cùng nhánh trong `reconciliation.py`, và thống nhất CLI Node (`--help`, URL vị trí, JSON blocker khi thiếu Chromium). Xem [release notes v3.9.0-rc.1](docs/release-v3.9.0-rc.1.md).
+
+v3.8.0 bổ sung tìm kiếm liên hợp không cần key (`openalex`, `crossref`, `wikipedia` EN/VI, `hn-algolia`), thu hoạch thuật ngữ tiếng Việt 1-2 ký tự, đối chiếu trực tiếp từ CSV ledger, phân tích lineage, grounding theo ngữ nghĩa diễn giải và truy xuất lai BM25 + semantic. Xem [release notes v3.8.0](docs/release-v3.8.0.md).
+
+v3.7.0 bổ sung định tuyến Browser-First 3 tầng, nhật ký chứng cứ DRS-1.1 cho browser host, gộp tìm kiếm `--federated`, thu thập thuật ngữ từ capture và cân bằng hai nhánh documentary/social ngay vòng đầu. Xem [release notes v3.7.0](docs/release-v3.7.0.md).
+
+v3.6.0 bổ sung kết quả tìm kiếm tường minh, kiểm soát DNS/peer SSRF và tái sử dụng tab CDP có chọn lọc. Xem [release notes v3.6.0](docs/release-v3.6.0.md).
+
+v3.5.0 thêm hai nhánh documentary và social bắt buộc, thao tác Playwright sâu, bằng chứng thực thi có hash và coverage gate fail-closed. Xem
 [release notes v3.5.0](docs/release-v3.5.0.md).
 
 v3.4.0 là bản stable trước đó và là một bản mở rộng khả năng theo nguyên tắc
@@ -189,7 +195,7 @@ Lịch sử release đầy đủ xem [CHANGELOG.md](CHANGELOG.md).
 Paste đoạn này vào Claude Code, OpenCode, Cursor, Windsurf hoặc agent bạn dùng:
 
 ```text
-Install D Research v3.5.0 from the GitHub Release runtime artifact into
+Install D Research v3.9.0-rc.1 from the GitHub Release runtime artifact into
 .agents/skills/d-research. Do not clone the repository. Download both the
 runtime .tar.gz and its .sha256 file, verify SHA-256 before extraction, keep
 the skill read-only by default, and run npm run self-test:runtime when
@@ -215,7 +221,7 @@ runtime, thay destination bằng đường dẫn tương ứng trong bảng.
 Với Bash:
 
 ```bash
-version=3.5.0
+version=3.9.0-rc.1
 base="https://github.com/d-init-d/d-research-skill/releases/download/v${version}"
 mkdir -p .agents/skills
 test ! -e .agents/skills/d-research || { echo 'destination already exists' >&2; exit 1; }
@@ -229,7 +235,7 @@ test -f .agents/skills/d-research/SKILL.md
 Với PowerShell:
 
 ```powershell
-$Version = '3.5.0'
+$Version = '3.9.0-rc.1'
 $Base = "https://github.com/d-init-d/d-research-skill/releases/download/v$Version"
 $Archive = "d-research-$Version-runtime.tar.gz"
 New-Item -ItemType Directory -Force .agents/skills | Out-Null
@@ -247,7 +253,7 @@ Artifact `runtime` là payload cài đặt theo allowlist: không mang CI, relea
 evidence, hostile eval fixture hay sub-skill testing chỉ dành cho developer.
 Package metadata đã project chỉ quảng bá command đóng kín trong artifact. Nếu
 cần toàn bộ bề mặt dành
-cho contributor/auditor, dùng `d-research-3.5.0-full.tar.gz`. Profile
+cho contributor/auditor, dùng `d-research-3.9.0-rc.1-full.tar.gz`. Profile
 `full` (alias `source`) vẫn là bản đầy đủ capability; `runtime` chỉ là lựa chọn
 cài đặt sạch bổ sung, không thay thế bản source.
 
@@ -346,5 +352,5 @@ Commercial use bao gồm nhưng không giới hạn ở: bán lại, phân phố
 phí, đóng gói thành SaaS, đưa lên marketplace, bán kèm agent bundle,
 hoặc nhúng skill này vào sản phẩm/dịch vụ trả phí.
 
-Release: v3.8.0. Xem
-[release notes](docs/release-v3.8.0.md). (Bản ổn định trước đó: v3.7.0).
+Release: v3.9.0-rc.1. Xem
+[release notes](docs/release-v3.9.0-rc.1.md). (Bản ổn định trước đó: v3.8.0).

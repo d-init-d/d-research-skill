@@ -42,7 +42,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--help' || a === '-h') args.help = true;
     else if (a === '--self-test') args.selfTest = true;
-    else if (a === '--seed') args.seeds.push(argv[++i]);
+    else if (a === '--seed' || a === '--url') args.seeds.push(argv[++i]);
     else if (a === '--seeds') args.seedFile = argv[++i];
     else if (a === '--outDir') args.outDir = argv[++i];
     else if (a === '--maxDepth') args.maxDepth = Number(argv[++i]);
@@ -76,6 +76,8 @@ function parseArgs(argv) {
       args.branch = argv[++i];
     } else if (a === '--question-id') {
       args.questionIds.push(argv[++i]);
+    } else if (!a.startsWith('-')) {
+      args.seeds.push(a);
     } else throw new Error(`Unknown argument: ${a}`);
   }
   for (const [name, value, minimum] of [
@@ -981,7 +983,18 @@ async function main() {
     console.log(JSON.stringify(summary, null, 2));
     if (summary.resourceLimitExceeded) process.exitCode = 3;
   } catch (err) {
-    if (/Cannot find package 'playwright'/.test(String(err))) {
+    if (err?.code === 'browser_launch_failure' || err?.blocker?.code === 'browser_launch_failure') {
+      const blockerJson = {
+        seeds: args.seeds,
+        status: 'blocked',
+        accessStatus: 'blocked',
+        blockers: [err.blocker?.code || err.code || 'browser_launch_failure'],
+        limitations: ['missing_browser_capability'],
+        error: err.blocker?.message || err.message,
+        timestamp: new Date().toISOString(),
+      };
+      console.log(JSON.stringify(blockerJson, null, 2));
+    } else if (/Cannot find package 'playwright'/.test(String(err))) {
       console.error('Playwright is not installed. Run: npm install && npx playwright install chromium');
     } else {
       console.error(err.stack || String(err));

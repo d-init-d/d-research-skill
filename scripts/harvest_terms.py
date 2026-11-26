@@ -51,8 +51,15 @@ _CAPTURE_STOPWORDS = frozenset({
     "cũng", "đang", "đã", "sẽ", "rất", "nhiều", "hơn", "nhất", "chỉ", "phải",
     "nếu", "thì", "nhưng", "hoặc", "hay", "bởi", "do", "vì", "qua", "lại",
     "ra", "vào", "là", "có", "bị", "vẫn", "đều", "nào", "đó", "đây",
+    "mà",
 })
-_VI_SHORT_SYLLABLES = frozenset({"y", "ô", "an", "ưu", "ảo", "đa"})
+_VI_SHORT_SYLLABLES = frozenset({
+    "y", "ô", "an", "ưu", "ảo", "đa",
+    "ý", "ổ", "ủ", "ở", "á", "ê", "u", "í", "ố", "ế", "ồ",
+})
+_TWO_LETTER_ACRONYMS = frozenset({
+    "AI", "VN", "US", "EU", "UN", "IT", "IP", "ID", "OS", "UI", "UX", "ML", "QA", "QC",
+})
 
 
 def _read_input(path: str | None) -> str:
@@ -80,8 +87,8 @@ def harvest(text: str, *, delimiter: str = "\t", threshold: int = 2) -> dict:
             malformed += 1
             continue
         source, term = line.split(delimiter, 1)
-        source = source.strip()
-        term = term.strip()
+        source = unicodedata.normalize("NFC", source.strip())
+        term = unicodedata.normalize("NFC", term.strip())
         if not source or not term:
             malformed += 1
             continue
@@ -160,6 +167,9 @@ def _extract_capture_terms(text: str) -> list[str]:
     normalized_text = unicodedata.normalize("NFC", text)
     for acro in re.findall(r"\b[A-Z][A-Z0-9-]{2,}\b", normalized_text):
         _add(acro)
+    for acro2 in re.findall(r"\b[A-Z]{2}\b", normalized_text):
+        if acro2 in _TWO_LETTER_ACRONYMS:
+            _add(acro2)
 
     tokens = [
         tok
@@ -171,11 +181,20 @@ def _extract_capture_terms(text: str) -> list[str]:
             _add(tok.lower())
 
     for idx in range(len(tokens) - 1):
-        w1 = tokens[idx].lower()
-        w2 = tokens[idx + 1].lower()
-        if not (_is_valid_bigram_token(w1) and _is_valid_bigram_token(w2)):
+        raw1, raw2 = tokens[idx], tokens[idx + 1]
+        w1 = raw1.lower()
+        w2 = raw2.lower()
+        w1_ok = _is_valid_bigram_token(w1) or raw1 in _TWO_LETTER_ACRONYMS
+        w2_ok = _is_valid_bigram_token(w2) or raw2 in _TWO_LETTER_ACRONYMS
+        if not (w1_ok and w2_ok):
             continue
-        if not any(ord(ch) > 127 for ch in (w1 + w2)) and (len(w1) < 3 or len(w2) < 3) and (len(w1) + len(w2) < 5):
+        if (
+            not any(ord(ch) > 127 for ch in (w1 + w2))
+            and raw1 not in _TWO_LETTER_ACRONYMS
+            and raw2 not in _TWO_LETTER_ACRONYMS
+            and (len(w1) < 3 or len(w2) < 3)
+            and (len(w1) + len(w2) < 5)
+        ):
             continue
         _add(f"{w1} {w2}")
     return seen

@@ -32,6 +32,7 @@ import {
 } from './lib/credentials.mjs';
 import { HttpResourceLimitError, assertPublicHttpUrl, fetchPublicHttp } from './lib/ssrf_guards.mjs';
 import { loadConfig, getPositiveIntConfig, redactConfig } from './lib/config.mjs';
+import { packageUserAgent } from './lib/package_metadata.mjs';
 
 const MAX_REDIRECTS = 10;
 const DEFAULT_MAX_BODY_BYTES = 20 * 1024 * 1024;
@@ -198,6 +199,7 @@ function parseArgs(argv) {
     allowPartial: false,
     allowNextOrigin: [],
     allowRedirectOrigin: [],
+    help: false,
     selfTest: false,
     unknown: [],
     parseErrors: [],
@@ -361,6 +363,8 @@ function parseArgs(argv) {
     } else if (arg === '--allow-redirect-origin') {
       const v = need('--allow-redirect-origin');
       if (v) args.allowRedirectOrigin.push(v.toLowerCase());
+    } else if (arg === '--help' || arg === '-h') {
+      args.help = true;
     } else if (arg === '--self-test') {
       args.selfTest = true;
     } else {
@@ -555,6 +559,9 @@ async function fetchWithTimeout(
     try {
       let currentUrl = url;
       let headers = { ...requestHeaders };
+      if (!Object.keys(headers).some((k) => k.toLowerCase() === 'user-agent')) {
+        headers['User-Agent'] = packageUserAgent('api-fetch');
+      }
       let currentMethod = method;
       let currentBody = options && options.body != null ? options.body : undefined;
       let hop = 0;
@@ -1032,6 +1039,20 @@ async function fetchAllPages(args) {
 
 async function main() {
   const args = parseArgs(process.argv);
+
+  if (args.help) {
+    console.log(
+      'Usage: node api_fetch.mjs --url <url> [--headers <json>] [--params <json>] ' +
+        '[--method GET|POST|PUT|PATCH|DELETE] [--intent query|archive|mutation] ' +
+        '[--body-json <json>] [--body-file <path>] [--content-type <mime>] ' +
+        '[--pagination auto|offset|cursor|page|link-header] [--cursor-key <path>] ' +
+        '[--max-pages <n>] [--max-attempts <n>] [--config <path>] [--print-effective-config] ' +
+        '[--delay <ms>] [--out <file>] [--format json|jsonl] ' +
+        '[--timeout <ms>] [--max-response-bytes <n>] [--allow-partial] ' +
+        '[--allow-next-origin <origin>]... [--allow-redirect-origin <origin>]...'
+    );
+    return;
+  }
 
   if (args.selfTest) {
     await runSelfTest();

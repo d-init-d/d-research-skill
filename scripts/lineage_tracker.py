@@ -231,6 +231,45 @@ class LineageTracker:
         path = parsed.path.rstrip("/") or "/"
         return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), path, "", parsed.query, ""))
 
+    _MULTI_TENANT_HOSTS = frozenset({
+        "x.com", "twitter.com", "reddit.com", "old.reddit.com", "news.ycombinator.com",
+        "facebook.com", "m.facebook.com", "instagram.com", "tiktok.com",
+        "youtube.com", "youtu.be", "medium.com", "substack.com", "github.com",
+        "gist.github.com", "linkedin.com", "bsky.app", "mastodon.social",
+        "threads.net", "t.me", "tinhte.vn", "voz.vn", "wikipedia.org",
+        "en.wikipedia.org", "vi.wikipedia.org", "archive.org", "web.archive.org",
+    })
+
+    @classmethod
+    def _canonical_publisher_key(cls, url: str, row: Dict[str, str]) -> str:
+        raw = unicodedata.normalize("NFC", (url or "").strip())
+        if not raw:
+            return ""
+        parsed = urlparse(raw)
+        host = parsed.netloc.lower()
+        if ":" in host and not host.startswith("["):
+            host = host.split(":", 1)[0]
+        if host.startswith("www."):
+            host = host[4:]
+        if not host:
+            return ""
+        if host in cls._MULTI_TENANT_HOSTS or (row.get("source_type") or "").lower() in {"community", "social"}:
+            # Keep distinct multi-tenant speakers/accounts separate while clustering same-account posts.
+            path_parts = [p for p in parsed.path.split("/") if p]
+            account = ""
+            if path_parts:
+                if path_parts[0] in {"u", "user", "users"} and len(path_parts) >= 2:
+                    account = path_parts[1].lower()
+                elif path_parts[0].startswith("@"):
+                    account = path_parts[0].lower()
+                elif host in {"x.com", "twitter.com", "github.com", "tiktok.com", "instagram.com"}:
+                    account = path_parts[0].lower()
+            speaker = (row.get("speaker_identity") or "").strip().lower()
+            title = (row.get("source_title") or "").strip().lower()
+            disc = account or (speaker if speaker not in {"", "unknown", "anonymous"} else "") or title
+            return f"{host}::{disc}" if disc else ""
+        return host
+
     def analyze_ledger(
         self,
         ledger_path: Path,
@@ -258,7 +297,8 @@ class LineageTracker:
             and (r.get("claim_id") or "").strip()
         ]
         # Prefer earliest published/accessed and primary/official sources as root origins
-        doc_rank = {"primary": 0, "official": 0, "dataset": 1, "paper": 1, "filing": 1, "code": 1}
+        doc_types = {"primary", "official", "dataset", "paper", "filing", "code", "pdf"}
+        doc_rank = {"primary": 0, "official": 0, "dataset": 1, "paper": 1, "filing": 1, "code": 1, "pdf": 1}
         rows.sort(
             key=lambda r: (
                 r.get("date_published") or r.get("date_accessed") or "9999",
@@ -270,9 +310,10 @@ class LineageTracker:
         by_lineage_id: Dict[str, str] = {}
         by_hash: Dict[str, str] = {}
         by_url: Dict[str, str] = {}
+        by_domain: Dict[str, str] = {}
         origin_fingerprints: List[Tuple[str, int]] = []
         assessor = UnifiedClaimAssessor()
-        assessments: List[Dict[str, Any]] = []
+        row_meta: List[Tuple[Dict[str, str], str, bool, str, List[Dict[str, Any]], str]] = []
 
         for row in rows:
             cid = row["claim_id"]
@@ -281,6 +322,7 @@ class LineageTracker:
             cap = capture_by_url.get(src_url) or {}
             c_hash = row.get("content_hash") or str(cap.get("content_hash") or "")
             lin_id = row.get("lineage_id", "")
+            dom_key = self._canonical_publisher_key(row.get("source_url", ""), row)
             body = f"{row.get('claim', '')} {row.get('evidence', '')} {row.get('quote_or_anchor', '')}".strip()
             fp = simhash(body)
 
@@ -298,6 +340,9 @@ class LineageTracker:
             elif arch_url and arch_url in by_url:
                 matched_origin = by_url[arch_url]
                 relationship = "cross_link"
+            elif dom_key and dom_key in by_domain:
+                matched_origin = by_domain[dom_key]
+                relationship = "same_domain"
             else:
                 for orig_id, orig_fp in origin_fingerprints:
                     if fp and orig_fp and hamming_distance(fp, orig_fp) <= 8:
@@ -318,6 +363,8 @@ class LineageTracker:
                     by_url[src_url] = origin_id
                 if arch_url:
                     by_url[arch_url] = origin_id
+                if dom_key:
+                    by_domain[dom_key] = origin_id
                 if fp:
                     origin_fingerprints.append((origin_id, fp))
 
@@ -333,20 +380,69 @@ class LineageTracker:
                 content_hash=c_hash,
             )
 
+            rec_type = (row.get("record_type") or "").strip().lower()
+            stype = (row.get("source_type") or "").strip().lower()
+            raw_snap = (row.get("snapshot_status") or "").strip().lower()
+            verif = (row.get("verifiability") or "").strip().lower()
+            if raw_snap in {"intact", "live_intact"}:
+                integrity_status = "live_intact"
+            elif raw_snap == "archive_snapshot" or (verif == "archive_snapshot" and arch_url):
+                integrity_status = "archive_snapshot"
+            elif not raw_snap and c_hash:
+                integrity_status = "live_intact"
+            else:
+                integrity_status = raw_snap or "unverified"
+
+            parsed_src = urlparse(row.get("source_url", ""))
+            synthesized_records: List[Dict[str, Any]] = []
+            if (
+                rec_type in {"", "claim"}
+                and re.fullmatch(r"sha256:[0-9a-f]{64}", c_hash)
+                and parsed_src.scheme in {"http", "https"}
+                and parsed_src.netloc
+                and integrity_status in {"live_intact", "archive_snapshot", "intact"}
+            ):
+                source_kind = "official" if stype == "official" else ("primary" if stype in doc_types else "social")
+                synthesized_records.append({
+                    "source_id": str(cap.get("source_id") or cid),
+                    "activity_id": row.get("prov_activity_id") or str(cap.get("activity_id") or f"act-{cid}"),
+                    "capture_id": str(cap.get("capture_id") or f"cap-{cid}"),
+                    "source_url": row.get("source_url", ""),
+                    "archive_url": arch_url,
+                    "source_kind": source_kind,
+                    "lineage_id": origin_id,
+                    "verification_status": "verified",
+                    "supports_claim": True,
+                    "content_hash": c_hash,
+                    "integrity_status": integrity_status,
+                })
+
+            corrob_url = row.get("source_url", "") if (synthesized_records and stype in doc_types) else ""
+            row_meta.append((row, origin_id, is_origin, integrity_status, synthesized_records, corrob_url))
+
+        summary = self.get_summary()
+        true_independent_origins = summary.total_independent_origins
+        assessments: List[Dict[str, Any]] = []
+        for row, origin_id, is_origin, integrity_status, synthesized_records, corrob_url in row_meta:
+            cid = row["claim_id"]
+            stype = (row.get("source_type") or "").strip().lower()
+            speaker_id = row.get("speaker_identity") or ("official" if stype == "official" else "unknown")
+            speaker_rel = row.get("speaker_relationship") or ("subject" if stype == "official" else "unknown")
             assessment = assessor.assess_claim(
                 claim_id=cid,
                 claim_text=row.get("claim", ""),
-                claim_kind="firsthand_account" if row.get("speaker_relationship") == "firsthand" else "underlying_fact",
-                speaker_identity=row.get("speaker_identity") or "unknown",
-                speaker_relationship=row.get("speaker_relationship") or "unknown",
+                claim_kind="firsthand_account" if speaker_rel == "firsthand" else "underlying_fact",
+                speaker_identity=speaker_id,
+                speaker_relationship=speaker_rel,
                 content_origin=row.get("content_origin") or ("original" if is_origin else "repost"),
-                independent_origins=1,
-                integrity_status=row.get("snapshot_status") or "live_intact",
+                independent_origins=true_independent_origins if synthesized_records else 0,
+                integrity_status=integrity_status,
                 data_sensitivity=row.get("data_sensitivity") or "public",
+                corroborating_doc_url=corrob_url,
+                evidence_records=synthesized_records,
             )
             assessments.append(assessment.to_dict())
 
-        summary = self.get_summary()
         return {
             "lineage_summary": summary.to_dict(),
             "assessments": assessments,

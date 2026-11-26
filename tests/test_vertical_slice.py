@@ -22,8 +22,12 @@ import socket
 import subprocess
 import sys
 import time
+import unittest
 from pathlib import Path
-import pytest
+try:
+    import pytest
+except ImportError as exc:
+    raise unittest.SkipTest("pytest is required for test_vertical_slice") from exc
 import re
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

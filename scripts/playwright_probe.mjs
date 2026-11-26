@@ -43,6 +43,7 @@ function parseArgs(argv) {
     else if (a === '--browser-mode') args.browserMode = argv[++i];
     else if (a === '--cdp-endpoint') args.cdpEndpoint = argv[++i];
     else if (a === '--reuse-session') args.reuseSession = true;
+    else if (!a.startsWith('-') && !args.url) args.url = a;
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (!Number.isSafeInteger(args.timeout) || args.timeout < 1) {

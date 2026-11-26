@@ -316,6 +316,30 @@ export function isNonPublicIp(ip) {
   }
 }
 
+export function isPrivateIpOrBlockedHost(hostname) {
+  const raw = String(hostname || '').trim();
+  if (!raw) return true;
+  let h = raw.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!raw.includes('://')) {
+    try {
+      const normalizedUrl = new URL(`http://${raw.includes(':') && !raw.startsWith('[') && net.isIPv6(raw) ? `[${raw}]` : raw}`);
+      h = normalizedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    } catch {
+      /* keep raw lowercased host for direct checks below */
+    }
+  }
+  if (BLOCKED_HOSTNAMES.has(h) || h.endsWith('.localhost')) return true;
+  if (h === '::1' || h === '0.0.0.0') return true;
+  if (/^127\.\d+\.\d+\.\d+$/.test(h)) return true;
+  if (/^10\.\d+\.\d+\.\d+$/.test(h)) return true;
+  if (/^192\.168\.\d+\.\d+$/.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(h)) return true;
+  if (/^169\.254\.\d+\.\d+$/.test(h)) return true;
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+$/.test(h)) return true;
+  if (net.isIP(h) && isNonPublicIp(h)) return true;
+  return false;
+}
+
 function normalizeHostname(host) {
   let hostL = String(host || '')
     .toLowerCase()

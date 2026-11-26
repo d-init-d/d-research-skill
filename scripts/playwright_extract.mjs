@@ -57,6 +57,7 @@ function parseArgs(argv) {
     else if (a === '--branch') args.branch = argv[++i];
     else if (a === '--question-id') args.questionIds.push(argv[++i]);
     else if (a === '--source-id') args.sourceId = argv[++i];
+    else if (!a.startsWith('-') && !args.url) args.url = a;
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (!Number.isSafeInteger(args.timeout) || args.timeout < 1) {
@@ -368,6 +369,18 @@ async function main() {
     if (payload) {
       console.error(JSON.stringify(payload));
       process.exit(3);
+    } else if (err?.code === 'browser_launch_failure' || err?.blocker?.code === 'browser_launch_failure') {
+      const blockerJson = {
+        inputUrl: args.url || null,
+        finalUrl: args.url || null,
+        status: 'blocked',
+        accessStatus: 'blocked',
+        blockers: [err.blocker?.code || err.code || 'browser_launch_failure'],
+        limitations: ['missing_browser_capability'],
+        error: err.blocker?.message || err.message,
+        timestamp: new Date().toISOString(),
+      };
+      console.log(JSON.stringify(blockerJson, null, 2));
     } else if (/Cannot find package 'playwright'/.test(String(err))) {
       console.error('Playwright is not installed. Run: npm install && npx playwright install chromium');
     } else {

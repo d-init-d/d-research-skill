@@ -1,9 +1,13 @@
 """Regression tests for source context, including useful positive cases."""
 import hashlib
 import sys
+import unittest
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ImportError as exc:
+    raise unittest.SkipTest("pytest is required for test_source_grounding") from exc
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from source_grounding import assess_source_context

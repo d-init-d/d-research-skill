@@ -2,9 +2,9 @@
   "schema_version": "1.0",
   "skill_name": "d-research",
   "repository_contract": {
-    "version": "3.8.0-rc.1",
+    "version": "3.9.0-rc.1",
     "contract_role": "frozen_candidate",
-    "promotes_to": "3.8.0",
+    "promotes_to": "3.9.0",
     "counts": {
       "references_markdown": 54,
       "adapters_markdown": 9,
@@ -51,10 +51,10 @@
       "references/config-reference.md"
     ],
     "readme_markers": [
-      "`references/` — 53 deep-dive guides",
-      "# 53 deep-dive guides",
+      "`references/` — 54 deep-dive guides",
+      "# 54 deep-dive guides",
       "37 columns",
-      "55 small, self-contained files"
+      "65 small, self-contained files"
     ],
     "installation_contract": {
       "final_directory": "d-research",
@@ -266,7 +266,7 @@
     "promotion_mode": "maintainer_override",
     "promotion_manifest_path": "release-evidence/v{version}/promotion.json",
     "required_baseline_version": "3.4.2",
-    "required_candidate_version": "3.8.0-rc.1",
+    "required_candidate_version": "3.9.0-rc.1",
     "full_ci": {
       "workflow_path": ".github/workflows/lint-and-self-test.yml",
       "exact_candidate_sha": true,
@@ -297,7 +297,7 @@
       "authorization_timing": "post_candidate_owner_direction",
       "policy_deviation_paths": [],
       "manifest_path": "release-evidence/v{version}/maintainer-override.json",
-      "allowed_release_version": "3.8.0",
+      "allowed_release_version": "3.9.0",
       "required_decision": "approved_with_waivers",
       "required_repository": "d-init-d/d-research-skill",
       "required_maintainer_login": "d-init-d",

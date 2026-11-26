@@ -44,13 +44,37 @@ def _sentences(text: str) -> list[str]:
     return sentences
 
 
+_NEGATION_CONTRACTIONS = {
+    "didn't": "did not",
+    "don't": "do not",
+    "doesn't": "does not",
+    "can't": "can not",
+    "cannot": "can not",
+    "couldn't": "could not",
+    "won't": "will not",
+    "wouldn't": "would not",
+    "isn't": "is not",
+    "aren't": "are not",
+    "wasn't": "was not",
+    "weren't": "were not",
+    "hasn't": "has not",
+    "haven't": "have not",
+    "hadn't": "had not",
+    "shouldn't": "should not",
+    "mustn't": "must not",
+}
+
+
+def _expand_negation_contractions(text: str) -> str:
+    norm = text.replace("\u2019", "'").replace("\u2018", "'")
+    for short, full in _NEGATION_CONTRACTIONS.items():
+        norm = re.sub(r"\b" + re.escape(short) + r"\b", full, norm, flags=re.IGNORECASE)
+    return norm
+
+
 def _polarity(text: str) -> tuple[str, bool] | None:
     """Compare literal propositions differing only by an explicit negator."""
-    contractions = {"isn't": "is not", "aren't": "are not", "wasn't": "was not",
-                    "weren't": "were not", "cannot": "can not", "can't": "can not",
-                    "won't": "will not", "hasn't": "has not", "haven't": "have not"}
-    for short, full in contractions.items():
-        text = re.sub(r"\b" + re.escape(short) + r"\b", full, text)
+    text = _expand_negation_contractions(text)
     if re.search(r"\bnot only\b|\bkhông chỉ\b|\bkhông những\b", text):
         return None
     negators = list(re.finditer(r"\b(?:not|never|không phải|không|chưa|chẳng)\b", text))
@@ -62,28 +86,19 @@ def _polarity(text: str) -> tuple[str, bool] | None:
     return normalize(text[:match.start()] + " " + text[match.end():]), True
 
 
-def assess_source_context(source: str, statement: str) -> Grounding:
-    """Return literal support, contradiction, or an explicit review route.
-
-    No arbitrary character window: an unrelated entity in an adjacent sentence
-    cannot negate a claim. Normalization precedes both locating and interpreting
-    spans, preventing whitespace and Unicode from bypassing context checks.
-    """
-    claim = normalize(re.sub(r"\[C\d+\]", "", statement)).strip(' .!?"\'')
-    if not claim:
-        return Grounding("requires_review", "empty_claim", "")
-    if normalize(statement).rstrip('"\'').endswith("?"):
-        return Grounding("requires_review", "claim_is_a_question", "")
-    pattern = re.compile(r"(?<!\w)" + re.escape(claim) + r"(?!\w)")
-    decisions: list[Grounding] = []
-    sentences = _sentences(normalize(source))
+def _eval_match_decisions(
+    claim: str,
+    pattern: re.Pattern[str],
+    sentences: list[str],
+    decisions: list[Grounding],
+) -> None:
     for index, sentence in enumerate(sentences):
         for match in pattern.finditer(sentence):
             prefix = sentence[:match.start()].strip(' \"\'')
             suffix = sentence[match.end():].strip(' .!?\"\'')
             context = prefix + " " + suffix
-            previous = sentences[index-1] if index else ""
-            following = sentences[index+1] if index+1 < len(sentences) else ""
+            previous = sentences[index - 1] if index else ""
+            following = sentences[index + 1] if index + 1 < len(sentences) else ""
             if sentence.rstrip('"\'').endswith("?"):
                 decisions.append(Grounding("requires_review", "source_asks_rather_than_asserts", sentence))
                 continue
@@ -107,6 +122,51 @@ def assess_source_context(source: str, statement: str) -> Grounding:
                 decisions.append(Grounding("requires_review", "unattributed_source_quote", sentence))
             else:
                 decisions.append(Grounding("supports", "literal_source_assertion", sentence))
+
+
+def assess_source_context(source: str, statement: str) -> Grounding:
+    """Return literal support, contradiction, or an explicit review route.
+
+    No arbitrary character window: an unrelated entity in an adjacent sentence
+    cannot negate a claim. Normalization precedes both locating and interpreting
+    spans, preventing whitespace and Unicode from bypassing context checks.
+    """
+    claim = normalize(re.sub(r"\[C\d+\]", "", statement)).strip(' .!?"\'')
+    if not claim:
+        return Grounding("requires_review", "empty_claim", "")
+    if normalize(statement).rstrip('"\'').endswith("?"):
+        return Grounding("requires_review", "claim_is_a_question", "")
+    pattern = re.compile(r"(?<!\w)" + re.escape(claim) + r"(?!\w)")
+    decisions: list[Grounding] = []
+    norm_source = normalize(source)
+    sentences = _sentences(norm_source)
+    _eval_match_decisions(claim, pattern, sentences, decisions)
+
+    # Multi-sentence verbatim support across consecutive sentence windows or full normalized source.
+    if not decisions and (len(_sentences(claim)) > 1 or re.search(r"[.!?]\s+", claim)):
+        for window_size in (2, 3):
+            for idx in range(0, max(0, len(sentences) - window_size + 1)):
+                chunk = sentences[idx : idx + window_size]
+                if any(s.lstrip().startswith(('"', "'")) or s.rstrip('"\'').endswith("?") for s in chunk):
+                    continue
+                window = " ".join(chunk)
+                if pattern.search(window):
+                    _eval_match_decisions(claim, pattern, [window], decisions)
+                    if decisions:
+                        break
+            if decisions:
+                break
+        if not decisions and not norm_source.lstrip().startswith(('"', "'")):
+            m_full = pattern.search(norm_source)
+            if m_full:
+                prefix = norm_source[: m_full.start()].strip(' "\'')
+                suffix = norm_source[m_full.end() :].strip(' .!?"\'')
+                context = prefix + " " + suffix
+                if re.search(r"\b(?:false|myth|untrue|incorrect|debunked|refuted|disproved|misleading)\b|không đúng|\bsai\b|bác bỏ", context):
+                    decisions.append(Grounding("contradicts", "source_context_refutes_claim", norm_source[m_full.start() : m_full.end()]))
+                elif not re.search(r"\b(?:not|never|no|if|whether|allegedly)\b", prefix):
+                    decisions.append(Grounding("supports", "literal_source_assertion", norm_source[m_full.start() : m_full.end()]))
+
     # Only an asserted same-proposition negation is a conflict. Quoted negatives
     # and questions do not become factual counter-evidence through punctuation stripping.
     polarity = _polarity(claim)
@@ -151,11 +211,17 @@ def _content_tokens(text: str) -> set[str]:
 
 
 def _numeric_tokens(text: str) -> set[str]:
-    return set(re.findall(r"\d+(?:[.,:/-]\d+)*%?", normalize(text)))
+    norm = re.sub(
+        r"(\d+(?:[.,:/-]\d+)*)\s*(?:%|percent\b|phần\s+trăm\b)",
+        r"\1%",
+        normalize(text),
+    )
+    return set(re.findall(r"\d+(?:[.,:/-]\d+)*%?", norm))
 
 
 def _has_negator(text: str) -> bool:
-    return bool(re.search(r"\b(?:not|never|no|false|incorrect|không|chưa|chẳng|sai|bác bỏ)\b", normalize(text)))
+    expanded = _expand_negation_contractions(normalize(text))
+    return bool(re.search(r"\b(?:not|never|no|false|incorrect|không|chưa|chẳng|sai|bác bỏ)\b", expanded))
 
 
 def assess_paraphrase_grounding(source: str, statement: str) -> dict[str, Any]:
@@ -202,9 +268,18 @@ def assess_paraphrase_grounding(source: str, statement: str) -> dict[str, Any]:
     best_overlap = 0.0
     best_sentence = ""
     best_nums: set[str] = set()
-    for sentence in _sentences(source):
-        if sentence.strip().startswith(('"', "'")) or sentence.strip().endswith("?"):
-            continue
+    clean_sentences = [
+        sentence
+        for sentence in _sentences(source)
+        if not (sentence.strip().startswith(('"', "'")) or sentence.strip().endswith("?"))
+    ]
+    candidates = list(clean_sentences)
+    if len(_sentences(claim_clean)) > 1:
+        for window_size in (2, 3):
+            for idx in range(0, max(0, len(clean_sentences) - window_size + 1)):
+                candidates.append(" ".join(clean_sentences[idx : idx + window_size]))
+
+    for sentence in candidates:
         sent_tokens = _content_tokens(sentence)
         overlap = len(claim_tokens & sent_tokens) / max(1, len(claim_tokens))
         if overlap > best_overlap:
@@ -281,10 +356,41 @@ def audit_ledger_grounding(ledger_path: Path, workspace_dir: Path | None = None)
         if not claim_id or not claim_text:
             continue
         src_url = (row.get("source_url") or "").strip()
-        source_body = capture_texts.get(src_url) or " ".join(
-            part for part in ((row.get("quote_or_anchor") or "").strip(), (row.get("evidence") or "").strip()) if part
-        )
-        assessment = assess_paraphrase_grounding(source_body, claim_text)
+        capture_body = capture_texts.get(src_url)
+        if capture_body:
+            assessment = assess_paraphrase_grounding(capture_body, claim_text)
+        else:
+            quote = (row.get("quote_or_anchor") or "").strip()
+            evidence = (row.get("evidence") or "").strip()
+            assessment = assess_paraphrase_grounding(quote, claim_text) if quote else None
+            if assessment is None or assessment["status"] not in {"literal_supported", "paraphrase_supported", "contradicted"}:
+                if evidence:
+                    ev_assessment = assess_paraphrase_grounding(evidence, claim_text)
+                    if (
+                        ev_assessment["status"] == "ungrounded_requires_review"
+                        and ev_assessment["reason"] == "attributed_or_qualified_source_span"
+                        and quote
+                        and not _has_negator(evidence)
+                        and not re.search(r"\b(?:if|whether|allegedly|rumor|unverified)\b", normalize(evidence))
+                    ):
+                        # Evaluate paraphrase overlap on the anchor quote + evidence body cleanly.
+                        combined = f"{quote}. {evidence}"
+                        q_tokens = _content_tokens(claim_text)
+                        c_tokens = _content_tokens(combined)
+                        q_nums = _numeric_tokens(claim_text)
+                        c_nums = _numeric_tokens(combined)
+                        overlap = len(q_tokens & c_tokens) / max(1, len(q_tokens))
+                        if overlap >= 0.6 and (q_nums <= c_nums) and (_has_negator(claim_text) == _has_negator(combined)):
+                            ev_assessment = {
+                                "status": "paraphrase_supported",
+                                "reason": "token_and_numeric_paraphrase_overlap",
+                                "excerpt": quote,
+                                "token_overlap": round(overlap, 4),
+                                "numeric_match": True,
+                            }
+                    assessment = ev_assessment
+                elif assessment is None:
+                    assessment = assess_paraphrase_grounding("", claim_text)
         status = assessment["status"]
         counts[status] = counts.get(status, 0) + 1
         findings.append({"claim_id": claim_id, **assessment})

@@ -887,6 +887,48 @@ async function main() {
       }
     }
 
+  } catch (err) {
+    if (err?.code === 'browser_launch_failure' || err?.blocker?.code === 'browser_launch_failure') {
+      const ts = new Date().toISOString();
+      const blockerCode = err.blocker?.code || err.code || 'browser_launch_failure';
+      const msg = err.blocker?.message || err.message || 'Chromium launch failed';
+      op.activityLog.push({
+        schema_version: '1.1.0',
+        activity_id: `act_launch_blocker_${Date.now()}`,
+        branch_id: op.branchId,
+        question_ids: op.questionIds,
+        purpose: 'launch_browser_session',
+        observed_state_ref: null,
+        action_type: 'navigate',
+        target_locator: null,
+        action_payload: null,
+        started_at: ts,
+        finished_at: ts,
+        final_url: url,
+        outcome: 'blocked',
+        output_capture_ids: [],
+        limitation: 'missing_browser_capability',
+        tool_details: {
+          engine: op.engine,
+          mode: op.browserMode,
+          response_status: null,
+          blocker_code: blockerCode,
+        },
+      });
+      console.log(JSON.stringify({
+        inputUrl: url,
+        finalUrl: url,
+        status: 'blocked',
+        accessStatus: 'blocked',
+        blockers: [blockerCode],
+        limitations: ['missing_browser_capability'],
+        error: msg,
+        timestamp: ts,
+      }, null, 2));
+      process.exitCode = 1;
+    } else {
+      throw err;
+    }
   } finally {
     if (outDir) {
       await op.saveArtifacts(outDir);

@@ -497,19 +497,40 @@ class CrossBranchReconciler:
         pair_candidates: List[tuple[Dict[str, str], Dict[str, str]]] = []
         seen_pairs: set[tuple[str, str]] = set()
 
-        def _should_compare(a: Dict[str, str], b: Dict[str, str]) -> bool:
+        def _has_same_branch_conflict_signal(a: Dict[str, str], b: Dict[str, str]) -> bool:
+            text_a = f"{a.get('claim', '')} {a.get('evidence', '')}".strip()
+            text_b = f"{b.get('claim', '')} {b.get('evidence', '')}".strip()
+            toks_a = self._entity_tokens(text_a)
+            toks_b = self._entity_tokens(text_b)
+            overlap = toks_a & toks_b
+            if not overlap or (len(toks_a) >= 4 and len(toks_b) >= 4 and len(overlap) < 2):
+                return False
+            nums_a = set(re.findall(r"\d+(?:[.,:/-]\d+)*%?", text_a.lower()))
+            nums_b = set(re.findall(r"\d+(?:[.,:/-]\d+)*%?", text_b.lower()))
+            if nums_a and nums_b and nums_a != nums_b:
+                return True
+            neg_re = re.compile(r"\b(?:not|never|no|didn't|don't|doesn't|can't|cannot|isn't|aren't|wasn't|weren't|won't|không|chưa|chẳng|sai)\b", re.IGNORECASE)
+            if bool(neg_re.search(text_a)) != bool(neg_re.search(text_b)):
+                return True
+            return self.is_correction_statement(text_a) or self.is_correction_statement(text_b)
+
+        def _should_compare(a: Dict[str, str], b: Dict[str, str], *, same_sub_question: bool = False) -> bool:
             ta = (a.get("source_type") or "unknown").lower()
             tb = (b.get("source_type") or "unknown").lower()
             ca = (a.get("contradiction") or "").lower() in {"possible", "direct", "unresolved"}
             cb = (b.get("contradiction") or "").lower() in {"possible", "direct", "unresolved"}
             cross_branch = (ta in doc_types and tb in soc_types) or (tb in doc_types and ta in soc_types)
-            return cross_branch or ca or cb
+            if cross_branch or ca or cb:
+                return True
+            if same_sub_question:
+                return _has_same_branch_conflict_signal(a, b)
+            return False
 
         for bucket in groups.values():
             for i in range(len(bucket)):
                 for j in range(i + 1, len(bucket)):
                     a, b = bucket[i], bucket[j]
-                    if not _should_compare(a, b):
+                    if not _should_compare(a, b, same_sub_question=True):
                         continue
                     key = (min(a["claim_id"], b["claim_id"]), max(a["claim_id"], b["claim_id"]))
                     if key not in seen_pairs:
@@ -690,7 +711,11 @@ def main() -> int:
     p_rec.add_argument("--out", default="", help="Optional output JSON path")
     sub.add_parser("self-test", help="Run reconciliation self-tests")
 
-    args = parser.parse_args()
+    argv = list(sys.argv[1:])
+    if argv and argv[0].startswith("-") and argv[0] not in {"-h", "--help"}:
+        if any(flag in argv for flag in ("--ledger", "--fixtures", "--documentary")):
+            argv = ["reconcile", *argv]
+    args = parser.parse_args(argv)
 
     if args.cmd == "self-test":
         return _cmd_self_test()
