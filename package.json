@@ -167,6 +167,6 @@
     "paths_sha256": "sha256:93856a963cca57f012eb3cfd492a56ba910b6d2d96a675e96544c0d36fdd57e2"
   },
   "dependencies": {
-    "playwright": "1.61.1"
+    "playwright": "1.65.1"
   }
 }
