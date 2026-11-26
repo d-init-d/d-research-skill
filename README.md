@@ -95,7 +95,7 @@ The skill is organised around eight research lifecycle pillars. Each pillar is a
 | 6 | **report** | Render a structured report (Markdown / PDF / DOCX / HTML); lint claim coverage. | `references/report-generation.md`, `scripts/report_render.py`, `templates/report-template.md` |
 | 7 | **audit** | Sign the evidence ledger (HMAC-SHA256), export PROV-O JSON-LD, check reproducibility, capture run metadata. | `references/evidence-ledger.md`, `scripts/evidence_ledger.py sign / verify / prov-export`, `references/reproducibility-checklist.md`, `scripts/run_metadata.py` |
 
-v3.9.0-rc.1 is the current release candidate (building on v3.8.0 stable). It hardens contraction negation and multi-sentence/percent grounding in `source_grounding.py`, adds publisher-domain clustering and metadata-backed evidence assessment in `lineage_tracker.py`, fixes NFC normalization, 1-char Vietnamese syllables, and 2-letter acronyms in `harvest_terms.py`, aligns `"intact"`/`"live_intact"` and documentary 37-column validation in `evidence_ledger.py` and `investigation_policy.py`, detects same-branch ledger contradictions in `reconciliation.py`, and unifies Node CLI `--help`, positional URLs, and structured `browser_launch_failure` diagnostics. See [v3.9.0-rc.1 release notes](docs/release-v3.9.0-rc.1.md).
+v3.9.0 is the current stable release. It hardens contraction negation and multi-sentence/percent grounding in `source_grounding.py`, adds publisher-domain clustering and metadata-backed evidence assessment in `lineage_tracker.py`, fixes NFC normalization, 1-char Vietnamese syllables, and 2-letter acronyms in `harvest_terms.py`, aligns `"intact"`/`"live_intact"` and documentary 37-column validation in `evidence_ledger.py` and `investigation_policy.py`, detects same-branch ledger contradictions in `reconciliation.py`, and unifies Node CLI `--help`, positional URLs, and structured `browser_launch_failure` diagnostics. See [v3.9.0 release notes](docs/release-v3.9.0.md).
 
 v3.8.0 introduced zero-key `openalex`, `crossref`, bilingual `wikipedia`, and `hn-algolia` federated search, short-syllable Vietnamese bigrams, ledger-native reconciliation, automated lineage analysis, paraphrase grounding CLI, and hybrid BM25+semantic retrieval. See [v3.8.0 release notes](docs/release-v3.8.0.md).
 
@@ -421,8 +421,8 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 │   ├── release-v3.6.0.md                 # explicit search outcomes + CDP reuse
 │   ├── release-v3.7.0.md                 # 3-tier browser routing + DRS-1.1 evidence
 │   ├── release-v3.8.0.md                 # federated search + ledger grounding/lineage
-│   ├── release-v3.9.0-rc.1.md            # current release candidate
-│   └── release-v3.9.0.md                 # target stable release notes
+│   ├── release-v3.9.0-rc.1.md            # frozen release candidate
+│   └── release-v3.9.0.md                 # current stable release notes
 │
 ├── .github/
 │   ├── dependabot.yml                    # npm + GitHub Actions updates
@@ -449,7 +449,7 @@ When blocked, the agent stops and produces a blocker report — it does not forc
 Paste this into any LLM agent or IDE assistant (Claude Code, OpenCode, Cursor, Windsurf, etc.):
 
 ```text
-Install D Research v3.9.0-rc.1 from the GitHub Release runtime artifact into
+Install D Research v3.9.0 from the GitHub Release runtime artifact into
 .agents/skills/d-research. Do not clone the repository. Download both the
 runtime .tar.gz and its .sha256 file, verify SHA-256 before extraction, keep
 the skill read-only by default, and run npm run self-test:runtime when
@@ -481,7 +481,7 @@ Node/Python are available.
    closed inside the artifact. Bash:
 
 ```bash
-version=3.9.0-rc.1
+version=3.9.0
 base="https://github.com/d-init-d/d-research-skill/releases/download/v${version}"
 mkdir -p .agents/skills
 test ! -e .agents/skills/d-research || { echo 'destination already exists' >&2; exit 1; }
@@ -495,7 +495,7 @@ test -f .agents/skills/d-research/SKILL.md
    PowerShell:
 
 ```powershell
-$Version = '3.9.0-rc.1'
+$Version = '3.9.0'
 $Base = "https://github.com/d-init-d/d-research-skill/releases/download/v$Version"
 $Archive = "d-research-$Version-runtime.tar.gz"
 New-Item -ItemType Directory -Force .agents/skills | Out-Null
@@ -509,7 +509,7 @@ tar -xzf $Archive -C .agents/skills
 if (-not (Test-Path .agents/skills/d-research/SKILL.md)) { throw 'Skill entry point missing' }
 ```
 
-   Use `d-research-3.9.0-rc.1-full.tar.gz` instead when you explicitly need the
+   Use `d-research-3.9.0-full.tar.gz` instead when you explicitly need the
    complete contributor/auditor surface, including CI, evaluations, hostile
    fixtures, and release evidence. `full` (alias `source`) remains the
    capability-complete profile; `runtime` is an additional clean install
@@ -874,5 +874,5 @@ bundles, or embedding this skill in a paid product or service.
 
 The copyright holder may offer separate commercial licenses on request.
 
-Release: v3.9.0-rc.1. See
-[release notes](docs/release-v3.9.0-rc.1.md). (Previous stable: v3.8.0).
+Release: v3.9.0. See
+[release notes](docs/release-v3.9.0.md). (Previous stable: v3.8.0).

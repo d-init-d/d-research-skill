@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.9.0] - 2026-11-26
+
+Official stable release of Contraction-Aware & Multi-Sentence Source Grounding,
+Publisher-Domain Lineage Clustering, Unicode-Normalized Vietnamese Term
+Harvesting, Cross-Script 37-Column Ledger/Policy Parity, Intra-Branch Conflict
+Reconciliation, and Resilient Node CLI & Missing-Browser Diagnostics. Promotes
+the signed `v3.9.0-rc.1` candidate snapshot without changing runtime behavior,
+dependencies, or research routes.
+
+- Expand 17 English negation contractions, canonicalize `%`/`percent`/`phần trăm`
+  tokens, and evaluate multi-sentence verbatim windows in `scripts/source_grounding.py`.
+- Cluster non-multi-tenant publisher domains (`www.` normalized) and synthesize
+  verified `evidence_records` for intact hash-bound documentary claims in
+  `scripts/lineage_tracker.py`.
+- Normalize direct `harvest()` inputs to Unicode `NFC`, expand 1-syllable
+  Vietnamese vocabulary and stopwords, and preserve 2-letter acronyms in
+  `scripts/harvest_terms.py`.
+- Align `"intact"` and `"live_intact"` integrity states across
+  `scripts/evidence_ledger.py` and `scripts/investigation_policy.py`, detect
+  same-branch `sub_question` conflicts in `scripts/reconciliation.py`, and add
+  `--help`, default `User-Agent`, raw IPv4 SSRF canonicalization, and structured
+  `browser_launch_failure` JSON blockers across Node helpers.
+- Record the owner's scoped promotion decision, CI run evidence (`run 45825280500`),
+  and disclosed waivers (`independent_reviewer`, `live_dogfood`) bound to the
+  signed `v3.9.0-rc.1` candidate snapshot for downstream bundling in **Aleph Skill v2.11.0**.
+
+See [release notes](docs/release-v3.9.0.md) for upgrade guidance and limits.
+
 ## [3.9.0-rc.1] - 2026-11-26
 
 Release candidate for **D Research 3.9.0** — Grounding Contraction & Multi-Sentence Hardening, Publisher-Domain Lineage Clustering, Vietnamese Harvesting Precision, Cross-Script Ledger/Policy Parity, Same-Branch Reconciliation, and Unified Node CLI / Missing-Browser Blocker UX.
@@ -1633,7 +1661,8 @@ git push origin v2.1.0 bench/v2.1 v3.0.0
   evidence-ledger schema, anti-bot fallback chain, citation export,
   systematic-review protocol, and PRISMA flow template.
 
-[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.9.0-rc.1...HEAD
+[Unreleased]: https://github.com/d-init-d/d-research-skill/compare/v3.9.0...HEAD
+[3.9.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.9.0
 [3.9.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.9.0-rc.1
 [3.8.0]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.8.0
 [3.8.0-rc.1]: https://github.com/d-init-d/d-research-skill/releases/tag/v3.8.0-rc.1
